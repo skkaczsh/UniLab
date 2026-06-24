@@ -1,0 +1,70 @@
+# @package _global_
+training:
+  task_name: OmniCarGridAvoidance
+  sim_backend: mujoco
+  no_play: true
+  play_render_mode: none
+  play_steps: 0
+
+algo:
+  num_envs: 64
+  num_steps_per_env: 16
+  max_iterations: 20
+  save_interval: 10
+  empirical_normalization: true
+  obs_groups:
+    actor:
+      - actor
+    critic:
+      - critic
+  policy:
+    actor_hidden_dims: [256, 128, 64]
+    critic_hidden_dims: [256, 128, 64]
+    activation: elu
+    init_noise_std: 0.5
+  algorithm:
+    num_learning_epochs: 2
+    num_mini_batches: 4
+    learning_rate: 5.0e-4
+    desired_kl: 0.02
+    entropy_coef: 0.005
+
+env:
+  max_episode_seconds: 12.0
+  sim_dt: 0.05
+  ctrl_dt: 0.05
+  command:
+    max_x_speed: 2.0
+    max_y_speed: 2.0
+    max_yaw_rate: 2.0
+    resample_interval_s: 2.0
+  grid:
+    size: 80
+    cell_size: 0.05
+    safety_margin_m: 0.05
+  body:
+    length_m: 0.48
+    width_m: 0.32
+  obstacles:
+    count: 14
+    radius_min_m: 0.10
+    radius_max_m: 0.28
+    spawn_radius_m: 3.2
+    keepout_radius_m: 0.75
+  reward:
+    intent: 2.0
+    intent_projection: 0.6
+    yaw_intent: 0.4
+    clearance: 0.8
+    collision: -8.0
+    action_rate: -0.03
+    speed_limit: -0.4
+
+reward:
+  intent: 2.0
+  intent_projection: 0.6
+  yaw_intent: 0.4
+  clearance: 0.8
+  collision: -8.0
+  action_rate: -0.03
+  speed_limit: -0.4

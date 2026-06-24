@@ -26,6 +26,7 @@ _DEFAULT_REGISTRY_PACKAGES = (
     "unilab.envs.locomotion",
     "unilab.envs.manipulation",
     "unilab.envs.motion_tracking",
+    "unilab.envs.navigation",
 )
 # Environment variable used to extend ensure_registries() with extra packages.
 # Mainly intended for test setups that need to ship a fixture-only registry into
