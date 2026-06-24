@@ -182,6 +182,20 @@ def _resolve_play_num_steps(cfg: DictConfig) -> int | None:
     return int(play_steps)
 
 
+def _export_policy_artifacts(runner: Any, load_path_dir: Path, cfg: DictConfig) -> None:
+    if not globals().get("EXPORT_POLICY", False):
+        return
+    if not bool(getattr(cfg.training, "export_onnx", True)):
+        print("Skipping ONNX/JIT export because training.export_onnx=false.")
+        return
+
+    try:
+        runner.export_policy_to_onnx(path=str(load_path_dir))
+        runner.export_policy_to_jit(path=str(load_path_dir))
+    except Exception as exc:  # pragma: no cover - exact exporter failures are backend-specific.
+        print(f"WARNING: failed to export ONNX/JIT policy artifacts: {exc}. Continuing playback.")
+
+
 def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
     rl_cfg = _algo_config_dict(cfg)
@@ -244,9 +258,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     ):
         runner.load(str(load_path), map_location=device)
     policy = runner.get_inference_policy(device=device)
-    if EXPORT_POLICY:
-        runner.export_policy_to_onnx(path=str(load_path_dir))
-        runner.export_policy_to_jit(path=str(load_path_dir))
+    _export_policy_artifacts(runner, load_path_dir, cfg)
     num_steps = _resolve_play_num_steps(cfg)
     output_video = Path(load_path_dir) / "play_video.mp4"
     playback_mode: str | None = None

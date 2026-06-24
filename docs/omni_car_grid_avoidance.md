@@ -57,7 +57,7 @@ Checkpoint playback through the PPO eval path:
 ```bash
 uv run eval --algo ppo --task omni_car_grid_avoidance --sim mujoco \
   --render-mode interactive --load-run -1 \
-  training.log_root=logs/graphical training.play_steps=600
+  training.log_root=logs/graphical training.play_steps=600 training.export_onnx=false
 ```
 
 The viewer shows the rectangular vehicle, obstacle cylinders, the body-centered

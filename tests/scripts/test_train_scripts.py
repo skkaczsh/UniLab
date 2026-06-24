@@ -2659,6 +2659,88 @@ def test_train_rsl_rl_motrix_auto_play_is_interactive(
     assert captured["render_offset_mode"] == "zero"
 
 
+def test_train_rsl_rl_play_continues_when_policy_export_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(
+        [
+            "task=go2_joystick_rough/motrix",
+            "training.play_only=true",
+            "training.play_render_mode=record",
+            "training.play_steps=11",
+        ]
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_11.pt"
+    mod.torch.save({"actor_state_dict": {}}, checkpoint)
+
+    class FakeEnv:
+        def __init__(self):
+            self.cfg = type("Cfg", (), {"render_spacing": 1.0, "render_offset_mode": "grid"})()
+
+        def run_playback_mode(self, **kwargs):
+            captured["playback_called"] = True
+            captured["play_steps"] = kwargs["play_steps"]
+            return str(kwargs["output_video"])
+
+    class FakeWrapper:
+        num_obs = 4
+        num_actions = 2
+
+        def __init__(self, env, device):
+            self.env = env
+            self.device = device
+
+        def reset(self):
+            return 0, {}
+
+        def step(self, actions):
+            return 0, 0, False, {}
+
+    class FakeRunner:
+        def __init__(self, wrapped_env, train_cfg, log_dir, device):
+            self.wrapped_env = wrapped_env
+            self.train_cfg = train_cfg
+            self.log_dir = log_dir
+            self.device = device
+
+        def load(self, path, map_location=None):
+            self.loaded_path = path
+            self.map_location = map_location
+
+        def get_inference_policy(self, device):
+            return lambda obs: obs
+
+        def export_policy_to_onnx(self, path):
+            captured["export_path"] = path
+            raise RuntimeError("custom actor export shape mismatch")
+
+        def export_policy_to_jit(self, path):
+            raise AssertionError("JIT export should not run after ONNX export fails")
+
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(mod, "EXPORT_POLICY", True, raising=False)
+    monkeypatch.setattr(mod, "parse_checkpoint_path", lambda *args, **kwargs: (checkpoint, run_dir))
+    monkeypatch.setattr(mod, "build_ppo_play_env_cfg_override", lambda cfg: {})
+    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: FakeEnv())
+    monkeypatch.setattr(mod, "_resolve_ppo_wrapper_cls", lambda rl_cfg: FakeWrapper)
+    monkeypatch.setattr(mod, "normalize_ppo_train_cfg", lambda rl_cfg: {})
+    monkeypatch.setattr(mod, "OnPolicyRunner", FakeRunner)
+
+    result = mod.play_rsl_rl(cfg, device="cpu")
+    out = capsys.readouterr().out
+
+    assert result == str(run_dir / "play_video.mp4")
+    assert captured["export_path"] == str(run_dir)
+    assert captured["playback_called"] is True
+    assert captured["play_steps"] == 11
+    assert "WARNING: failed to export ONNX/JIT policy artifacts" in out
+    assert "Continuing playback." in out
+
+
 def test_train_rsl_rl_record_play_uses_backend_plan(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
