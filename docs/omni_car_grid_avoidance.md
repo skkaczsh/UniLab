@@ -36,6 +36,12 @@ convergence benchmark.
 Native GLFW/OpenGL 3D viewer playback:
 
 ```bash
+uv run scripts/visualize_omni_car.py --policy reflex --steps 600
+```
+
+Checkpoint playback through the PPO eval path:
+
+```bash
 uv run eval --algo ppo --task omni_car_grid_avoidance --sim mujoco \
   --render-mode interactive --load-run -1 \
   training.log_root=logs/graphical training.play_steps=600
