@@ -20,12 +20,12 @@ def test_omni_car_grid_contract() -> None:
     )
 
     state = env.init_state()
-    assert state.obs["obs"].shape == (4, 6411)
-    assert state.obs["critic"].shape == (4, 6414)
+    assert state.obs["obs"].shape == (4, env.obs_groups_spec["obs"])
+    assert state.obs["critic"].shape == (4, env.obs_groups_spec["critic"])
     assert env.action_space.shape == (3,)
 
     next_state = env.step(np.zeros((4, 3), dtype=np.float32))
-    assert next_state.obs["obs"].shape == (4, 6411)
+    assert next_state.obs["obs"].shape == (4, env.obs_groups_spec["obs"])
     assert next_state.reward.shape == (4,)
     assert next_state.terminated.shape == (4,)
     assert next_state.truncated.shape == (4,)
@@ -225,8 +225,19 @@ def test_omni_car_viewer_xml_loads() -> None:
 
 
 def test_omni_car_cnn_model_forward_actor_and_critic() -> None:
-    actor_obs = torch.zeros((2, 6411), dtype=torch.float32)
-    critic_obs = torch.zeros((2, 6414), dtype=torch.float32)
+    cfg = OmniCarGridAvoidanceCfg()
+    obs_dim = (
+        cfg.grid.size * cfg.grid.size
+        + 3
+        + 3
+        + 3
+        + cfg.obs_history_len * 9
+        + 2
+    )
+    critic_obs_dim = obs_dim + 3
+
+    actor_obs = torch.zeros((2, obs_dim), dtype=torch.float32)
+    critic_obs = torch.zeros((2, critic_obs_dim), dtype=torch.float32)
     actor = OmniCarGridCNNModel(
         TensorDict({"actor": actor_obs}, batch_size=2),
         {"actor": ["actor"]},

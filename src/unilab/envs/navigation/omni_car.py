@@ -22,6 +22,7 @@ class OmniCarCommandCfg:
     max_yaw_rate: float = 2.0
     resample_interval_s: float = 2.0
     deadband: float = 0.15
+    smoothing_tau_s: float = 0.40
 
 
 @dataclass
@@ -59,18 +60,18 @@ class OmniCarObstacleCfg:
 
 @dataclass
 class OmniCarRewardCfg:
-    intent: float = 2.0
-    intent_projection: float = 0.6
-    yaw_intent: float = 0.4
-    response: float = 0.35
-    vx_diff: float = 0.12
-    vy_diff: float = 0.12
-    vyaw_diff: float = 0.18
-    vx_jerk: float = 0.04
-    vy_jerk: float = 0.04
-    vyaw_jerk: float = 0.06
-    clearance: float = 0.8
-    collision: float = -8.0
+    intent: float = 14.0
+    intent_projection: float = 5.0
+    yaw_intent: float = 4.2
+    response: float = 7.0
+    vx_diff: float = 8.0
+    vy_diff: float = 8.0
+    vyaw_diff: float = 10.0
+    vx_jerk: float = 3.2
+    vy_jerk: float = 3.2
+    vyaw_jerk: float = 4.8
+    clearance: float = 1.2
+    collision: float = -12.0
 
 
 @dataclass
@@ -90,8 +91,8 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
 
     sim_dt: float = 0.05
     ctrl_dt: float = 0.05
-    max_episode_seconds: float = 12.0
-    obs_history_len: int = 1
+    max_episode_seconds: float = 60.0
+    obs_history_len: int = 24
     command: OmniCarCommandCfg = field(default_factory=OmniCarCommandCfg)
     grid: OmniCarGridCfg = field(default_factory=OmniCarGridCfg)
     body: OmniCarBodyCfg = field(default_factory=OmniCarBodyCfg)
@@ -174,6 +175,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._velocity = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._last_action = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._last_action_delta = np.zeros((self._num_envs, 3), dtype=self._dtype)
+        self._raw_commands = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._commands = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._command_history = np.zeros(
             (self._num_envs, self._obs_history_len, 3), dtype=self._dtype
@@ -271,7 +273,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._velocity[env_indices] = 0.0
         self._last_action[env_indices] = 0.0
         self._last_action_delta[env_indices] = 0.0
-        self._commands[env_indices] = self._sample_commands(env_indices.size)
+        sampled_commands = self._sample_commands(env_indices.size)
+        self._raw_commands[env_indices] = sampled_commands
+        self._commands[env_indices] = sampled_commands.copy()
         self._seed_history(env_indices)
         self._sample_obstacles(env_indices)
         self._collision[env_indices] = False
@@ -303,9 +307,11 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         )
         resample_mask = self._state.info["steps"] % resample_steps == 0
         if np.any(resample_mask):
-            self._commands[resample_mask] = self._sample_commands(
+            self._raw_commands[resample_mask] = self._sample_commands(
                 int(np.count_nonzero(resample_mask))
             )
+
+        self._update_commands()
 
         self._nearest_clearance = self._compute_clearance(np.arange(self._num_envs, dtype=np.int32))
         self._collision = self._nearest_clearance <= 0.0
@@ -498,6 +504,16 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._action_history[env_indices] = np.broadcast_to(
             self._last_action[env_indices, None, :],
             (env_indices.size, self._obs_history_len, 3),
+        )
+
+    def _update_commands(self) -> None:
+        if self._cfg.command.smoothing_tau_s <= 0.0:
+            self._commands = self._raw_commands.copy()
+            return
+
+        alpha = float(self._cfg.ctrl_dt / (self._cfg.command.smoothing_tau_s + self._cfg.ctrl_dt))
+        self._commands = ((1.0 - alpha) * self._commands + alpha * self._raw_commands).astype(
+            self._dtype
         )
 
     def _append_history(self) -> None:

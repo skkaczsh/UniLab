@@ -43,16 +43,17 @@ algo:
     entropy_coef: 0.005
 
 env:
-  max_episode_seconds: 20.0
-  obs_history_len: 6
+  max_episode_seconds: 60.0
+  obs_history_len: 24
   sim_dt: 0.05
   ctrl_dt: 0.05
   command:
     max_x_speed: 2.0
     max_y_speed: 2.0
     max_yaw_rate: 2.0
-    resample_interval_s: 2.0
-    deadband: 0.12
+    resample_interval_s: 1.5
+    deadband: 0.10
+    smoothing_tau_s: 0.40
   grid:
     size: 80
     cell_size: 0.05
@@ -78,36 +79,36 @@ env:
     spawn_radius_m: 3.8
     keepout_radius_m: 0.70
   reward:
-    intent: 10.0
-    intent_projection: 3.5
-    yaw_intent: 3.0
-    response: 4.0
-    vx_diff: 4.5
-    vy_diff: 4.5
-    vyaw_diff: 6.2
-    vx_jerk: 1.9
-    vy_jerk: 1.9
-    vyaw_jerk: 2.9
-    clearance: 1.1
-    collision: -10.0
+    intent: 14.0
+    intent_projection: 5.0
+    yaw_intent: 4.2
+    response: 7.0
+    vx_diff: 8.0
+    vy_diff: 8.0
+    vyaw_diff: 10.0
+    vx_jerk: 3.2
+    vy_jerk: 3.2
+    vyaw_jerk: 4.8
+    clearance: 1.2
+    collision: -12.0
   physical_limits:
     max_x_speed: 2.0
     max_y_speed: 2.0
     max_yaw_rate: 2.0
-    max_x_accel: 2.2
-    max_y_accel: 2.2
-    max_yaw_accel: 2.8
+    max_x_accel: 2.0
+    max_y_accel: 2.0
+    max_yaw_accel: 2.4
 
 reward:
-  intent: 10.0
-  intent_projection: 3.5
-  yaw_intent: 3.0
-  response: 4.0
-  vx_diff: 4.5
-  vy_diff: 4.5
-  vyaw_diff: 6.2
-  vx_jerk: 1.9
-  vy_jerk: 1.9
-  vyaw_jerk: 2.9
-  clearance: 1.1
-  collision: -10.0
+  intent: 14.0
+  intent_projection: 5.0
+  yaw_intent: 4.2
+  response: 7.0
+  vx_diff: 8.0
+  vy_diff: 8.0
+  vyaw_diff: 10.0
+  vx_jerk: 3.2
+  vy_jerk: 3.2
+  vyaw_jerk: 4.8
+  clearance: 1.2
+  collision: -12.0
