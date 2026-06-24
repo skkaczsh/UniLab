@@ -21,7 +21,9 @@ Reward contract:
 - Reward yaw-rate tracking separately.
 - Reward safe response progress when the executed velocity moves closer to the
   user command, gated down near obstacles so avoidance can override intent.
-- Penalize normalized output velocity jumps to prefer smooth safe commands.
+- Penalize normalized output velocity jumps independently for `vx`, `vy`, and
+  `vyaw`.
+- Penalize normalized output jerk independently for `vx`, `vy`, and `vyaw`.
 - Penalize low obstacle clearance and collisions.
 
 Physical limit contract:

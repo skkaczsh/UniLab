@@ -32,7 +32,12 @@ def test_omni_car_grid_contract() -> None:
     assert "commands" in next_state.info
     assert "omni_car/tracking_error" in next_state.info["log"]
     assert "omni_car/response_progress" in next_state.info["log"]
-    assert "omni_car/smoothness_cost" in next_state.info["log"]
+    assert "omni_car/vx_diff_cost" in next_state.info["log"]
+    assert "omni_car/vy_diff_cost" in next_state.info["log"]
+    assert "omni_car/vyaw_diff_cost" in next_state.info["log"]
+    assert "omni_car/vx_jerk_cost" in next_state.info["log"]
+    assert "omni_car/vy_jerk_cost" in next_state.info["log"]
+    assert "omni_car/vyaw_jerk_cost" in next_state.info["log"]
     assert env.play_capabilities.supports_native_interactive_renderer is True
     env.close()
 
@@ -67,7 +72,7 @@ def test_omni_car_physical_limits_apply_before_integration() -> None:
     env.close()
 
 
-def test_omni_car_response_and_smoothness_rewards_are_measured() -> None:
+def test_omni_car_response_diff_and_jerk_rewards_are_measured() -> None:
     env = registry.make(
         "OmniCarGridAvoidance",
         sim_backend="mujoco",
@@ -80,7 +85,12 @@ def test_omni_car_response_and_smoothness_rewards_are_measured() -> None:
                 "intent_projection": 0.0,
                 "yaw_intent": 0.0,
                 "response": 1.0,
-                "smoothness": 0.0,
+                "vx_diff": 0.0,
+                "vy_diff": 0.0,
+                "vyaw_diff": 0.0,
+                "vx_jerk": 0.0,
+                "vy_jerk": 0.0,
+                "vyaw_jerk": 0.0,
                 "clearance": 0.0,
                 "collision": 0.0,
             },
@@ -99,12 +109,28 @@ def test_omni_car_response_and_smoothness_rewards_are_measured() -> None:
     assert stalled_reward[0] == pytest.approx(0.0)
 
     env._cfg.reward.response = 0.0
-    env._cfg.reward.smoothness = 1.0
-    smooth_reward = env._compute_reward(np.asarray([[0.3, 0.0, 0.0]], dtype=np.float32))
-    jump_reward = env._compute_reward(np.asarray([[0.6, 0.0, 0.0]], dtype=np.float32))
+    env._cfg.reward.vx_diff = 1.0
+    env._cfg.reward.vy_diff = 2.0
+    env._cfg.reward.vyaw_diff = 3.0
+    env._last_action[:] = 0.0
+    env._last_action_delta[:] = 0.0
+    diff_reward = env._compute_reward(np.asarray([[0.15, 0.30, 0.20]], dtype=np.float32))
 
-    assert jump_reward[0] < smooth_reward[0] < 0.0
-    assert env._smoothness_cost[0] > 0.0
+    np.testing.assert_allclose(env._diff_cost, [[1.0, 4.0, 1.0]], atol=1e-6)
+    assert diff_reward[0] == pytest.approx(-(1.0 + 8.0 + 3.0))
+
+    env._cfg.reward.vx_diff = 0.0
+    env._cfg.reward.vy_diff = 0.0
+    env._cfg.reward.vyaw_diff = 0.0
+    env._cfg.reward.vx_jerk = 1.0
+    env._cfg.reward.vy_jerk = 2.0
+    env._cfg.reward.vyaw_jerk = 3.0
+    env._last_action[:] = np.asarray([[0.15, 0.15, 0.20]], dtype=np.float32)
+    env._last_action_delta[:] = np.asarray([[0.15, 0.15, 0.20]], dtype=np.float32)
+    jerk_reward = env._compute_reward(np.asarray([[0.15, -0.15, 0.0]], dtype=np.float32))
+
+    np.testing.assert_allclose(env._jerk_cost, [[1.0, 9.0, 4.0]], atol=1e-6)
+    assert jerk_reward[0] == pytest.approx(-(1.0 + 18.0 + 12.0))
     env.close()
 
 

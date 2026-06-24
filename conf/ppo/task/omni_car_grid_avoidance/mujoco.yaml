@@ -80,7 +80,12 @@ env:
     intent_projection: 0.6
     yaw_intent: 0.4
     response: 0.35
-    smoothness: 0.06
+    vx_diff: 0.12
+    vy_diff: 0.12
+    vyaw_diff: 0.18
+    vx_jerk: 0.04
+    vy_jerk: 0.04
+    vyaw_jerk: 0.06
     clearance: 0.8
     collision: -8.0
   physical_limits:
@@ -96,6 +101,11 @@ reward:
   intent_projection: 0.6
   yaw_intent: 0.4
   response: 0.35
-  smoothness: 0.06
+  vx_diff: 0.12
+  vy_diff: 0.12
+  vyaw_diff: 0.18
+  vx_jerk: 0.04
+  vy_jerk: 0.04
+  vyaw_jerk: 0.06
   clearance: 0.8
   collision: -8.0
