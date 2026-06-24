@@ -62,12 +62,25 @@ env:
     count: 14
     radius_min_m: 0.10
     radius_max_m: 0.28
+    box_length_min_m: 0.22
+    box_length_max_m: 0.75
+    box_width_min_m: 0.12
+    box_width_max_m: 0.45
+    wall_length_min_m: 1.0
+    wall_length_max_m: 2.4
+    wall_width_min_m: 0.08
+    wall_width_max_m: 0.18
+    circle_fraction: 0.50
+    box_fraction: 0.35
+    wall_fraction: 0.15
     spawn_radius_m: 3.2
     keepout_radius_m: 0.75
   reward:
     intent: 2.0
     intent_projection: 0.6
     yaw_intent: 0.4
+    response: 0.35
+    smoothness: 0.06
     clearance: 0.8
     collision: -8.0
   physical_limits:
@@ -82,5 +95,7 @@ reward:
   intent: 2.0
   intent_projection: 0.6
   yaw_intent: 0.4
+  response: 0.35
+  smoothness: 0.06
   clearance: 0.8
   collision: -8.0

@@ -42,6 +42,17 @@ class OmniCarObstacleCfg:
     count: int = 14
     radius_min_m: float = 0.10
     radius_max_m: float = 0.28
+    box_length_min_m: float = 0.22
+    box_length_max_m: float = 0.75
+    box_width_min_m: float = 0.12
+    box_width_max_m: float = 0.45
+    wall_length_min_m: float = 1.0
+    wall_length_max_m: float = 2.4
+    wall_width_min_m: float = 0.08
+    wall_width_max_m: float = 0.18
+    circle_fraction: float = 0.50
+    box_fraction: float = 0.35
+    wall_fraction: float = 0.15
     spawn_radius_m: float = 3.2
     keepout_radius_m: float = 0.75
 
@@ -51,6 +62,8 @@ class OmniCarRewardCfg:
     intent: float = 2.0
     intent_projection: float = 0.6
     yaw_intent: float = 0.4
+    response: float = 0.35
+    smoothness: float = 0.06
     clearance: float = 0.8
     collision: float = -8.0
 
@@ -96,6 +109,21 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
             raise ValueError("obstacles.radius_min_m must be positive")
         if self.obstacles.radius_max_m < self.obstacles.radius_min_m:
             raise ValueError("obstacles.radius_max_m must be >= radius_min_m")
+        if self.obstacles.box_length_max_m < self.obstacles.box_length_min_m:
+            raise ValueError("obstacles.box_length_max_m must be >= box_length_min_m")
+        if self.obstacles.box_width_max_m < self.obstacles.box_width_min_m:
+            raise ValueError("obstacles.box_width_max_m must be >= box_width_min_m")
+        if self.obstacles.wall_length_max_m < self.obstacles.wall_length_min_m:
+            raise ValueError("obstacles.wall_length_max_m must be >= wall_length_min_m")
+        if self.obstacles.wall_width_max_m < self.obstacles.wall_width_min_m:
+            raise ValueError("obstacles.wall_width_max_m must be >= wall_width_min_m")
+        fractions = (
+            self.obstacles.circle_fraction,
+            self.obstacles.box_fraction,
+            self.obstacles.wall_fraction,
+        )
+        if min(fractions) < 0.0 or sum(fractions) <= 0.0:
+            raise ValueError("obstacle type fractions must be non-negative with positive sum")
         limits = self.physical_limits
         if min(limits.max_x_speed, limits.max_y_speed, limits.max_yaw_rate) <= 0.0:
             raise ValueError("physical velocity limits must be positive")
@@ -116,6 +144,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
     """
 
     _cfg: OmniCarGridAvoidanceCfg
+    _OBSTACLE_CIRCLE = 0
+    _OBSTACLE_BOX = 1
+    _OBSTACLE_WALL = 2
 
     def __init__(
         self,
@@ -136,9 +167,17 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._commands = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._obstacle_xy = np.zeros((self._num_envs, cfg.obstacles.count, 2), dtype=self._dtype)
         self._obstacle_radius = np.zeros((self._num_envs, cfg.obstacles.count), dtype=self._dtype)
+        self._obstacle_half_extents = np.zeros(
+            (self._num_envs, cfg.obstacles.count, 2), dtype=self._dtype
+        )
+        self._obstacle_yaw = np.zeros((self._num_envs, cfg.obstacles.count), dtype=self._dtype)
+        self._obstacle_type = np.zeros((self._num_envs, cfg.obstacles.count), dtype=np.int8)
         self._nearest_clearance = np.zeros((self._num_envs,), dtype=self._dtype)
         self._collision = np.zeros((self._num_envs,), dtype=bool)
         self._truncated = np.zeros((self._num_envs,), dtype=bool)
+        self._tracking_error = np.zeros((self._num_envs,), dtype=self._dtype)
+        self._response_progress = np.zeros((self._num_envs,), dtype=self._dtype)
+        self._smoothness_cost = np.zeros((self._num_envs,), dtype=self._dtype)
         self._obs_buffer = np.zeros(
             (self._num_envs, self.obs_groups_spec["obs"]), dtype=self._dtype
         )
@@ -210,6 +249,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._commands[env_indices] = self._sample_commands(env_indices.size)
         self._sample_obstacles(env_indices)
         self._collision[env_indices] = False
+        self._tracking_error[env_indices] = 0.0
+        self._response_progress[env_indices] = 0.0
+        self._smoothness_cost[env_indices] = 0.0
         self._nearest_clearance[env_indices] = self._compute_clearance(env_indices)
         info = self._info(env_indices)
         info["steps"] = np.zeros((env_indices.size,), dtype=np.uint32)
@@ -281,6 +323,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "omni_car/mean_clearance": float(np.mean(self._nearest_clearance)),
             "omni_car/collision_rate": float(np.mean(self._collision.astype(np.float32))),
             "omni_car/command_norm": float(np.mean(np.linalg.norm(self._commands[:, :2], axis=1))),
+            "omni_car/tracking_error": float(np.mean(self._tracking_error)),
+            "omni_car/response_progress": float(np.mean(self._response_progress)),
+            "omni_car/smoothness_cost": float(np.mean(self._smoothness_cost)),
         }
         return self._state
 
@@ -407,13 +452,34 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         cfg = self._cfg.obstacles
         if cfg.count == 0:
             return
+        type_weights = np.asarray(
+            [cfg.circle_fraction, cfg.box_fraction, cfg.wall_fraction], dtype=np.float64
+        )
+        type_weights = type_weights / np.sum(type_weights)
         for env_id in env_indices:
+            obstacle_types = self._rng.choice(3, size=(cfg.count,), p=type_weights).astype(np.int8)
             radii = self._rng.uniform(cfg.radius_min_m, cfg.radius_max_m, size=(cfg.count,))
+            half_extents = np.zeros((cfg.count, 2), dtype=self._dtype)
+            yaw = self._rng.uniform(-np.pi, np.pi, size=(cfg.count,)).astype(self._dtype)
             angles = self._rng.uniform(-np.pi, np.pi, size=(cfg.count,))
             distances = self._rng.uniform(
                 cfg.keepout_radius_m, cfg.spawn_radius_m, size=(cfg.count,)
             )
             xy = np.stack([np.cos(angles) * distances, np.sin(angles) * distances], axis=1)
+            box_mask = obstacle_types == self._OBSTACLE_BOX
+            wall_mask = obstacle_types == self._OBSTACLE_WALL
+            half_extents[box_mask, 0] = 0.5 * self._rng.uniform(
+                cfg.box_length_min_m, cfg.box_length_max_m, size=int(np.count_nonzero(box_mask))
+            )
+            half_extents[box_mask, 1] = 0.5 * self._rng.uniform(
+                cfg.box_width_min_m, cfg.box_width_max_m, size=int(np.count_nonzero(box_mask))
+            )
+            half_extents[wall_mask, 0] = 0.5 * self._rng.uniform(
+                cfg.wall_length_min_m, cfg.wall_length_max_m, size=int(np.count_nonzero(wall_mask))
+            )
+            half_extents[wall_mask, 1] = 0.5 * self._rng.uniform(
+                cfg.wall_width_min_m, cfg.wall_width_max_m, size=int(np.count_nonzero(wall_mask))
+            )
             # Bias one obstacle into the commanded path so avoidance matters during short runs.
             cmd = self._commands[env_id]
             planar_norm = float(np.linalg.norm(cmd[:2]))
@@ -423,9 +489,26 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 xy[0] = direction * self._rng.uniform(0.9, 1.6) + lateral * self._rng.uniform(
                     -0.25, 0.25
                 )
+                obstacle_types[0] = self._rng.choice(3, p=type_weights)
                 radii[0] = max(float(radii[0]), 0.22)
+                yaw[0] = float(np.arctan2(direction[1], direction[0])) + self._rng.uniform(
+                    -0.6, 0.6
+                )
+                if obstacle_types[0] == self._OBSTACLE_BOX:
+                    half_extents[0] = [
+                        0.5 * self._rng.uniform(cfg.box_length_min_m, cfg.box_length_max_m),
+                        0.5 * self._rng.uniform(cfg.box_width_min_m, cfg.box_width_max_m),
+                    ]
+                elif obstacle_types[0] == self._OBSTACLE_WALL:
+                    half_extents[0] = [
+                        0.5 * self._rng.uniform(cfg.wall_length_min_m, cfg.wall_length_max_m),
+                        0.5 * self._rng.uniform(cfg.wall_width_min_m, cfg.wall_width_max_m),
+                    ]
             self._obstacle_xy[env_id] = xy.astype(self._dtype)
             self._obstacle_radius[env_id] = radii.astype(self._dtype)
+            self._obstacle_half_extents[env_id] = half_extents
+            self._obstacle_yaw[env_id] = yaw.astype(self._dtype)
+            self._obstacle_type[env_id] = obstacle_types
 
     def _apply_physical_limits(self, actions: np.ndarray) -> np.ndarray:
         limits = self._cfg.physical_limits
@@ -499,12 +582,23 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             in_range = (np.abs(local_xy[:, 0]) <= self._grid_extent) & (
                 np.abs(local_xy[:, 1]) <= self._grid_extent
             )
-            for center, radius in zip(local_xy[in_range], self._obstacle_radius[env_id][in_range]):
-                delta = self._grid_points - center
-                occupied = (
-                    np.einsum("ij,ij->i", delta, delta)
-                    <= float(radius + self._cfg.grid.cell_size * 0.5) ** 2
-                )
+            for obstacle_id in np.flatnonzero(in_range):
+                center = local_xy[obstacle_id]
+                if int(self._obstacle_type[env_id, obstacle_id]) == self._OBSTACLE_CIRCLE:
+                    delta = self._grid_points - center
+                    radius = float(self._obstacle_radius[env_id, obstacle_id])
+                    occupied = (
+                        np.einsum("ij,ij->i", delta, delta)
+                        <= float(radius + self._cfg.grid.cell_size * 0.5) ** 2
+                    )
+                else:
+                    rel_yaw = float(self._obstacle_yaw[env_id, obstacle_id] - self._pose[env_id, 2])
+                    local_points = self._rotate_points(self._grid_points - center, -rel_yaw)
+                    half_extents = self._obstacle_half_extents[env_id, obstacle_id]
+                    pad = self._cfg.grid.cell_size * 0.5
+                    occupied = (np.abs(local_points[:, 0]) <= half_extents[0] + pad) & (
+                        np.abs(local_points[:, 1]) <= half_extents[1] + pad
+                    )
                 grid[row, occupied] = 1.0
         return grid
 
@@ -525,8 +619,22 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         if self._cfg.obstacles.count == 0:
             return clearance
         for row, env_id in enumerate(env_indices):
-            distances = np.linalg.norm(self._obstacle_xy[env_id] - self._pose[env_id, :2], axis=1)
-            signed = distances - self._obstacle_radius[env_id] - safety_radius
+            signed = np.empty((self._cfg.obstacles.count,), dtype=self._dtype)
+            for obstacle_id in range(self._cfg.obstacles.count):
+                center = self._obstacle_xy[env_id, obstacle_id]
+                if int(self._obstacle_type[env_id, obstacle_id]) == self._OBSTACLE_CIRCLE:
+                    distance = np.linalg.norm(center - self._pose[env_id, :2])
+                    signed[obstacle_id] = distance - self._obstacle_radius[env_id, obstacle_id]
+                else:
+                    point = self._rotate_points(
+                        (self._pose[env_id, :2] - center)[None, :],
+                        -float(self._obstacle_yaw[env_id, obstacle_id]),
+                    )[0]
+                    signed[obstacle_id] = self._rectangle_signed_distance(
+                        point,
+                        self._obstacle_half_extents[env_id, obstacle_id],
+                    )
+            signed = signed - safety_radius
             clearance[row] = np.min(signed).astype(self._dtype)
         return clearance
 
@@ -539,15 +647,55 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         projection = np.sum(action[:, :2] * cmd[:, :2], axis=1) / (planar_scale * planar_scale)
         yaw_error = np.abs(action[:, 2] - cmd[:, 2]) / max(self._cfg.command.max_yaw_rate, 1e-6)
         yaw_reward = np.exp(-yaw_error * yaw_error)
+        high = self._velocity_limits()
+        accel_delta = self._accel_limits() * self._cfg.ctrl_dt
+        prev_error = np.linalg.norm((cmd - self._last_action) / high, axis=1)
+        new_error = np.linalg.norm((cmd - action) / high, axis=1)
+        safety_gate = np.clip((self._nearest_clearance - 0.05) / 0.45, 0.0, 1.0)
+        response_progress = safety_gate * np.maximum(prev_error - new_error, 0.0)
+        smoothness_cost = np.mean(((action - self._last_action) / accel_delta) ** 2, axis=1)
         clearance_penalty = np.exp(-np.maximum(self._nearest_clearance, 0.0) / 0.35)
+        self._tracking_error = new_error.astype(self._dtype)
+        self._response_progress = response_progress.astype(self._dtype)
+        self._smoothness_cost = smoothness_cost.astype(self._dtype)
         reward = (
             cfg.intent * intent_reward
             + cfg.intent_projection * projection
             + cfg.yaw_intent * yaw_reward
+            + cfg.response * response_progress
+            - cfg.smoothness * smoothness_cost
             - cfg.clearance * clearance_penalty
             + cfg.collision * self._collision.astype(self._dtype)
         )
         return reward.astype(self._dtype)
+
+    def _velocity_limits(self) -> np.ndarray:
+        limits = self._cfg.physical_limits
+        return np.asarray(
+            [limits.max_x_speed, limits.max_y_speed, limits.max_yaw_rate], dtype=self._dtype
+        )
+
+    def _accel_limits(self) -> np.ndarray:
+        limits = self._cfg.physical_limits
+        return np.asarray(
+            [limits.max_x_accel, limits.max_y_accel, limits.max_yaw_accel], dtype=self._dtype
+        )
+
+    @staticmethod
+    def _rotate_points(points: np.ndarray, yaw: float) -> np.ndarray:
+        c = np.cos(yaw)
+        s = np.sin(yaw)
+        x = c * points[:, 0] - s * points[:, 1]
+        y = s * points[:, 0] + c * points[:, 1]
+        return np.stack([x, y], axis=1).astype(get_global_dtype())
+
+    @staticmethod
+    def _rectangle_signed_distance(point: np.ndarray, half_extents: np.ndarray) -> np.float32:
+        q = np.abs(point) - half_extents
+        outside = np.maximum(q, 0.0)
+        outside_distance = np.linalg.norm(outside)
+        inside_distance = min(max(float(q[0]), float(q[1])), 0.0)
+        return np.asarray(outside_distance + inside_distance, dtype=get_global_dtype())
 
     def _info(self, env_indices: np.ndarray) -> dict[str, Any]:
         return {
@@ -648,15 +796,35 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         GL.glPopMatrix()
 
     def _gl_draw_obstacles(self, GL: Any) -> None:
-        GL.glColor4f(0.95, 0.24, 0.12, 0.95)
-        for center, radius in zip(self._obstacle_xy[0], self._obstacle_radius[0]):
-            self._gl_cylinder(
-                GL,
-                x=float(center[0]),
-                y=float(center[1]),
-                radius=float(radius),
-                height=0.32,
-            )
+        for obstacle_id, center in enumerate(self._obstacle_xy[0]):
+            obstacle_type = int(self._obstacle_type[0, obstacle_id])
+            if obstacle_type == self._OBSTACLE_CIRCLE:
+                GL.glColor4f(0.95, 0.24, 0.12, 0.95)
+                self._gl_cylinder(
+                    GL,
+                    x=float(center[0]),
+                    y=float(center[1]),
+                    radius=float(self._obstacle_radius[0, obstacle_id]),
+                    height=0.32,
+                )
+            else:
+                half_extents = self._obstacle_half_extents[0, obstacle_id]
+                if obstacle_type == self._OBSTACLE_WALL:
+                    GL.glColor4f(0.68, 0.20, 0.95, 0.92)
+                    half_z = 0.22
+                else:
+                    GL.glColor4f(0.95, 0.48, 0.12, 0.92)
+                    half_z = 0.16
+                GL.glPushMatrix()
+                GL.glTranslatef(float(center[0]), float(center[1]), half_z)
+                GL.glRotatef(float(np.degrees(self._obstacle_yaw[0, obstacle_id])), 0.0, 0.0, 1.0)
+                self._gl_box(
+                    GL,
+                    half_x=float(half_extents[0]),
+                    half_y=float(half_extents[1]),
+                    half_z=half_z,
+                )
+                GL.glPopMatrix()
 
     def _gl_draw_car(self, GL: Any, pose: np.ndarray) -> None:
         GL.glPushMatrix()

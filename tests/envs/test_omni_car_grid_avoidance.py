@@ -30,6 +30,9 @@ def test_omni_car_grid_contract() -> None:
     assert next_state.terminated.shape == (4,)
     assert next_state.truncated.shape == (4,)
     assert "commands" in next_state.info
+    assert "omni_car/tracking_error" in next_state.info["log"]
+    assert "omni_car/response_progress" in next_state.info["log"]
+    assert "omni_car/smoothness_cost" in next_state.info["log"]
     assert env.play_capabilities.supports_native_interactive_renderer is True
     env.close()
 
@@ -62,6 +65,78 @@ def test_omni_car_physical_limits_apply_before_integration() -> None:
     assert np.all(env._velocity <= 1.0 + 1e-6)
     assert np.all(env._velocity >= -1.0 - 1e-6)
     env.close()
+
+
+def test_omni_car_response_and_smoothness_rewards_are_measured() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 13,
+            "obstacles": {"count": 0},
+            "reward": {
+                "intent": 0.0,
+                "intent_projection": 0.0,
+                "yaw_intent": 0.0,
+                "response": 1.0,
+                "smoothness": 0.0,
+                "clearance": 0.0,
+                "collision": 0.0,
+            },
+        },
+    )
+    env.init_state()
+    env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
+    env._last_action[:] = 0.0
+    env._nearest_clearance[:] = 2.0
+
+    response_reward = env._compute_reward(np.asarray([[0.5, 0.0, 0.0]], dtype=np.float32))
+    assert env._response_progress[0] > 0.0
+    stalled_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
+
+    assert response_reward[0] > 0.0
+    assert stalled_reward[0] == pytest.approx(0.0)
+
+    env._cfg.reward.response = 0.0
+    env._cfg.reward.smoothness = 1.0
+    smooth_reward = env._compute_reward(np.asarray([[0.3, 0.0, 0.0]], dtype=np.float32))
+    jump_reward = env._compute_reward(np.asarray([[0.6, 0.0, 0.0]], dtype=np.float32))
+
+    assert jump_reward[0] < smooth_reward[0] < 0.0
+    assert env._smoothness_cost[0] > 0.0
+    env.close()
+
+
+def test_omni_car_samples_circle_box_and_wall_obstacles() -> None:
+    cases = [
+        ("circle_fraction", 0),
+        ("box_fraction", 1),
+        ("wall_fraction", 2),
+    ]
+    for fraction_key, expected_type in cases:
+        fractions = {"circle_fraction": 0.0, "box_fraction": 0.0, "wall_fraction": 0.0}
+        fractions[fraction_key] = 1.0
+        env = registry.make(
+            "OmniCarGridAvoidance",
+            sim_backend="mujoco",
+            num_envs=1,
+            env_cfg_override={
+                "seed": 17,
+                "obstacles": {
+                    "count": 4,
+                    **fractions,
+                },
+            },
+        )
+        env.init_state()
+        assert set(env._obstacle_type[0].tolist()) == {expected_type}
+        if expected_type == 0:
+            assert np.all(env._obstacle_radius[0] > 0.0)
+        else:
+            assert np.all(env._obstacle_half_extents[0] > 0.0)
+        assert np.count_nonzero(env._occupancy_grid(np.asarray([0], dtype=np.int32))) > 0
+        env.close()
 
 
 def test_omni_car_cfg_validates_grid_shape() -> None:

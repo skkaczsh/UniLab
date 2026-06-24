@@ -19,6 +19,9 @@ Reward contract:
 
 - Reward command tracking and projection along the user command.
 - Reward yaw-rate tracking separately.
+- Reward safe response progress when the executed velocity moves closer to the
+  user command, gated down near obstacles so avoidance can override intent.
+- Penalize normalized output velocity jumps to prefer smooth safe commands.
 - Penalize low obstacle clearance and collisions.
 
 Physical limit contract:
@@ -26,6 +29,14 @@ Physical limit contract:
 - The environment enforces velocity and acceleration limits before integrating
   body motion.
 - Speed and acceleration limits are not represented as reward penalties.
+
+Obstacle contract:
+
+- Obstacles are sampled as a configurable mixture of circles, rotated boxes,
+  and long thin wall segments.
+- All obstacle types are rasterized into the same body-centered occupancy grid.
+- Clearance uses circle distance for circles and signed distance to the rotated
+  rectangle for boxes and walls.
 
 Policy network:
 
@@ -60,6 +71,6 @@ uv run eval --algo ppo --task omni_car_grid_avoidance --sim mujoco \
   training.log_root=logs/graphical training.play_steps=600 training.export_onnx=false
 ```
 
-The viewer shows the rectangular vehicle, obstacle cylinders, the body-centered
-local grid footprint, a green user-command arrow, and a blue executed-velocity
-arrow.
+The viewer shows the rectangular vehicle, circle/box/wall obstacles, the
+body-centered local grid footprint, a green user-command arrow, and a blue
+executed-velocity arrow.
