@@ -166,6 +166,26 @@ uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
 
 更多训练命令、脚本级入口、算法矩阵、续训流程以及 W&B 细节请参阅 [训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)。
 
+## OmniCar 任务
+
+仓库里也包含 `omni_car_grid_avoidance`，这是一个基于 MuJoCo 的矩形全向小车任务。
+策略接收用户意图 `[vx, vy, vyaw]`，并结合局部 `80 x 80` 占据栅格做平滑避障。
+
+```bash
+uv run train --algo ppo --task omni_car_grid_avoidance --sim mujoco
+
+uv run python scripts/visualize_omni_car.py --policy reflex --steps 600
+
+uv run eval --algo ppo --task omni_car_grid_avoidance --sim mujoco \
+  --render-mode interactive \
+  --load-run /absolute/path/to/run_dir \
+  --checkpoint 40
+```
+
+当前调参版本使用 `CNN + MLP` 策略、`24` 帧命令与运动历史、`0.40 s` 指令平滑常数，
+并对 `vx`、`vy`、`vyaw` 的 diff/jerk 分别惩罚。细节见
+[`docs/omni_car_grid_avoidance.md`](docs/omni_car_grid_avoidance.md)。
+
 ## 📚 文档
 
 请使用已发布的 [UniLab 文档](https://unilabsim.github.io/UniLab-doc/)；中文文档入口见 [中文文档索引](https://unilabsim.github.io/UniLab-doc/zh_CN/0-index.html)。高信号入口如下：

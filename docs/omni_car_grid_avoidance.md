@@ -1,98 +1,84 @@
-# Omni Car Grid Avoidance
+# OmniCar Grid Avoidance
 
-`OmniCarGridAvoidance` is a vectorized 2D task for a rectangular omnidirectional
-vehicle under user teleoperation.
+This task models a rectangular omnidirectional car that receives a user command
+`[vx, vy, vyaw]` and must keep that intent when the local grid is safe, while
+deviating smoothly when obstacles block the path.
 
-The user command has three velocity axes: body-frame `x`, body-frame `y`, and
-yaw rate. Each axis is bounded to `[-2, 2]` by default. The policy outputs the
-safe velocity command that the vehicle executes, with the same three dimensions.
+## Observation and action
 
-Observation contract:
+- Grid input: `80 x 80`, `0.05 m` per cell, centered on the robot body frame.
+- Policy input: occupancy grid, current smoothed command, current velocity, last
+  action, command history, velocity history, action history, nearest clearance,
+  and collision flag.
+- Action output: body-frame `vx`, `vy`, `vyaw`.
+- Physical limits are enforced before integration. Tracking smoothness is shaped
+  in reward, while absolute feasibility comes from velocity and acceleration
+  caps.
 
-- `80 x 80` local occupancy grid, flattened to 6400 values.
-- Each cell is `0.05 m`, so the grid covers a `4 m x 4 m` square.
-- The grid origin is the vehicle body center and the grid axes are body-aligned.
-- Low-dimensional state appends user command, current velocity, last action,
-  nearest clearance, and collision flag.
+## Current training profile
 
-Reward contract:
+The MuJoCo owner config lives in
+`conf/ppo/task/omni_car_grid_avoidance/mujoco.yaml`.
 
-- Reward command tracking and projection along the user command.
-- Reward yaw-rate tracking separately.
-- Reward safe response progress when the executed velocity moves closer to the
-  user command, gated down near obstacles so avoidance can override intent.
-- Penalize normalized output velocity jumps independently for `vx`, `vy`, and
-  `vyaw`.
-- Penalize normalized output jerk independently for `vx`, `vy`, and `vyaw`.
-- Penalize low obstacle clearance and collisions.
-- Include short horizon history by stacking command/velocity/action history for
-  smoother policy behavior under non-Markovian operator changes.
+Current defaults in this branch:
 
-Current "aggressive" defaults for this branch raise axis-wise smoothness penalties and
-tracking responsiveness while tightening physical acceleration ceilings:
+- Episode horizon: `60 s`
+- Observation history: `24` frames
+- Command resample interval: `1.5 s`
+- Command smoothing time constant: `0.40 s`
+- PPO rollout: `128` envs, `32` steps per env
+- Policy architecture: `OmniCarGridCNNModel` (`CNN + MLP`)
 
-- `vx/vy/vyaw` diff penalties: `4.5/4.5/6.2`
-- `vx/vy/vyaw` jerk penalties: `1.9/1.9/2.9`
-- response + tracking: `response=4.0`, `intent=10.0`, `intent_projection=3.5`, `yaw_intent=3.0`
-- physical limits: `max_x_accel=max_y_accel=2.2`, `max_yaw_accel=2.8`
-- `max_episode_seconds=20.0` and `obs_history_len=6`.
+Reward shaping emphasizes four things:
 
-Physical limit contract:
+1. Track commanded planar and yaw intent.
+2. Improve response speed when clearance allows.
+3. Penalize per-axis action diff and jerk independently for `vx`, `vy`, `vyaw`.
+4. Preserve clearance and heavily punish collision.
 
-- The environment enforces velocity and acceleration limits before integrating
-  body motion.
-- Speed and acceleration limits are not represented as reward penalties.
-
-Obstacle contract:
-
-- Obstacles are sampled as a configurable mixture of circles, rotated boxes,
-  and long thin wall segments.
-- All obstacle types are rasterized into the same body-centered occupancy grid.
-- Clearance uses circle distance for circles and signed distance to the rotated
-  rectangle for boxes and walls.
-
-Policy network:
-
-- The default PPO owner config uses `OmniCarGridCNNModel`.
-- The first 6400 observation values are reshaped into a `1 x 80 x 80`
-  occupancy image and encoded by a CNN.
-- User command, executed velocity, last action, clearance, and collision state
-  are concatenated with CNN features before the MLP head.
-
-PPO (long-form) command:
+## Training
 
 ```bash
 uv run train --algo ppo --task omni_car_grid_avoidance --sim mujoco \
-  algo.num_envs=128 algo.num_steps_per_env=32 algo.max_iterations=260 \
-  env.max_episode_seconds=20.0 env.obs_history_len=6 \
-  training.no_play=true training.play_render_mode=none training.logger=tensorboard
+  training.logger=tensorboard \
+  algo.num_envs=128 \
+  algo.num_steps_per_env=32
 ```
 
-This smoke run validates integration with the UniLab PPO pipeline. It is not a
-convergence benchmark.
-
-Native GLFW/OpenGL 3D viewer playback:
+If you want a longer run similar to the latest tuning pass:
 
 ```bash
-uv run scripts/visualize_omni_car.py --policy reflex --steps 600
+uv run train --algo ppo --task omni_car_grid_avoidance --sim mujoco \
+  training.logger=tensorboard \
+  algo.num_envs=128 \
+  algo.num_steps_per_env=32 \
+  algo.max_iterations=94
 ```
 
-Checkpoint playback through the PPO eval path:
+## Native viewer
+
+Open the native OpenGL viewer with a hand-authored policy:
+
+```bash
+uv run python scripts/visualize_omni_car.py --policy reflex --steps 600 --seed 7 --obstacles 20
+```
+
+Because the script now has a shebang, this also works after checkout:
+
+```bash
+uv run scripts/visualize_omni_car.py --policy intent --steps 600
+```
+
+## Checkpoint playback
+
+For trained checkpoints, use the UniLab evaluation CLI:
 
 ```bash
 uv run eval --algo ppo --task omni_car_grid_avoidance --sim mujoco \
-  --render-mode interactive --load-run -1 \
-  training.log_root=logs/graphical training.play_steps=600 training.export_onnx=false
+  --render-mode interactive \
+  --load-run /absolute/path/to/run_dir \
+  --checkpoint model_40.pt
 ```
 
-For a concrete checkpoint version (replace `<RUN>` and `--checkpoint` as needed):
-
-```bash
-uv run eval --algo ppo --task omni_car_grid_avoidance --sim mujoco \
-  --render-mode interactive --load-run /absolute/path/to/UniLab/logs/long_cnn_v7_aggressive_history/OmniCarGridAvoidance/2026-... \
-  --checkpoint 260 training.log_root=logs/long_cnn_v7_aggressive_history training.play_steps=800
-```
-
-The viewer shows the rectangular vehicle, circle/box/wall obstacles, the
-body-centered local grid footprint, a green user-command arrow, and a blue
-executed-velocity arrow.
+`--checkpoint` also accepts an iteration number such as `40` when the
+corresponding `model_40.pt` exists under the run directory.

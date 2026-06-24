@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Native 3D viewer for the OmniCarGridAvoidance task.
 
 Usage:
@@ -39,7 +40,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--steps", type=int, default=600, help="Viewer steps to run.")
     parser.add_argument("--seed", type=int, default=1, help="Environment RNG seed.")
-    parser.add_argument("--obstacles", type=int, default=14, help="Number of circular obstacles.")
+    parser.add_argument(
+        "--obstacles",
+        type=int,
+        default=14,
+        help="Number of procedurally sampled obstacles of mixed shapes.",
+    )
     parser.add_argument(
         "--max-speed", type=float, default=2.0, help="Per-axis command/action speed."
     )

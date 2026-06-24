@@ -164,6 +164,28 @@ Use `uv run train` for training, `uv run eval` for checkpoint playback, and `uv 
 
 More training commands, script-level entrypoints, algorithm matrix, resume flow, and W&B details are in the [Training Guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/0-index.html).
 
+## OmniCar Task
+
+The repository also includes `omni_car_grid_avoidance`, a MuJoCo task for a
+rectangular omnidirectional car driven by user intent `[vx, vy, vyaw]` against a
+local `80 x 80` occupancy grid.
+
+```bash
+uv run train --algo ppo --task omni_car_grid_avoidance --sim mujoco
+
+uv run python scripts/visualize_omni_car.py --policy reflex --steps 600
+
+uv run eval --algo ppo --task omni_car_grid_avoidance --sim mujoco \
+  --render-mode interactive \
+  --load-run /absolute/path/to/run_dir \
+  --checkpoint 40
+```
+
+The current tuning profile uses a `CNN + MLP` policy, `24` frames of command and
+motion history, a `0.40 s` command smoothing constant, and independent
+diff/jerk penalties for `vx`, `vy`, and `vyaw`. See
+[`docs/omni_car_grid_avoidance.md`](docs/omni_car_grid_avoidance.md) for details.
+
 ## 📚 Documentation
 
 Use the published [UniLab documentation](https://unilabsim.github.io/UniLab-doc/); start at the [English documentation index](https://unilabsim.github.io/UniLab-doc/en/0-index.html). High-signal entrypoints:
