@@ -32,3 +32,15 @@ uv run train --algo ppo --task omni_car_grid_avoidance --sim mujoco \
 
 This smoke run validates integration with the UniLab PPO pipeline. It is not a
 convergence benchmark.
+
+Native GLFW/OpenGL 3D viewer playback:
+
+```bash
+uv run eval --algo ppo --task omni_car_grid_avoidance --sim mujoco \
+  --render-mode interactive --load-run -1 \
+  training.log_root=logs/graphical training.play_steps=600
+```
+
+The viewer shows the rectangular vehicle, obstacle cylinders, the body-centered
+local grid footprint, a green user-command arrow, and a blue executed-velocity
+arrow.

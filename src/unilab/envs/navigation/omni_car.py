@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
+from os import PathLike
 from typing import Any
 
 import gymnasium as gym
 import numpy as np
 
 from unilab.base import registry
-from unilab.base.base import ABEnv, EnvCfg
+from unilab.base.backend.base import BackendPlayRenderPlan, normalize_play_render_mode
+from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
 from unilab.base.np_env import NpEnvState
 from unilab.dtype_config import get_global_dtype
 
@@ -271,6 +274,108 @@ class OmniCarGridAvoidanceEnv(ABEnv):
     def set_nan_guard(self, guard: Any) -> None:
         del guard
 
+    @property
+    def play_capabilities(self) -> EnvPlayCapabilities:
+        return EnvPlayCapabilities(supports_native_interactive_renderer=True)
+
+    def resolve_play_render_plan(
+        self,
+        *,
+        play_render_mode: str | None,
+        play_steps: int | None,
+        output_video: str | PathLike[str] | None,
+    ) -> BackendPlayRenderPlan:
+        mode = normalize_play_render_mode(play_render_mode)
+        effective_mode = "interactive" if mode == "auto" else mode
+        if effective_mode == "none":
+            return BackendPlayRenderPlan(
+                mode=effective_mode,
+                headless=True,
+                record_video=False,
+                num_steps=None,
+                output_video=None,
+            )
+        if effective_mode == "record":
+            raise NotImplementedError(
+                "OmniCarGridAvoidance currently supports native interactive MuJoCo "
+                "playback, not headless video recording."
+            )
+        return BackendPlayRenderPlan(
+            mode="interactive",
+            headless=False,
+            record_video=False,
+            num_steps=int(play_steps) if play_steps is not None else None,
+            output_video=None,
+        )
+
+    def run_playback(
+        self,
+        *,
+        initialize: Any,
+        step: Any,
+        num_steps: int | None,
+        output_video: str | PathLike[str] | None = None,
+        render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
+        headless: bool | None = None,
+        record_video: bool | None = None,
+        frame_state_getter: Any = None,
+        camera_kwargs: dict[str, Any] | None = None,
+        extra_data_getter: Any = None,
+    ) -> str | None:
+        del output_video, render_spacing, render_offset_mode, frame_state_getter, extra_data_getter
+        if headless or record_video:
+            raise NotImplementedError("OmniCarGridAvoidance playback is interactive-only.")
+
+        obs = initialize()
+        print("[omni_car] Opening native OpenGL viewer. Close the window or press Esc to quit.")
+        self._run_opengl_playback(obs, step, num_steps=num_steps, camera_kwargs=camera_kwargs)
+        return None
+
+    def _run_opengl_playback(
+        self,
+        obs: Any,
+        step: Any,
+        *,
+        num_steps: int | None,
+        camera_kwargs: dict[str, Any] | None,
+    ) -> None:
+        import glfw
+        from OpenGL import GL, GLU
+
+        if not glfw.init():
+            raise RuntimeError("Failed to initialize GLFW for OmniCarGridAvoidance viewer.")
+        window = None
+        try:
+            glfw.window_hint(glfw.SAMPLES, 4)
+            window = glfw.create_window(1280, 800, "UniLab OmniCar Grid Avoidance", None, None)
+            if window is None:
+                raise RuntimeError("Failed to create GLFW window for OmniCarGridAvoidance viewer.")
+            glfw.make_context_current(window)
+            glfw.swap_interval(1)
+            GL.glEnable(GL.GL_DEPTH_TEST)
+            GL.glEnable(GL.GL_BLEND)
+            GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
+            GL.glClearColor(0.06, 0.07, 0.08, 1.0)
+
+            step_count = 0
+            while not glfw.window_should_close(window) and (
+                num_steps is None or step_count < num_steps
+            ):
+                start = time.perf_counter()
+                self._draw_opengl_frame(GL, GLU, glfw, window, camera_kwargs)
+                glfw.swap_buffers(window)
+                glfw.poll_events()
+                obs = step(obs)
+                step_count += 1
+                sleep_s = self._cfg.ctrl_dt - (time.perf_counter() - start)
+                if sleep_s > 0.0:
+                    time.sleep(sleep_s)
+        finally:
+            if window is not None:
+                glfw.destroy_window(window)
+            glfw.terminate()
+
     def _sample_commands(self, count: int) -> np.ndarray:
         cmd = self._cfg.command
         sampled = self._rng.uniform(
@@ -434,3 +539,372 @@ class OmniCarGridAvoidanceEnv(ABEnv):
     @staticmethod
     def _wrap_angle(angle: np.ndarray) -> np.ndarray:
         return ((angle + np.pi) % (2.0 * np.pi) - np.pi).astype(get_global_dtype())
+
+    def _viewer_xml(self) -> str:
+        return f"""
+<mujoco model="omni_car_grid_avoidance_viewer">
+  <option timestep="{self._cfg.ctrl_dt}" gravity="0 0 -9.81"/>
+  <visual>
+    <quality shadowsize="2048"/>
+    <map znear="0.01" zfar="50"/>
+  </visual>
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" width="512" height="512"
+             rgb1=".18 .20 .22" rgb2=".24 .27 .30"/>
+    <material name="grid" texture="grid" texrepeat="8 8" reflectance="0.05"/>
+  </asset>
+  <worldbody>
+    <light pos="0 -4 6" dir="0 1 -1" diffuse="0.9 0.9 0.9"/>
+    <camera name="overview" pos="0 -5 4" xyaxes="1 0 0 0 0.65 0.76"/>
+    <geom name="floor" type="plane" size="8 8 0.01" material="grid"/>
+  </worldbody>
+</mujoco>
+"""
+
+    def _draw_opengl_frame(
+        self,
+        GL: Any,
+        GLU: Any,
+        glfw: Any,
+        window: Any,
+        camera_kwargs: dict[str, Any] | None,
+    ) -> None:
+        width, height = glfw.get_framebuffer_size(window)
+        width = max(1, int(width))
+        height = max(1, int(height))
+        GL.glViewport(0, 0, width, height)
+        GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
+        GL.glMatrixMode(GL.GL_PROJECTION)
+        GL.glLoadIdentity()
+        GLU.gluPerspective(45.0, width / height, 0.05, 100.0)
+        GL.glMatrixMode(GL.GL_MODELVIEW)
+        GL.glLoadIdentity()
+
+        kwargs = camera_kwargs or {}
+        distance = float(kwargs.get("cam_distance", 5.0) or 5.0)
+        pose = self._pose[0]
+        eye = np.array([pose[0] - distance * 0.55, pose[1] - distance * 0.85, distance * 0.62])
+        center = np.array([pose[0], pose[1], 0.0])
+        GLU.gluLookAt(*eye, *center, 0.0, 0.0, 1.0)
+
+        self._gl_draw_floor(GL)
+        self._gl_draw_grid_footprint(GL, pose)
+        self._gl_draw_obstacles(GL)
+        self._gl_draw_car(GL, pose)
+        self._gl_draw_arrows(GL, pose)
+
+    def _gl_draw_floor(self, GL: Any) -> None:
+        extent = 6
+        GL.glLineWidth(1.0)
+        GL.glColor4f(0.28, 0.31, 0.34, 1.0)
+        GL.glBegin(GL.GL_LINES)
+        for i in range(-extent, extent + 1):
+            GL.glVertex3f(float(i), -float(extent), 0.0)
+            GL.glVertex3f(float(i), float(extent), 0.0)
+            GL.glVertex3f(-float(extent), float(i), 0.0)
+            GL.glVertex3f(float(extent), float(i), 0.0)
+        GL.glEnd()
+
+    def _gl_draw_grid_footprint(self, GL: Any, pose: np.ndarray) -> None:
+        GL.glPushMatrix()
+        GL.glTranslatef(float(pose[0]), float(pose[1]), 0.01)
+        GL.glRotatef(float(np.degrees(pose[2])), 0.0, 0.0, 1.0)
+        half = float(self._grid_extent)
+        GL.glColor4f(0.1, 0.35, 1.0, 0.12)
+        GL.glBegin(GL.GL_QUADS)
+        GL.glVertex3f(-half, -half, 0.0)
+        GL.glVertex3f(half, -half, 0.0)
+        GL.glVertex3f(half, half, 0.0)
+        GL.glVertex3f(-half, half, 0.0)
+        GL.glEnd()
+        GL.glLineWidth(2.0)
+        GL.glColor4f(0.2, 0.55, 1.0, 0.65)
+        GL.glBegin(GL.GL_LINE_LOOP)
+        GL.glVertex3f(-half, -half, 0.012)
+        GL.glVertex3f(half, -half, 0.012)
+        GL.glVertex3f(half, half, 0.012)
+        GL.glVertex3f(-half, half, 0.012)
+        GL.glEnd()
+        GL.glPopMatrix()
+
+    def _gl_draw_obstacles(self, GL: Any) -> None:
+        GL.glColor4f(0.95, 0.24, 0.12, 0.95)
+        for center, radius in zip(self._obstacle_xy[0], self._obstacle_radius[0]):
+            self._gl_cylinder(
+                GL,
+                x=float(center[0]),
+                y=float(center[1]),
+                radius=float(radius),
+                height=0.32,
+            )
+
+    def _gl_draw_car(self, GL: Any, pose: np.ndarray) -> None:
+        GL.glPushMatrix()
+        GL.glTranslatef(float(pose[0]), float(pose[1]), 0.10)
+        GL.glRotatef(float(np.degrees(pose[2])), 0.0, 0.0, 1.0)
+        GL.glColor4f(0.15, 0.45, 1.0, 1.0)
+        self._gl_box(
+            GL,
+            half_x=self._cfg.body.length_m * 0.5,
+            half_y=self._cfg.body.width_m * 0.5,
+            half_z=0.10,
+        )
+        GL.glColor4f(0.95, 0.95, 0.95, 1.0)
+        GL.glBegin(GL.GL_TRIANGLES)
+        GL.glVertex3f(self._cfg.body.length_m * 0.30, 0.0, 0.14)
+        GL.glVertex3f(self._cfg.body.length_m * 0.04, self._cfg.body.width_m * 0.22, 0.14)
+        GL.glVertex3f(self._cfg.body.length_m * 0.04, -self._cfg.body.width_m * 0.22, 0.14)
+        GL.glEnd()
+        GL.glPopMatrix()
+
+    def _gl_draw_arrows(self, GL: Any, pose: np.ndarray) -> None:
+        origin = np.array([pose[0], pose[1], 0.34], dtype=np.float64)
+        command = self._body_velocity_to_world(0, self._commands[0, :2])
+        velocity = self._body_velocity_to_world(0, self._velocity[0, :2])
+        self._gl_arrow(
+            GL,
+            origin + np.array([0.0, 0.0, 0.08]),
+            origin + np.array([command[0], command[1], 0.08]) * 0.45,
+            rgba=(0.1, 0.95, 0.2, 1.0),
+        )
+        self._gl_arrow(
+            GL,
+            origin - np.array([0.0, 0.0, 0.08]),
+            origin - np.array([0.0, 0.0, 0.08]) + np.array([velocity[0], velocity[1], 0.0]) * 0.45,
+            rgba=(0.2, 0.55, 1.0, 1.0),
+        )
+
+    @staticmethod
+    def _gl_box(GL: Any, *, half_x: float, half_y: float, half_z: float) -> None:
+        x, y, z = float(half_x), float(half_y), float(half_z)
+        vertices = [
+            (-x, -y, -z),
+            (x, -y, -z),
+            (x, y, -z),
+            (-x, y, -z),
+            (-x, -y, z),
+            (x, -y, z),
+            (x, y, z),
+            (-x, y, z),
+        ]
+        faces = [
+            (0, 1, 2, 3),
+            (4, 7, 6, 5),
+            (0, 4, 5, 1),
+            (1, 5, 6, 2),
+            (2, 6, 7, 3),
+            (3, 7, 4, 0),
+        ]
+        GL.glBegin(GL.GL_QUADS)
+        for face in faces:
+            for idx in face:
+                GL.glVertex3f(*vertices[idx])
+        GL.glEnd()
+
+    @staticmethod
+    def _gl_cylinder(
+        GL: Any,
+        *,
+        x: float,
+        y: float,
+        radius: float,
+        height: float,
+        segments: int = 32,
+    ) -> None:
+        z0 = 0.0
+        z1 = float(height)
+        GL.glBegin(GL.GL_QUAD_STRIP)
+        for i in range(segments + 1):
+            angle = 2.0 * np.pi * i / segments
+            px = x + radius * np.cos(angle)
+            py = y + radius * np.sin(angle)
+            GL.glVertex3f(float(px), float(py), z0)
+            GL.glVertex3f(float(px), float(py), z1)
+        GL.glEnd()
+        for z in (z0, z1):
+            GL.glBegin(GL.GL_TRIANGLE_FAN)
+            GL.glVertex3f(x, y, z)
+            for i in range(segments + 1):
+                angle = 2.0 * np.pi * i / segments
+                GL.glVertex3f(
+                    float(x + radius * np.cos(angle)),
+                    float(y + radius * np.sin(angle)),
+                    z,
+                )
+            GL.glEnd()
+
+    @staticmethod
+    def _gl_arrow(GL: Any, start: np.ndarray, end: np.ndarray, *, rgba: tuple[float, ...]) -> None:
+        GL.glColor4f(*rgba)
+        GL.glLineWidth(4.0)
+        GL.glBegin(GL.GL_LINES)
+        GL.glVertex3f(float(start[0]), float(start[1]), float(start[2]))
+        GL.glVertex3f(float(end[0]), float(end[1]), float(end[2]))
+        GL.glEnd()
+
+    def _configure_viewer_camera(self, viewer: Any, camera_kwargs: dict[str, Any] | None) -> None:
+        if not hasattr(viewer, "cam"):
+            return
+        kwargs = camera_kwargs or {}
+        viewer.cam.distance = float(kwargs.get("cam_distance", 5.0))
+        viewer.cam.elevation = float(kwargs.get("cam_elevation", -55.0))
+        viewer.cam.azimuth = float(kwargs.get("cam_azimuth", 90.0))
+        viewer.cam.lookat[0] = float(self._pose[0, 0])
+        viewer.cam.lookat[1] = float(self._pose[0, 1])
+        viewer.cam.lookat[2] = 0.0
+
+    def _draw_viewer_scene(self, viewer: Any, mujoco: Any) -> None:
+        scene = viewer.user_scn
+        scene.ngeom = 0
+        env_id = 0
+        pose = self._pose[env_id]
+        yaw = float(pose[2])
+        rot = self._yaw_matrix(yaw)
+        car_pos = np.array([pose[0], pose[1], 0.08], dtype=np.float64)
+
+        if hasattr(viewer, "cam"):
+            viewer.cam.lookat[0] = float(pose[0])
+            viewer.cam.lookat[1] = float(pose[1])
+
+        self._add_box(
+            scene,
+            mujoco,
+            pos=np.array([pose[0], pose[1], 0.012], dtype=np.float64),
+            size=np.array([self._grid_extent, self._grid_extent, 0.004], dtype=np.float64),
+            mat=rot,
+            rgba=np.array([0.15, 0.35, 1.0, 0.12], dtype=np.float32),
+        )
+        self._add_box(
+            scene,
+            mujoco,
+            pos=car_pos,
+            size=np.array(
+                [self._cfg.body.length_m * 0.5, self._cfg.body.width_m * 0.5, 0.08],
+                dtype=np.float64,
+            ),
+            mat=rot,
+            rgba=np.array([0.15, 0.45, 1.0, 1.0], dtype=np.float32),
+        )
+
+        for center, radius in zip(self._obstacle_xy[env_id], self._obstacle_radius[env_id]):
+            self._add_cylinder(
+                scene,
+                mujoco,
+                pos=np.array([center[0], center[1], 0.16], dtype=np.float64),
+                radius=float(radius),
+                half_height=0.16,
+                rgba=np.array([0.95, 0.25, 0.12, 0.9], dtype=np.float32),
+            )
+
+        command_world = self._body_velocity_to_world(env_id, self._commands[env_id, :2])
+        velocity_world = self._body_velocity_to_world(env_id, self._velocity[env_id, :2])
+        arrow_origin = np.array([pose[0], pose[1], 0.28], dtype=np.float64)
+        self._add_arrow(
+            scene,
+            mujoco,
+            arrow_origin + np.array([0.0, 0.0, 0.08]),
+            arrow_origin + np.array([command_world[0], command_world[1], 0.08]) * 0.4,
+            width=0.035,
+            rgba=np.array([0.1, 0.95, 0.2, 1.0], dtype=np.float32),
+        )
+        self._add_arrow(
+            scene,
+            mujoco,
+            arrow_origin - np.array([0.0, 0.0, 0.08]),
+            arrow_origin
+            - np.array([0.0, 0.0, 0.08])
+            + np.array([velocity_world[0], velocity_world[1], 0.0]) * 0.4,
+            width=0.025,
+            rgba=np.array([0.2, 0.55, 1.0, 1.0], dtype=np.float32),
+        )
+
+    def _body_velocity_to_world(self, env_id: int, velocity_xy: np.ndarray) -> np.ndarray:
+        yaw = float(self._pose[env_id, 2])
+        c = np.cos(yaw)
+        s = np.sin(yaw)
+        return np.array(
+            [c * velocity_xy[0] - s * velocity_xy[1], s * velocity_xy[0] + c * velocity_xy[1]],
+            dtype=np.float64,
+        )
+
+    @staticmethod
+    def _yaw_matrix(yaw: float) -> np.ndarray:
+        c = np.cos(yaw)
+        s = np.sin(yaw)
+        return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]], dtype=np.float64)
+
+    @staticmethod
+    def _add_box(
+        scene: Any,
+        mujoco: Any,
+        *,
+        pos: np.ndarray,
+        size: np.ndarray,
+        mat: np.ndarray,
+        rgba: np.ndarray,
+    ) -> bool:
+        if scene.ngeom >= scene.maxgeom:
+            return False
+        mujoco.mjv_initGeom(
+            scene.geoms[scene.ngeom],
+            mujoco.mjtGeom.mjGEOM_BOX,
+            size,
+            pos,
+            mat.reshape(-1),
+            rgba,
+        )
+        scene.ngeom += 1
+        return True
+
+    @staticmethod
+    def _add_cylinder(
+        scene: Any,
+        mujoco: Any,
+        *,
+        pos: np.ndarray,
+        radius: float,
+        half_height: float,
+        rgba: np.ndarray,
+    ) -> bool:
+        if scene.ngeom >= scene.maxgeom:
+            return False
+        mujoco.mjv_initGeom(
+            scene.geoms[scene.ngeom],
+            mujoco.mjtGeom.mjGEOM_CYLINDER,
+            np.array([radius, half_height, 0.0], dtype=np.float64),
+            pos,
+            np.eye(3, dtype=np.float64).reshape(-1),
+            rgba,
+        )
+        scene.ngeom += 1
+        return True
+
+    @staticmethod
+    def _add_arrow(
+        scene: Any,
+        mujoco: Any,
+        start: np.ndarray,
+        end: np.ndarray,
+        *,
+        width: float,
+        rgba: np.ndarray,
+    ) -> bool:
+        if scene.ngeom >= scene.maxgeom:
+            return False
+        mujoco.mjv_initGeom(
+            scene.geoms[scene.ngeom],
+            mujoco.mjtGeom.mjGEOM_ARROW,
+            np.zeros((3,), dtype=np.float64),
+            np.zeros((3,), dtype=np.float64),
+            np.eye(3, dtype=np.float64).reshape(-1),
+            rgba,
+        )
+        mujoco.mjv_connector(
+            scene.geoms[scene.ngeom],
+            mujoco.mjtGeom.mjGEOM_ARROW,
+            width,
+            np.asarray(start, dtype=np.float64),
+            np.asarray(end, dtype=np.float64),
+        )
+        scene.ngeom += 1
+        return True
