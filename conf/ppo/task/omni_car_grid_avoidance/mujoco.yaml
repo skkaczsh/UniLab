@@ -17,11 +17,24 @@ algo:
       - actor
     critic:
       - critic
-  policy:
-    actor_hidden_dims: [256, 128, 64]
-    critic_hidden_dims: [256, 128, 64]
+  actor:
+    class_name: unilab.algos.torch.omni_car:OmniCarGridCNNModel
+    hidden_dims: [256, 128]
     activation: elu
-    init_noise_std: 0.5
+    obs_normalization: true
+    grid_size: 80
+    cnn_feature_dim: 128
+    distribution_cfg:
+      class_name: rsl_rl.modules.distribution.GaussianDistribution
+      init_std: 0.5
+      std_type: scalar
+  critic:
+    class_name: unilab.algos.torch.omni_car:OmniCarGridCNNModel
+    hidden_dims: [256, 128]
+    activation: elu
+    obs_normalization: true
+    grid_size: 80
+    cnn_feature_dim: 128
   algorithm:
     num_learning_epochs: 2
     num_mini_batches: 4
@@ -57,8 +70,13 @@ env:
     yaw_intent: 0.4
     clearance: 0.8
     collision: -8.0
-    action_rate: -0.03
-    speed_limit: -0.4
+  physical_limits:
+    max_x_speed: 2.0
+    max_y_speed: 2.0
+    max_yaw_rate: 2.0
+    max_x_accel: 3.0
+    max_y_accel: 3.0
+    max_yaw_accel: 4.0
 
 reward:
   intent: 2.0
@@ -66,5 +84,3 @@ reward:
   yaw_intent: 0.4
   clearance: 0.8
   collision: -8.0
-  action_rate: -0.03
-  speed_limit: -0.4

@@ -19,8 +19,21 @@ Reward contract:
 
 - Reward command tracking and projection along the user command.
 - Reward yaw-rate tracking separately.
-- Penalize low obstacle clearance, collisions, action rate, and speed-limit
-  violations.
+- Penalize low obstacle clearance and collisions.
+
+Physical limit contract:
+
+- The environment enforces velocity and acceleration limits before integrating
+  body motion.
+- Speed and acceleration limits are not represented as reward penalties.
+
+Policy network:
+
+- The default PPO owner config uses `OmniCarGridCNNModel`.
+- The first 6400 observation values are reshaped into a `1 x 80 x 80`
+  occupancy image and encoded by a CNN.
+- User command, executed velocity, last action, clearance, and collision state
+  are concatenated with CNN features before the MLP head.
 
 PPO smoke command:
 

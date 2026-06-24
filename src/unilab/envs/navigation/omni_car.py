@@ -53,8 +53,16 @@ class OmniCarRewardCfg:
     yaw_intent: float = 0.4
     clearance: float = 0.8
     collision: float = -8.0
-    action_rate: float = -0.03
-    speed_limit: float = -0.4
+
+
+@dataclass
+class OmniCarPhysicalLimitCfg:
+    max_x_speed: float = 2.0
+    max_y_speed: float = 2.0
+    max_yaw_rate: float = 2.0
+    max_x_accel: float = 3.0
+    max_y_accel: float = 3.0
+    max_yaw_accel: float = 4.0
 
 
 @registry.envcfg("OmniCarGridAvoidance")
@@ -70,6 +78,7 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
     body: OmniCarBodyCfg = field(default_factory=OmniCarBodyCfg)
     obstacles: OmniCarObstacleCfg = field(default_factory=OmniCarObstacleCfg)
     reward: OmniCarRewardCfg = field(default_factory=OmniCarRewardCfg)
+    physical_limits: OmniCarPhysicalLimitCfg = field(default_factory=OmniCarPhysicalLimitCfg)
     reward_config: dict[str, Any] | None = None
     seed: int | None = None
 
@@ -87,6 +96,11 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
             raise ValueError("obstacles.radius_min_m must be positive")
         if self.obstacles.radius_max_m < self.obstacles.radius_min_m:
             raise ValueError("obstacles.radius_max_m must be >= radius_min_m")
+        limits = self.physical_limits
+        if min(limits.max_x_speed, limits.max_y_speed, limits.max_yaw_rate) <= 0.0:
+            raise ValueError("physical velocity limits must be positive")
+        if min(limits.max_x_accel, limits.max_y_accel, limits.max_yaw_accel) <= 0.0:
+            raise ValueError("physical acceleration limits must be positive")
 
 
 @registry.env("OmniCarGridAvoidance", sim_backend="mujoco")
@@ -172,8 +186,10 @@ class OmniCarGridAvoidanceEnv(ABEnv):
 
     @property
     def action_space(self) -> gym.Space:
-        cmd = self._cfg.command
-        high = np.asarray([cmd.max_x_speed, cmd.max_y_speed, cmd.max_yaw_rate], dtype=np.float32)
+        limits = self._cfg.physical_limits
+        high = np.asarray(
+            [limits.max_x_speed, limits.max_y_speed, limits.max_yaw_rate], dtype=np.float32
+        )
         return gym.spaces.Box(-high, high, dtype=np.float32)
 
     def init_state(self) -> NpEnvState:
@@ -208,8 +224,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             raise ValueError(f"Expected action shape {(self._num_envs, 3)}, got {actions.shape}")
         self._state.info["_final_observation"] = np.zeros((self._num_envs,), dtype=bool)
 
-        clipped = self._clip_action(actions)
-        self._integrate(clipped)
+        limited = self._apply_physical_limits(actions)
+        self._integrate(limited)
         self._state.info["steps"] += 1
 
         resample_steps = max(
@@ -223,7 +239,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
 
         self._nearest_clearance = self._compute_clearance(np.arange(self._num_envs, dtype=np.int32))
         self._collision = self._nearest_clearance <= 0.0
-        reward = self._compute_reward(clipped)
+        reward = self._compute_reward(limited)
         terminated = self._collision.copy()
         self._truncated.fill(False)
         if self._cfg.max_episode_steps is not None:
@@ -240,7 +256,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         if np.any(done):
             final_observation = {key: value.copy() for key, value in obs.items()}
 
-        self._last_action = clipped.copy()
+        self._last_action = limited.copy()
         self._state = self._state.replace(
             obs=obs,
             reward=reward,
@@ -411,9 +427,18 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             self._obstacle_xy[env_id] = xy.astype(self._dtype)
             self._obstacle_radius[env_id] = radii.astype(self._dtype)
 
-    def _clip_action(self, actions: np.ndarray) -> np.ndarray:
-        high = self.action_space.high.astype(self._dtype)
-        return np.clip(actions, -high, high).astype(self._dtype)
+    def _apply_physical_limits(self, actions: np.ndarray) -> np.ndarray:
+        limits = self._cfg.physical_limits
+        high = np.asarray(
+            [limits.max_x_speed, limits.max_y_speed, limits.max_yaw_rate], dtype=self._dtype
+        )
+        accel = np.asarray(
+            [limits.max_x_accel, limits.max_y_accel, limits.max_yaw_accel], dtype=self._dtype
+        )
+        target = np.clip(actions, -high, high).astype(self._dtype)
+        delta_limit = accel * self._cfg.ctrl_dt
+        delta = np.clip(target - self._velocity, -delta_limit, delta_limit)
+        return np.clip(self._velocity + delta, -high, high).astype(self._dtype)
 
     def _integrate(self, action: np.ndarray) -> None:
         yaw = self._pose[:, 2]
@@ -515,16 +540,11 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         yaw_error = np.abs(action[:, 2] - cmd[:, 2]) / max(self._cfg.command.max_yaw_rate, 1e-6)
         yaw_reward = np.exp(-yaw_error * yaw_error)
         clearance_penalty = np.exp(-np.maximum(self._nearest_clearance, 0.0) / 0.35)
-        action_rate = np.linalg.norm(action - self._last_action, axis=1)
-        high = self.action_space.high.astype(self._dtype)
-        speed_violation = np.maximum(np.abs(action) - high, 0.0).sum(axis=1)
         reward = (
             cfg.intent * intent_reward
             + cfg.intent_projection * projection
             + cfg.yaw_intent * yaw_reward
             - cfg.clearance * clearance_penalty
-            + cfg.action_rate * action_rate
-            + cfg.speed_limit * speed_violation
             + cfg.collision * self._collision.astype(self._dtype)
         )
         return reward.astype(self._dtype)
