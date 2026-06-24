@@ -25,6 +25,17 @@ Reward contract:
   `vyaw`.
 - Penalize normalized output jerk independently for `vx`, `vy`, and `vyaw`.
 - Penalize low obstacle clearance and collisions.
+- Include short horizon history by stacking command/velocity/action history for
+  smoother policy behavior under non-Markovian operator changes.
+
+Current "aggressive" defaults for this branch raise axis-wise smoothness penalties and
+tracking responsiveness while tightening physical acceleration ceilings:
+
+- `vx/vy/vyaw` diff penalties: `4.5/4.5/6.2`
+- `vx/vy/vyaw` jerk penalties: `1.9/1.9/2.9`
+- response + tracking: `response=4.0`, `intent=10.0`, `intent_projection=3.5`, `yaw_intent=3.0`
+- physical limits: `max_x_accel=max_y_accel=2.2`, `max_yaw_accel=2.8`
+- `max_episode_seconds=20.0` and `obs_history_len=6`.
 
 Physical limit contract:
 
@@ -48,11 +59,12 @@ Policy network:
 - User command, executed velocity, last action, clearance, and collision state
   are concatenated with CNN features before the MLP head.
 
-PPO smoke command:
+PPO (long-form) command:
 
 ```bash
 uv run train --algo ppo --task omni_car_grid_avoidance --sim mujoco \
-  algo.num_envs=8 algo.num_steps_per_env=4 algo.max_iterations=1 \
+  algo.num_envs=128 algo.num_steps_per_env=32 algo.max_iterations=260 \
+  env.max_episode_seconds=20.0 env.obs_history_len=6 \
   training.no_play=true training.play_render_mode=none training.logger=tensorboard
 ```
 
@@ -71,6 +83,14 @@ Checkpoint playback through the PPO eval path:
 uv run eval --algo ppo --task omni_car_grid_avoidance --sim mujoco \
   --render-mode interactive --load-run -1 \
   training.log_root=logs/graphical training.play_steps=600 training.export_onnx=false
+```
+
+For a concrete checkpoint version (replace `<RUN>` and `--checkpoint` as needed):
+
+```bash
+uv run eval --algo ppo --task omni_car_grid_avoidance --sim mujoco \
+  --render-mode interactive --load-run /absolute/path/to/UniLab/logs/long_cnn_v7_aggressive_history/OmniCarGridAvoidance/2026-... \
+  --checkpoint 260 training.log_root=logs/long_cnn_v7_aggressive_history training.play_steps=800
 ```
 
 The viewer shows the rectangular vehicle, circle/box/wall obstacles, the

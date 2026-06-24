@@ -7,9 +7,9 @@ training:
   play_steps: 0
 
 algo:
-  num_envs: 64
-  num_steps_per_env: 16
-  max_iterations: 20
+  num_envs: 128
+  num_steps_per_env: 32
+  max_iterations: 260
   save_interval: 10
   empirical_normalization: true
   obs_groups:
@@ -43,7 +43,8 @@ algo:
     entropy_coef: 0.005
 
 env:
-  max_episode_seconds: 12.0
+  max_episode_seconds: 20.0
+  obs_history_len: 6
   sim_dt: 0.05
   ctrl_dt: 0.05
   command:
@@ -51,6 +52,7 @@ env:
     max_y_speed: 2.0
     max_yaw_rate: 2.0
     resample_interval_s: 2.0
+    deadband: 0.12
   grid:
     size: 80
     cell_size: 0.05
@@ -59,53 +61,53 @@ env:
     length_m: 0.48
     width_m: 0.32
   obstacles:
-    count: 14
+    count: 22
     radius_min_m: 0.10
-    radius_max_m: 0.28
+    radius_max_m: 0.38
     box_length_min_m: 0.22
-    box_length_max_m: 0.75
+    box_length_max_m: 1.24
     box_width_min_m: 0.12
-    box_width_max_m: 0.45
+    box_width_max_m: 0.86
     wall_length_min_m: 1.0
-    wall_length_max_m: 2.4
+    wall_length_max_m: 3.8
     wall_width_min_m: 0.08
-    wall_width_max_m: 0.18
-    circle_fraction: 0.50
+    wall_width_max_m: 0.28
+    circle_fraction: 0.35
     box_fraction: 0.35
-    wall_fraction: 0.15
-    spawn_radius_m: 3.2
-    keepout_radius_m: 0.75
+    wall_fraction: 0.30
+    spawn_radius_m: 3.8
+    keepout_radius_m: 0.70
   reward:
-    intent: 5.0
-    intent_projection: 1.5
-    yaw_intent: 1.2
-    response: 1.5
-    vx_diff: 1.2
-    vy_diff: 1.2
-    vyaw_diff: 1.8
-    vx_jerk: 0.5
-    vy_jerk: 0.5
-    vyaw_jerk: 0.8
-    clearance: 0.8
-    collision: -8.0
+    intent: 10.0
+    intent_projection: 3.5
+    yaw_intent: 3.0
+    response: 4.0
+    vx_diff: 4.5
+    vy_diff: 4.5
+    vyaw_diff: 6.2
+    vx_jerk: 1.9
+    vy_jerk: 1.9
+    vyaw_jerk: 2.9
+    clearance: 1.1
+    collision: -10.0
   physical_limits:
     max_x_speed: 2.0
     max_y_speed: 2.0
     max_yaw_rate: 2.0
-    max_x_accel: 3.0
-    max_y_accel: 3.0
-    max_yaw_accel: 4.0
+    max_x_accel: 2.2
+    max_y_accel: 2.2
+    max_yaw_accel: 2.8
 
 reward:
-  intent: 5.0
-  intent_projection: 1.5
-  yaw_intent: 1.2
-  response: 1.5
-  vx_diff: 1.2
-  vy_diff: 1.2
-  vyaw_diff: 1.8
-  vx_jerk: 0.5
-  vy_jerk: 0.5
-  vyaw_jerk: 0.8
-  clearance: 0.8
-  collision: -8.0
+  intent: 10.0
+  intent_projection: 3.5
+  yaw_intent: 3.0
+  response: 4.0
+  vx_diff: 4.5
+  vy_diff: 4.5
+  vyaw_diff: 6.2
+  vx_jerk: 1.9
+  vy_jerk: 1.9
+  vyaw_jerk: 2.9
+  clearance: 1.1
+  collision: -10.0

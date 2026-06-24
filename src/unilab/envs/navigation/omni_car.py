@@ -91,6 +91,7 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
     sim_dt: float = 0.05
     ctrl_dt: float = 0.05
     max_episode_seconds: float = 12.0
+    obs_history_len: int = 1
     command: OmniCarCommandCfg = field(default_factory=OmniCarCommandCfg)
     grid: OmniCarGridCfg = field(default_factory=OmniCarGridCfg)
     body: OmniCarBodyCfg = field(default_factory=OmniCarBodyCfg)
@@ -129,6 +130,8 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
         )
         if min(fractions) < 0.0 or sum(fractions) <= 0.0:
             raise ValueError("obstacle type fractions must be non-negative with positive sum")
+        if self.obs_history_len <= 0:
+            raise ValueError("obs_history_len must be a positive integer")
         limits = self.physical_limits
         if min(limits.max_x_speed, limits.max_y_speed, limits.max_yaw_rate) <= 0.0:
             raise ValueError("physical velocity limits must be positive")
@@ -164,6 +167,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._apply_reward_config()
         self._num_envs = int(num_envs)
         self._state: NpEnvState | None = None
+        self._obs_history_len = int(max(cfg.obs_history_len, 1))
         self._rng = np.random.default_rng(cfg.seed)
         self._dtype = get_global_dtype()
         self._pose = np.zeros((self._num_envs, 3), dtype=self._dtype)
@@ -171,6 +175,15 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._last_action = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._last_action_delta = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._commands = np.zeros((self._num_envs, 3), dtype=self._dtype)
+        self._command_history = np.zeros(
+            (self._num_envs, self._obs_history_len, 3), dtype=self._dtype
+        )
+        self._velocity_history = np.zeros(
+            (self._num_envs, self._obs_history_len, 3), dtype=self._dtype
+        )
+        self._action_history = np.zeros(
+            (self._num_envs, self._obs_history_len, 3), dtype=self._dtype
+        )
         self._obstacle_xy = np.zeros((self._num_envs, cfg.obstacles.count, 2), dtype=self._dtype)
         self._obstacle_radius = np.zeros((self._num_envs, cfg.obstacles.count), dtype=self._dtype)
         self._obstacle_half_extents = np.zeros(
@@ -220,9 +233,13 @@ class OmniCarGridAvoidanceEnv(ABEnv):
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
-        # occupancy grid + command + current velocity + last action + clearance + collision flag
+        # occupancy grid + command + current velocity + last action + history + clearance + collision flag
         grid_dim = self._cfg.grid.size * self._cfg.grid.size
-        return {"obs": grid_dim + 3 + 3 + 3 + 2, "critic": grid_dim + 3 + 3 + 3 + 2 + 3}
+        history_dim = self._obs_history_len * 9
+        return {
+            "obs": grid_dim + 3 + 3 + 3 + history_dim + 2,
+            "critic": grid_dim + 3 + 3 + 3 + history_dim + 2 + 3,
+        }
 
     @property
     def observation_space(self) -> gym.Space:
@@ -255,6 +272,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._last_action[env_indices] = 0.0
         self._last_action_delta[env_indices] = 0.0
         self._commands[env_indices] = self._sample_commands(env_indices.size)
+        self._seed_history(env_indices)
         self._sample_obstacles(env_indices)
         self._collision[env_indices] = False
         self._tracking_error[env_indices] = 0.0
@@ -299,6 +317,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 self._state.info["steps"], self._cfg.max_episode_steps, out=self._truncated
             )
         done = terminated | self._truncated
+
+        self._append_history()
 
         obs = self._build_obs(np.arange(self._num_envs, dtype=np.int32))
         self._state.info["commands"] = self._commands.copy()
@@ -461,8 +481,37 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             size=(count, 3),
         ).astype(self._dtype)
         small = np.linalg.norm(sampled[:, :2], axis=1) < cmd.deadband
-        sampled[small, 0] = cmd.max_x_speed * 0.5
+        sampled[small, :2] = 0.0
         return sampled
+
+    def _seed_history(self, env_indices: np.ndarray) -> None:
+        if env_indices.size == 0:
+            return
+        self._command_history[env_indices] = np.broadcast_to(
+            self._commands[env_indices, None, :],
+            (env_indices.size, self._obs_history_len, 3),
+        )
+        self._velocity_history[env_indices] = np.broadcast_to(
+            self._velocity[env_indices, None, :],
+            (env_indices.size, self._obs_history_len, 3),
+        )
+        self._action_history[env_indices] = np.broadcast_to(
+            self._last_action[env_indices, None, :],
+            (env_indices.size, self._obs_history_len, 3),
+        )
+
+    def _append_history(self) -> None:
+        if self._obs_history_len == 1:
+            self._command_history[:, 0] = self._commands
+            self._velocity_history[:, 0] = self._velocity
+            self._action_history[:, 0] = self._last_action
+            return
+        self._command_history[:, :-1] = self._command_history[:, 1:]
+        self._velocity_history[:, :-1] = self._velocity_history[:, 1:]
+        self._action_history[:, :-1] = self._action_history[:, 1:]
+        self._command_history[:, -1] = self._commands
+        self._velocity_history[:, -1] = self._velocity
+        self._action_history[:, -1] = self._last_action
 
     def _sample_obstacles(self, env_indices: np.ndarray) -> None:
         cfg = self._cfg.obstacles
@@ -555,6 +604,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
     def _build_obs(self, env_indices: np.ndarray) -> dict[str, np.ndarray]:
         env_indices = np.asarray(env_indices, dtype=np.int32)
         grid = self._occupancy_grid(env_indices)
+        command_hist = self._command_history[env_indices].reshape(env_indices.size, -1)
+        velocity_hist = self._velocity_history[env_indices].reshape(env_indices.size, -1)
+        action_hist = self._action_history[env_indices].reshape(env_indices.size, -1)
         obs = self._obs_buffer[: env_indices.size]
         critic = self._critic_buffer[: env_indices.size]
         clearance = self._nearest_clearance[env_indices, None]
@@ -565,6 +617,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 self._commands[env_indices],
                 self._velocity[env_indices],
                 self._last_action[env_indices],
+                command_hist,
+                velocity_hist,
+                action_hist,
                 clearance,
                 collision,
             ],
@@ -577,6 +632,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 self._commands[env_indices],
                 self._velocity[env_indices],
                 self._last_action[env_indices],
+                command_hist,
+                velocity_hist,
+                action_hist,
                 clearance,
                 collision,
                 self._pose[env_indices],
