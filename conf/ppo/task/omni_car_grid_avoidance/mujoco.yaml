@@ -76,16 +76,16 @@ env:
     spawn_radius_m: 3.2
     keepout_radius_m: 0.75
   reward:
-    intent: 2.0
-    intent_projection: 0.6
-    yaw_intent: 0.4
-    response: 0.35
-    vx_diff: 0.12
-    vy_diff: 0.12
-    vyaw_diff: 0.18
-    vx_jerk: 0.04
-    vy_jerk: 0.04
-    vyaw_jerk: 0.06
+    intent: 5.0
+    intent_projection: 1.5
+    yaw_intent: 1.2
+    response: 1.5
+    vx_diff: 1.2
+    vy_diff: 1.2
+    vyaw_diff: 1.8
+    vx_jerk: 0.5
+    vy_jerk: 0.5
+    vyaw_jerk: 0.8
     clearance: 0.8
     collision: -8.0
   physical_limits:
@@ -97,15 +97,15 @@ env:
     max_yaw_accel: 4.0
 
 reward:
-  intent: 2.0
-  intent_projection: 0.6
-  yaw_intent: 0.4
-  response: 0.35
-  vx_diff: 0.12
-  vy_diff: 0.12
-  vyaw_diff: 0.18
-  vx_jerk: 0.04
-  vy_jerk: 0.04
-  vyaw_jerk: 0.06
+  intent: 5.0
+  intent_projection: 1.5
+  yaw_intent: 1.2
+  response: 1.5
+  vx_diff: 1.2
+  vy_diff: 1.2
+  vyaw_diff: 1.8
+  vx_jerk: 0.5
+  vy_jerk: 0.5
+  vyaw_jerk: 0.8
   clearance: 0.8
   collision: -8.0
