@@ -12,7 +12,7 @@ license-files = ["LICENSE"]
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
-    "torch==2.7.0",
+    "torch==2.11.0",
     "gymnasium",
     "imageio",
     "etils",

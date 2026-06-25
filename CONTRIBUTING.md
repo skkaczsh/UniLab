@@ -7,7 +7,7 @@ Languages: English | [简体中文](docs/sphinx/source/zh_CN/4-developer_guide/4
 1. Fork and clone the repository.
 2. Install dependencies for your platform:
    - macOS (MPS, installs PyPI torch wheels): `uv sync`
-   - Linux default (installs PyTorch cu128 wheels; requires an NVIDIA GPU/driver supported by current PyTorch cu128 wheels): `uv sync`
+   - Linux default (installs PyTorch 2.11 cu128 wheels; this is the current baseline for RTX 50-series / `sm_120` GPUs): `uv sync`
    - Linux AMD / ROCm workstation: `make sync-rocm`, then run commands with `uv run --no-sync ...`
    - When you need Motrix, append `--extra motrix`
 3. Create a branch such as `git checkout -b docs/improve-readme` or `git checkout -b fix/backend-bug`.

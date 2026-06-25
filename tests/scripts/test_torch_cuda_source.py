@@ -27,7 +27,7 @@ def test_windows_lock_uses_cuda_torch() -> None:
 
     assert {
         "name": "torch",
-        "version": "2.7.0+cu128",
+        "version": "2.11.0+cu128",
         "source": {"registry": "https://download.pytorch.org/whl/cu128"},
         "marker": "sys_platform == 'linux' or sys_platform == 'win32'",
     } in torch_dependencies
@@ -39,10 +39,10 @@ def test_windows_lock_uses_cuda_torch() -> None:
         if package["source"] == {"registry": "https://download.pytorch.org/whl/cu128"}
     )
 
-    assert cu128_package["version"] == "2.7.0+cu128"
+    assert cu128_package["version"] == "2.11.0+cu128"
     assert any(
         "sys_platform == 'win32'" in marker for marker in cu128_package["resolution-markers"]
     )
 
     wheel_urls = [wheel["url"] for wheel in cu128_package["wheels"]]
-    assert any("torch-2.7.0%2Bcu128" in url and "win_amd64.whl" in url for url in wheel_urls)
+    assert any("torch-2.11.0%2Bcu128" in url and "win_amd64.whl" in url for url in wheel_urls)

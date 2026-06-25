@@ -45,6 +45,10 @@ uv run train --algo ppo --task omni_car_grid_avoidance --sim mujoco \
   algo.num_steps_per_env=32
 ```
 
+On Linux, keep the default `uv` torch source on `cu128`. The previous
+`2.7.0+cu128` build is not sufficient for RTX 50-series (`sm_120`) GPUs; the
+current repo baseline is `torch 2.11.0+cu128`.
+
 If you want a longer run similar to the latest tuning pass:
 
 ```bash
