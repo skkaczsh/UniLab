@@ -94,3 +94,23 @@ uv run scripts/view_omni_car_checkpoint.py \
   --load-run /absolute/path/to/run_dir \
   --checkpoint 93
 ```
+
+## Quantitative evaluation
+
+For headless metric checks on a trained checkpoint:
+
+```bash
+uv run scripts/evaluate_omni_car_checkpoint.py \
+  --load-run /absolute/path/to/run_dir \
+  --checkpoint 93 \
+  --num-envs 64 \
+  --num-steps 512 \
+  --json
+```
+
+This reports:
+
+- episodic return / episode length
+- collision fraction and worst observed clearance
+- per-axis `vx`, `vy`, `vyaw` tracking MAE / RMSE
+- logged reward terms for response progress and diff / jerk costs
