@@ -51,9 +51,9 @@ env:
     max_x_speed: 2.0
     max_y_speed: 2.0
     max_yaw_rate: 2.0
-    resample_interval_s: 1.5
+    resample_interval_s: 2.5
     deadband: 0.10
-    smoothing_tau_s: 0.40
+    smoothing_tau_s: 0.55
   grid:
     size: 80
     cell_size: 0.05
@@ -62,7 +62,7 @@ env:
     length_m: 0.48
     width_m: 0.32
   obstacles:
-    count: 22
+    count: 18
     radius_min_m: 0.10
     radius_max_m: 0.38
     box_length_min_m: 0.22
@@ -76,39 +76,39 @@ env:
     circle_fraction: 0.35
     box_fraction: 0.35
     wall_fraction: 0.30
-    spawn_radius_m: 3.8
-    keepout_radius_m: 0.70
+    spawn_radius_m: 4.2
+    keepout_radius_m: 0.90
   reward:
-    intent: 14.0
-    intent_projection: 5.0
-    yaw_intent: 4.2
-    response: 7.0
-    vx_diff: 8.0
-    vy_diff: 8.0
-    vyaw_diff: 10.0
-    vx_jerk: 3.2
-    vy_jerk: 3.2
-    vyaw_jerk: 4.8
-    clearance: 1.2
-    collision: -12.0
+    intent: 15.0
+    intent_projection: 5.5
+    yaw_intent: 4.5
+    response: 10.0
+    vx_diff: 6.0
+    vy_diff: 6.0
+    vyaw_diff: 8.0
+    vx_jerk: 3.0
+    vy_jerk: 3.0
+    vyaw_jerk: 4.2
+    clearance: 2.2
+    collision: -24.0
   physical_limits:
     max_x_speed: 2.0
     max_y_speed: 2.0
     max_yaw_rate: 2.0
-    max_x_accel: 2.0
-    max_y_accel: 2.0
-    max_yaw_accel: 2.4
+    max_x_accel: 3.5
+    max_y_accel: 3.5
+    max_yaw_accel: 4.5
 
 reward:
-  intent: 14.0
-  intent_projection: 5.0
-  yaw_intent: 4.2
-  response: 7.0
-  vx_diff: 8.0
-  vy_diff: 8.0
-  vyaw_diff: 10.0
-  vx_jerk: 3.2
-  vy_jerk: 3.2
-  vyaw_jerk: 4.8
-  clearance: 1.2
-  collision: -12.0
+  intent: 15.0
+  intent_projection: 5.5
+  yaw_intent: 4.5
+  response: 10.0
+  vx_diff: 6.0
+  vy_diff: 6.0
+  vyaw_diff: 8.0
+  vx_jerk: 3.0
+  vy_jerk: 3.0
+  vyaw_jerk: 4.2
+  clearance: 2.2
+  collision: -24.0

@@ -24,10 +24,12 @@ Current defaults in this branch:
 
 - Episode horizon: `60 s`
 - Observation history: `24` frames
-- Command resample interval: `1.5 s`
-- Command smoothing time constant: `0.40 s`
+- Command resample interval: `2.5 s`
+- Command smoothing time constant: `0.55 s`
 - PPO rollout: `128` envs, `32` steps per env
 - Policy architecture: `OmniCarGridCNNModel` (`CNN + MLP`)
+- Obstacle sampling: `18` mixed obstacles with a `0.90 m` keepout radius
+- Physical acceleration caps: `3.5 / 3.5 / 4.5` for `vx / vy / vyaw`
 
 Reward shaping emphasizes four things:
 
@@ -35,6 +37,11 @@ Reward shaping emphasizes four things:
 2. Improve response speed when clearance allows.
 3. Penalize per-axis action diff and jerk independently for `vx`, `vy`, `vyaw`.
 4. Preserve clearance and heavily punish collision.
+
+The current tuning pass intentionally shifted some burden from reward penalties
+back into the physical envelope: acceleration caps were loosened so the policy
+can respond to intent and obstacles faster, while collision and clearance terms
+were strengthened to stop the extra agility from turning into reckless contact.
 
 ## Training
 
