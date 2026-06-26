@@ -66,6 +66,25 @@ uv run train --algo ppo --task omni_car_grid_avoidance --sim mujoco \
   algo.max_iterations=94
 ```
 
+## Environment benchmark
+
+The OmniCar task follows UniLab's intended split: CPU-side environment stepping
+and grid construction feed a GPU PPO learner. To measure the CPU side directly:
+
+```bash
+uv run python scripts/benchmark_omni_car_env.py \
+  --num-envs 128 \
+  --steps 120 \
+  --warmup-steps 10 \
+  --action-mode zero \
+  --profile-top 15
+```
+
+On this branch, the current vectorized occupancy-grid pass reduced a local
+`128`-env microbenchmark from roughly `146.8 ms/step` to `57.3 ms/step`, which
+substantially increases rollout throughput and makes it easier to keep the GPU
+learner fed.
+
 ## Native viewer
 
 Open the native OpenGL viewer with a hand-authored policy:
@@ -121,3 +140,15 @@ This reports:
 - collision fraction and worst observed clearance
 - per-axis `vx`, `vy`, `vyaw` tracking MAE / RMSE
 - logged reward terms for response progress and diff / jerk costs
+
+Latest tuned run on the remote RTX 5070 Ti host:
+
+- run dir:
+  `logs/remote_5070_tuned/OmniCarGridAvoidance/2026-06-26_16-15-08_mujoco`
+- checkpoint: `model_259.pt`
+- `collision_fraction`: `0.1273`
+- `mean_episode_return`: `3.7147`
+- `mean_episode_length`: `7.2488`
+- `vx / vy / vyaw tracking_mae`: `0.7240 / 0.6734 / 0.7304`
+- `omni_car/response_progress`: `0.0251`
+- `omni_car/tracking_error`: `0.6578`

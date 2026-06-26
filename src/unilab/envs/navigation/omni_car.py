@@ -211,6 +211,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         ys = np.arange(cfg.grid.size, dtype=np.float32) + 0.5 - cfg.grid.size / 2.0
         gx, gy = np.meshgrid(xs * cfg.grid.cell_size, ys * cfg.grid.cell_size, indexing="ij")
         self._grid_points = np.stack([gx.reshape(-1), gy.reshape(-1)], axis=1).astype(self._dtype)
+        self._grid_x = self._grid_points[:, 0]
+        self._grid_y = self._grid_points[:, 1]
         self._grid_extent = cfg.grid.size * cfg.grid.cell_size * 0.5
 
     def _apply_reward_config(self) -> None:
@@ -678,29 +680,46 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         )
         if self._cfg.obstacles.count == 0:
             return grid
+        grid_x = self._grid_x
+        grid_y = self._grid_y
+        pad = self._cfg.grid.cell_size * 0.5
         for row, env_id in enumerate(env_indices):
             local_xy = self._world_to_body_points(env_id, self._obstacle_xy[env_id])
             in_range = (np.abs(local_xy[:, 0]) <= self._grid_extent) & (
                 np.abs(local_xy[:, 1]) <= self._grid_extent
             )
-            for obstacle_id in np.flatnonzero(in_range):
-                center = local_xy[obstacle_id]
-                if int(self._obstacle_type[env_id, obstacle_id]) == self._OBSTACLE_CIRCLE:
-                    delta = self._grid_points - center
-                    radius = float(self._obstacle_radius[env_id, obstacle_id])
-                    occupied = (
-                        np.einsum("ij,ij->i", delta, delta)
-                        <= float(radius + self._cfg.grid.cell_size * 0.5) ** 2
-                    )
-                else:
-                    rel_yaw = float(self._obstacle_yaw[env_id, obstacle_id] - self._pose[env_id, 2])
-                    local_points = self._rotate_points(self._grid_points - center, -rel_yaw)
-                    half_extents = self._obstacle_half_extents[env_id, obstacle_id]
-                    pad = self._cfg.grid.cell_size * 0.5
-                    occupied = (np.abs(local_points[:, 0]) <= half_extents[0] + pad) & (
-                        np.abs(local_points[:, 1]) <= half_extents[1] + pad
-                    )
-                grid[row, occupied] = 1.0
+            obstacle_ids = np.flatnonzero(in_range)
+            if obstacle_ids.size == 0:
+                continue
+            occupied = np.zeros((grid_x.shape[0],), dtype=bool)
+            obstacle_types = self._obstacle_type[env_id, obstacle_ids]
+
+            circle_ids = obstacle_ids[obstacle_types == self._OBSTACLE_CIRCLE]
+            if circle_ids.size > 0:
+                centers = local_xy[circle_ids]
+                radii = self._obstacle_radius[env_id, circle_ids] + pad
+                delta_x = grid_x[None, :] - centers[:, 0:1]
+                delta_y = grid_y[None, :] - centers[:, 1:2]
+                occupied |= np.any(delta_x * delta_x + delta_y * delta_y <= radii[:, None] ** 2, axis=0)
+
+            rect_ids = obstacle_ids[obstacle_types != self._OBSTACLE_CIRCLE]
+            if rect_ids.size > 0:
+                centers = local_xy[rect_ids]
+                rel_yaw = self._obstacle_yaw[env_id, rect_ids] - self._pose[env_id, 2]
+                delta_x = grid_x[None, :] - centers[:, 0:1]
+                delta_y = grid_y[None, :] - centers[:, 1:2]
+                cos_yaw = np.cos(-rel_yaw)[:, None]
+                sin_yaw = np.sin(-rel_yaw)[:, None]
+                local_x = cos_yaw * delta_x - sin_yaw * delta_y
+                local_y = sin_yaw * delta_x + cos_yaw * delta_y
+                half_extents = self._obstacle_half_extents[env_id, rect_ids]
+                occupied |= np.any(
+                    (np.abs(local_x) <= half_extents[:, 0:1] + pad)
+                    & (np.abs(local_y) <= half_extents[:, 1:2] + pad),
+                    axis=0,
+                )
+
+            grid[row, occupied] = 1.0
         return grid
 
     def _world_to_body_points(self, env_id: int, points_world: np.ndarray) -> np.ndarray:
@@ -720,23 +739,34 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         if self._cfg.obstacles.count == 0:
             return clearance
         for row, env_id in enumerate(env_indices):
+            local_xy = self._world_to_body_points(env_id, self._obstacle_xy[env_id])
+            obstacle_types = self._obstacle_type[env_id]
             signed = np.empty((self._cfg.obstacles.count,), dtype=self._dtype)
-            for obstacle_id in range(self._cfg.obstacles.count):
-                center = self._obstacle_xy[env_id, obstacle_id]
-                if int(self._obstacle_type[env_id, obstacle_id]) == self._OBSTACLE_CIRCLE:
-                    distance = np.linalg.norm(center - self._pose[env_id, :2])
-                    signed[obstacle_id] = distance - self._obstacle_radius[env_id, obstacle_id]
-                else:
-                    point = self._rotate_points(
-                        (self._pose[env_id, :2] - center)[None, :],
-                        -float(self._obstacle_yaw[env_id, obstacle_id]),
-                    )[0]
-                    signed[obstacle_id] = self._rectangle_signed_distance(
-                        point,
-                        self._obstacle_half_extents[env_id, obstacle_id],
-                    )
-            signed = signed - safety_radius
-            clearance[row] = np.min(signed).astype(self._dtype)
+
+            circle_mask = obstacle_types == self._OBSTACLE_CIRCLE
+            if np.any(circle_mask):
+                signed[circle_mask] = np.linalg.norm(local_xy[circle_mask], axis=1) - self._obstacle_radius[
+                    env_id, circle_mask
+                ]
+
+            rect_mask = ~circle_mask
+            if np.any(rect_mask):
+                centers = local_xy[rect_mask]
+                rel_yaw = self._obstacle_yaw[env_id, rect_mask] - self._pose[env_id, 2]
+                cos_yaw = np.cos(-rel_yaw)
+                sin_yaw = np.sin(-rel_yaw)
+                local_x = cos_yaw * centers[:, 0] - sin_yaw * centers[:, 1]
+                local_y = sin_yaw * centers[:, 0] + cos_yaw * centers[:, 1]
+                half_extents = self._obstacle_half_extents[env_id, rect_mask]
+                qx = np.abs(local_x) - half_extents[:, 0]
+                qy = np.abs(local_y) - half_extents[:, 1]
+                outside_x = np.maximum(qx, 0.0)
+                outside_y = np.maximum(qy, 0.0)
+                outside_distance = np.sqrt(outside_x * outside_x + outside_y * outside_y)
+                inside_distance = np.minimum(np.maximum(qx, qy), 0.0)
+                signed[rect_mask] = outside_distance + inside_distance
+
+            clearance[row] = np.min(signed - safety_radius).astype(self._dtype)
         return clearance
 
     def _compute_reward(self, action: np.ndarray) -> np.ndarray:
