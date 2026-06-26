@@ -86,3 +86,11 @@ uv run eval --algo ppo --task omni_car_grid_avoidance --sim mujoco \
 
 `--checkpoint` also accepts an iteration number such as `40` when the
 corresponding `model_40.pt` exists under the run directory.
+
+For a direct native 3D viewer entrypoint dedicated to this task:
+
+```bash
+uv run scripts/view_omni_car_checkpoint.py \
+  --load-run /absolute/path/to/run_dir \
+  --checkpoint 93
+```

@@ -238,3 +238,12 @@ uv run eval --algo ppo --task omni_car_grid_avoidance --sim mujoco \
   note   = {Python binary package}
 }
 ```
+### OmniCar checkpoint viewer
+
+可以直接用原生 MuJoCo 3D 窗口回放训练好的 OmniCar checkpoint：
+
+```bash
+uv run scripts/view_omni_car_checkpoint.py \
+  --load-run /absolute/path/to/run_dir \
+  --checkpoint 93
+```

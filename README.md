@@ -238,3 +238,12 @@ Join our [Discord server](https://discord.gg/EPCuguRmGX) to chat with the commun
   note   = {Python binary package}
 }
 ```
+### OmniCar checkpoint viewer
+
+Use the native MuJoCo viewer for a trained OmniCar run:
+
+```bash
+uv run scripts/view_omni_car_checkpoint.py \
+  --load-run /absolute/path/to/run_dir \
+  --checkpoint 93
+```

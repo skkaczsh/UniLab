@@ -211,6 +211,72 @@ def test_eval_render_mode_generates_training_override(
     assert "algo.load_run=-1" in command
 
 
+def test_eval_checkpoint_flag_generates_algo_checkpoint_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_minimal_checkout(tmp_path)
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="motrix",
+        overrides=[],
+        load_run="-1",
+        checkpoint="93",
+        root=tmp_path,
+    )
+
+    assert "algo.checkpoint=93" in command
+
+
+def test_eval_load_run_accepts_absolute_run_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_minimal_checkout(tmp_path)
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    run_dir = tmp_path / "logs" / "ppo" / "go2_joystick_flat" / "run_001"
+    run_dir.mkdir(parents=True)
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="motrix",
+        overrides=[],
+        load_run=str(run_dir),
+        root=tmp_path,
+    )
+
+    assert f"algo.load_run={run_dir}" in command
+
+
+def test_eval_load_run_accepts_checkpoint_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_minimal_checkout(tmp_path)
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    checkpoint = tmp_path / "exports" / "model_93.pt"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_bytes(b"")
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="motrix",
+        overrides=[],
+        load_run=str(checkpoint),
+        root=tmp_path,
+    )
+
+    assert f"algo.load_run={checkpoint}" in command
+
+
 def test_macos_motrix_render_mode_none_does_not_require_mxpython(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

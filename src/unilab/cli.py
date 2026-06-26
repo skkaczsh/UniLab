@@ -95,8 +95,16 @@ def _check_profile(profile: str | None) -> None:
 def _check_load_run(load_run: str) -> None:
     if load_run == "-1":
         return
-    if RUN_ID_PATTERN.fullmatch(load_run) is None or load_run in {".", ".."}:
-        raise SystemExit("--load-run must be `-1` or a run directory name, not a path.")
+    if load_run in {".", ".."}:
+        raise SystemExit("--load-run must not be `.` or `..`.")
+    if RUN_ID_PATTERN.fullmatch(load_run) is not None:
+        return
+    candidate = Path(load_run).expanduser()
+    if candidate.is_absolute():
+        return
+    if any(sep in load_run for sep in ("/", "\\")):
+        return
+    raise SystemExit("--load-run must be `-1`, a run directory name, or a run/checkpoint path.")
 
 
 def _check_runtime_requirements(algo: str, sim: str) -> None:
@@ -218,6 +226,7 @@ def build_command(
     overrides: Sequence[str],
     profile: str | None = None,
     load_run: str | None = None,
+    checkpoint: str | None = None,
     render_mode: str | None = None,
     root: Path | None = None,
 ) -> list[str]:
@@ -249,6 +258,10 @@ def build_command(
             if any(_override_key(o) == "algo.load_run" for o in overrides):
                 raise SystemExit("Use either --load-run or algo.load_run=..., not both.")
             generated.append(f"algo.load_run={load_run}")
+        if checkpoint is not None:
+            if any(_override_key(o) == "algo.checkpoint" for o in overrides):
+                raise SystemExit("Use either --checkpoint or algo.checkpoint=..., not both.")
+            generated.append(f"algo.checkpoint={checkpoint}")
 
     executable = _python_executable_for_route(mode, sim, (*generated, *overrides))
     return [executable, str(script), *generated, *overrides]
@@ -263,6 +276,7 @@ def _train_eval_parser(*, mode: str) -> argparse.ArgumentParser:
     parser.add_argument("--render-mode", choices=SUPPORTED_RENDER_MODES, default=None)
     if mode == "eval":
         parser.add_argument("--load-run", default=None)
+        parser.add_argument("--checkpoint", default=None)
     return parser
 
 
@@ -286,6 +300,7 @@ def _run_train_eval(mode: str, argv: Sequence[str] | None = None) -> int:
         profile=args.profile,
         overrides=overrides,
         load_run=getattr(args, "load_run", None),
+        checkpoint=getattr(args, "checkpoint", None),
         render_mode=args.render_mode,
     )
     return subprocess.run(command, check=False).returncode
