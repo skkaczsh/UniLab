@@ -165,6 +165,35 @@ def test_omni_car_samples_circle_box_and_wall_obstacles() -> None:
         env.close()
 
 
+def test_omni_car_logs_pre_reset_collision_metrics() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 23,
+            "max_episode_seconds": 0.1,
+            "obstacles": {
+                "count": 1,
+                "circle_fraction": 1.0,
+                "box_fraction": 0.0,
+                "wall_fraction": 0.0,
+            },
+        },
+    )
+    env.init_state()
+    env._obstacle_xy[0, 0] = env._pose[0, :2]
+    env._obstacle_radius[0, 0] = 0.4
+    env._obstacle_type[0, 0] = 0
+
+    state = env.step(np.zeros((1, 3), dtype=np.float32))
+
+    assert bool(state.info["collision"][0]) is True
+    assert state.info["log"]["omni_car/collision_rate"] == pytest.approx(1.0)
+    assert state.info["log"]["omni_car/mean_clearance"] <= 0.0
+    env.close()
+
+
 def test_omni_car_cfg_validates_grid_shape() -> None:
     cfg = OmniCarGridAvoidanceCfg()
     cfg.grid.size = 79

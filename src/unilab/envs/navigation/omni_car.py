@@ -316,6 +316,15 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._nearest_clearance = self._compute_clearance(np.arange(self._num_envs, dtype=np.int32))
         self._collision = self._nearest_clearance <= 0.0
         reward = self._compute_reward(limited)
+        log_snapshot = {
+            "commands": self._commands.copy(),
+            "nearest_clearance": self._nearest_clearance.copy(),
+            "collision": self._collision.copy(),
+            "tracking_error": self._tracking_error.copy(),
+            "response_progress": self._response_progress.copy(),
+            "diff_cost": self._diff_cost.copy(),
+            "jerk_cost": self._jerk_cost.copy(),
+        }
         terminated = self._collision.copy()
         self._truncated.fill(False)
         if self._cfg.max_episode_steps is not None:
@@ -357,17 +366,19 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             self._state.info["_final_observation"] = terminal_mask
 
         self._state.info["log"] = {
-            "omni_car/mean_clearance": float(np.mean(self._nearest_clearance)),
-            "omni_car/collision_rate": float(np.mean(self._collision.astype(np.float32))),
-            "omni_car/command_norm": float(np.mean(np.linalg.norm(self._commands[:, :2], axis=1))),
-            "omni_car/tracking_error": float(np.mean(self._tracking_error)),
-            "omni_car/response_progress": float(np.mean(self._response_progress)),
-            "omni_car/vx_diff_cost": float(np.mean(self._diff_cost[:, 0])),
-            "omni_car/vy_diff_cost": float(np.mean(self._diff_cost[:, 1])),
-            "omni_car/vyaw_diff_cost": float(np.mean(self._diff_cost[:, 2])),
-            "omni_car/vx_jerk_cost": float(np.mean(self._jerk_cost[:, 0])),
-            "omni_car/vy_jerk_cost": float(np.mean(self._jerk_cost[:, 1])),
-            "omni_car/vyaw_jerk_cost": float(np.mean(self._jerk_cost[:, 2])),
+            "omni_car/mean_clearance": float(np.mean(log_snapshot["nearest_clearance"])),
+            "omni_car/collision_rate": float(np.mean(log_snapshot["collision"].astype(np.float32))),
+            "omni_car/command_norm": float(
+                np.mean(np.linalg.norm(log_snapshot["commands"][:, :2], axis=1))
+            ),
+            "omni_car/tracking_error": float(np.mean(log_snapshot["tracking_error"])),
+            "omni_car/response_progress": float(np.mean(log_snapshot["response_progress"])),
+            "omni_car/vx_diff_cost": float(np.mean(log_snapshot["diff_cost"][:, 0])),
+            "omni_car/vy_diff_cost": float(np.mean(log_snapshot["diff_cost"][:, 1])),
+            "omni_car/vyaw_diff_cost": float(np.mean(log_snapshot["diff_cost"][:, 2])),
+            "omni_car/vx_jerk_cost": float(np.mean(log_snapshot["jerk_cost"][:, 0])),
+            "omni_car/vy_jerk_cost": float(np.mean(log_snapshot["jerk_cost"][:, 1])),
+            "omni_car/vyaw_jerk_cost": float(np.mean(log_snapshot["jerk_cost"][:, 2])),
         }
         return self._state
 
