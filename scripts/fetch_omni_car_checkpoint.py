@@ -25,6 +25,7 @@ class CheckpointRef:
     ssh_port: int
     remote_path: str
     checkpoint_name: str
+    local_cache_name: str | None
     expected_bytes: int
     expected_sha256: str
 
@@ -84,13 +85,16 @@ def load_checkpoint_ref(manifest_path: Path) -> CheckpointRef:
         ssh_port=_require_int(remote, "ssh_port"),
         remote_path=_require_str(run, "checkpoint_path"),
         checkpoint_name=_require_str(run, "checkpoint"),
+        local_cache_name=run.get("local_cache_name")
+        if isinstance(run.get("local_cache_name"), str)
+        else None,
         expected_bytes=_require_int(run, "checkpoint_bytes"),
         expected_sha256=_require_str(run, "checkpoint_sha256"),
     )
 
 
 def default_output_path(ref: CheckpointRef) -> Path:
-    return DEFAULT_CACHE_DIR / ref.checkpoint_name
+    return DEFAULT_CACHE_DIR / (ref.local_cache_name or ref.checkpoint_name)
 
 
 def sha256_file(path: Path) -> str:

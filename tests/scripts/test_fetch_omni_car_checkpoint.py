@@ -76,6 +76,19 @@ def test_local_checkpoint_status_validates_size_and_hash(tmp_path: Path) -> None
     assert "sha256_ok: true" in module.format_status(status)
 
 
+def test_manifest_can_override_default_cache_name(tmp_path: Path) -> None:
+    module = _load_module()
+    manifest_path = tmp_path / "manifest.json"
+    manifest = _write_manifest(manifest_path, b"checkpoint")
+    manifest["run"]["local_cache_name"] = "large_scene_model_2900.pt"  # type: ignore[index]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    ref = module.load_checkpoint_ref(manifest_path)
+
+    assert ref.local_cache_name == "large_scene_model_2900.pt"
+    assert module.default_output_path(ref).name == "large_scene_model_2900.pt"
+
+
 def test_verify_only_returns_nonzero_for_missing_cache(tmp_path: Path, capsys) -> None:
     module = _load_module()
     manifest_path = tmp_path / "manifest.json"

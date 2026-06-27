@@ -180,6 +180,20 @@ The scan selected `2999` with `collision_fraction=0.0138` but
 did not, so it does not replace the current selected checkpoint. Evidence is
 stored in `artifacts/omni_car/remote_tmux_cpu_path_fcbbd4_checkpoint_scan.json`.
 
+The shared large-scene run `remote_large_scene_c22_3000` completed on the
+remote RTX 5070 Ti host (`2026-06-28 00:28:15 +08:00` to `01:06:36 +08:00`),
+with `128` envs, `32` steps/env, and `3000` iterations. Its final training
+window reached `omni_car/collision_rate=0.003725` and
+`omni_car/tracking_error=0.426535`. A `64` env, `512` step checkpoint scan
+selected `model_2900.pt` as the best tradeoff: `collision_fraction=0.003845`,
+`omni_car/tracking_error=0.393691`, and selection score `0.476784`. The final
+`model_2999.pt` has the lowest scanned collision rate (`0.002960`) but higher
+tracking error (`0.408384`), so `model_2900.pt` is the current large-scene
+viewer/eval default and `model_2999.pt` is the low-collision alternate.
+Evidence is stored in
+`artifacts/omni_car/remote_large_scene_c22_progress.json` and
+`artifacts/omni_car/remote_large_scene_c22_final_checkpoint_scan.json`.
+
 ## Remote sync
 
 When GitHub SSH/HTTPS is unreliable from the training host, sync the current
@@ -335,6 +349,17 @@ uv run scripts/view_omni_car_checkpoint.py \
   --checkpoint 93
 ```
 
+For the current large-scene checkpoint, first cache the checkpoint from the
+remote manifest, then open the native viewer:
+
+```bash
+uv run scripts/fetch_omni_car_checkpoint.py \
+  --manifest artifacts/omni_car/remote_large_scene_c22_2900_checkpoint_manifest.json
+uv run scripts/view_omni_car_checkpoint.py \
+  --load-run artifacts/omni_car/checkpoints/remote_large_scene_c22_model_2900.pt \
+  --device cpu
+```
+
 ## Quantitative evaluation
 
 For headless metric checks on a trained checkpoint:
@@ -401,6 +426,19 @@ commands. To cache or verify it locally for the native viewer:
 uv run scripts/fetch_omni_car_checkpoint.py
 uv run scripts/fetch_omni_car_checkpoint.py --verify-only
 uv run scripts/view_omni_car_checkpoint.py --load-run artifacts/omni_car/checkpoints/model_2999.pt --device cpu
+```
+
+The current large-scene checkpoint is also not committed. Its manifest is stored
+in `artifacts/omni_car/remote_large_scene_c22_2900_checkpoint_manifest.json`;
+the manifest uses a distinct local cache name so it can coexist with other
+`model_*.pt` files:
+
+```bash
+uv run scripts/fetch_omni_car_checkpoint.py \
+  --manifest artifacts/omni_car/remote_large_scene_c22_2900_checkpoint_manifest.json
+uv run scripts/fetch_omni_car_checkpoint.py \
+  --manifest artifacts/omni_car/remote_large_scene_c22_2900_checkpoint_manifest.json \
+  --verify-only
 ```
 
 Previous pre-axis-tracking comparison run:

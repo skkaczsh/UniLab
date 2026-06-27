@@ -1,0 +1,57 @@
+{
+  "task": "OmniCarGridAvoidance",
+  "source_commit": "7659848b54dfa79de12993c2124b5ebbd18796e7",
+  "branch": "codex/omni-car-grid-ppo-wt",
+  "remote": {
+    "host": "zsh@skkac.top",
+    "ssh_port": 6010,
+    "worktree": "/home/zsh/develop/worktrees/UniLab-omni-car-git"
+  },
+  "run": {
+    "name": "remote_large_scene_c22_3000",
+    "run_dir": "/home/zsh/develop/worktrees/UniLab-omni-car-git/logs/remote_large_scene_c22_3000/OmniCarGridAvoidance/2026-06-28_00-28-16_mujoco",
+    "checkpoint": "model_2900.pt",
+    "local_cache_name": "remote_large_scene_c22_model_2900.pt",
+    "checkpoint_path": "/home/zsh/develop/worktrees/UniLab-omni-car-git/logs/remote_large_scene_c22_3000/OmniCarGridAvoidance/2026-06-28_00-28-16_mujoco/model_2900.pt",
+    "checkpoint_bytes": 13166925,
+    "checkpoint_sha256": "ff2d06a07fb8a9d8aba05e85d5a0860b470fadebae3a399afde118b136d3c120"
+  },
+  "evaluation": {
+    "artifact": "artifacts/omni_car/remote_large_scene_c22_final_checkpoint_scan.json",
+    "num_envs": 64,
+    "num_steps": 512,
+    "seed": 7,
+    "selection_weights": {
+      "collision": 10.0,
+      "tracking": 1.0,
+      "jerk": 0.25
+    },
+    "selected": {
+      "checkpoint": 2900,
+      "collision_fraction": 0.00384521484375,
+      "mean_episode_return": 2876.667145563851,
+      "mean_episode_length": 136.9920634920635,
+      "tracking_error": 0.393691360601224,
+      "vx_tracking_mae": 0.2931953094852222,
+      "vy_tracking_mae": 0.3942009063545697,
+      "vyaw_tracking_mae": 0.4933931509422429,
+      "vx_jerk_cost": 0.06171348948191735,
+      "vy_jerk_cost": 0.09682154189795256,
+      "vyaw_jerk_cost": 0.020026543406856945,
+      "selection_score": 0.4767839027354057
+    },
+    "lowest_collision_alternate": {
+      "checkpoint": 2999,
+      "collision_fraction": 0.002960205078125,
+      "tracking_error": 0.4083842480322346,
+      "selection_score": 0.4827894675686366
+    }
+  },
+  "commands": {
+    "remote_eval_seed_7": "ssh -p 6010 zsh@skkac.top 'cd /home/zsh/develop/worktrees/UniLab-omni-car-git && /home/zsh/.local/bin/uv run scripts/evaluate_omni_car_checkpoint.py --load-run /home/zsh/develop/worktrees/UniLab-omni-car-git/logs/remote_large_scene_c22_3000/OmniCarGridAvoidance/2026-06-28_00-28-16_mujoco --checkpoint 2900 --num-envs 64 --num-steps 512 --seed 7 --device cuda --json'",
+    "local_fetch_checkpoint": "uv run scripts/fetch_omni_car_checkpoint.py --manifest artifacts/omni_car/remote_large_scene_c22_2900_checkpoint_manifest.json",
+    "local_verify_checkpoint": "uv run scripts/fetch_omni_car_checkpoint.py --manifest artifacts/omni_car/remote_large_scene_c22_2900_checkpoint_manifest.json --verify-only",
+    "local_viewer_after_fetch": "uv run scripts/view_omni_car_checkpoint.py --load-run artifacts/omni_car/checkpoints/remote_large_scene_c22_model_2900.pt --device cpu",
+    "local_eval_after_fetch": "uv run scripts/evaluate_omni_car_checkpoint.py --load-run artifacts/omni_car/checkpoints/remote_large_scene_c22_model_2900.pt --num-envs 64 --num-steps 512 --seed 7 --device cpu --json"
+  }
+}
