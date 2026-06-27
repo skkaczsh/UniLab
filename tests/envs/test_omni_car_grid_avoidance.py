@@ -45,6 +45,59 @@ def test_omni_car_grid_contract() -> None:
     env.close()
 
 
+def test_omni_car_observation_layout_matches_reference_concatenate() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=3,
+        env_cfg_override={"seed": 31, "obstacles": {"count": 2}},
+    )
+    env.init_state()
+    env.step(
+        np.asarray(
+            [
+                [0.2, -0.1, 0.05],
+                [0.0, 0.3, -0.2],
+                [-0.4, 0.1, 0.15],
+            ],
+            dtype=np.float32,
+        )
+    )
+    env_indices = np.asarray([2, 0], dtype=np.int32)
+
+    actual = env._build_obs(env_indices)
+    grid = env._occupancy_grid(env_indices)
+    command_hist = env._command_history[env_indices].reshape(env_indices.size, -1)
+    velocity_hist = env._velocity_history[env_indices].reshape(env_indices.size, -1)
+    action_hist = env._action_history[env_indices].reshape(env_indices.size, -1)
+    clearance = env._nearest_clearance[env_indices, None]
+    collision = env._collision[env_indices, None].astype(env._dtype)
+    expected_obs = np.concatenate(
+        [
+            grid,
+            env._commands[env_indices],
+            env._velocity[env_indices],
+            env._last_action[env_indices],
+            command_hist,
+            velocity_hist,
+            action_hist,
+            clearance,
+            collision,
+        ],
+        axis=1,
+        dtype=env._dtype,
+    )
+    expected_critic = np.concatenate(
+        [expected_obs, env._pose[env_indices]],
+        axis=1,
+        dtype=env._dtype,
+    )
+
+    np.testing.assert_array_equal(actual["obs"], expected_obs)
+    np.testing.assert_array_equal(actual["critic"], expected_critic)
+    env.close()
+
+
 def test_omni_car_physical_limits_apply_before_integration() -> None:
     env = registry.make(
         "OmniCarGridAvoidance",
