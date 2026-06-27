@@ -349,12 +349,11 @@ uv run scripts/view_omni_car_checkpoint.py \
   --checkpoint 93
 ```
 
-For the current large-scene checkpoint, first cache the checkpoint from the
-remote manifest, then open the native viewer:
+For the current large-scene checkpoint, first cache the default checkpoint from
+the remote manifest, then open the native viewer:
 
 ```bash
-uv run scripts/fetch_omni_car_checkpoint.py \
-  --manifest artifacts/omni_car/remote_large_scene_c22_2900_checkpoint_manifest.json
+uv run scripts/fetch_omni_car_checkpoint.py
 uv run scripts/view_omni_car_checkpoint.py \
   --load-run artifacts/omni_car/checkpoints/remote_large_scene_c22_model_2900.pt \
   --device cpu
@@ -420,25 +419,27 @@ The checkpoint itself is intentionally not committed. Its reproducibility
 manifest is stored in
 `artifacts/omni_car/axis_track_2999_checkpoint_manifest.json`, including the
 remote run path, byte count, SHA-256, evaluation artifact, and copy/viewer
-commands. To cache or verify it locally for the native viewer:
+commands. To cache or verify this older axis-track checkpoint locally for the
+native viewer, pass the manifest explicitly:
 
 ```bash
-uv run scripts/fetch_omni_car_checkpoint.py
-uv run scripts/fetch_omni_car_checkpoint.py --verify-only
+uv run scripts/fetch_omni_car_checkpoint.py \
+  --manifest artifacts/omni_car/axis_track_2999_checkpoint_manifest.json
+uv run scripts/fetch_omni_car_checkpoint.py \
+  --manifest artifacts/omni_car/axis_track_2999_checkpoint_manifest.json \
+  --verify-only
 uv run scripts/view_omni_car_checkpoint.py --load-run artifacts/omni_car/checkpoints/model_2999.pt --device cpu
 ```
 
 The current large-scene checkpoint is also not committed. Its manifest is stored
 in `artifacts/omni_car/remote_large_scene_c22_2900_checkpoint_manifest.json`;
-the manifest uses a distinct local cache name so it can coexist with other
-`model_*.pt` files:
+this is the default manifest for `scripts/fetch_omni_car_checkpoint.py`, and it
+uses a distinct local cache name so it can coexist with other `model_*.pt`
+files:
 
 ```bash
-uv run scripts/fetch_omni_car_checkpoint.py \
-  --manifest artifacts/omni_car/remote_large_scene_c22_2900_checkpoint_manifest.json
-uv run scripts/fetch_omni_car_checkpoint.py \
-  --manifest artifacts/omni_car/remote_large_scene_c22_2900_checkpoint_manifest.json \
-  --verify-only
+uv run scripts/fetch_omni_car_checkpoint.py
+uv run scripts/fetch_omni_car_checkpoint.py --verify-only
 ```
 
 Previous pre-axis-tracking comparison run:

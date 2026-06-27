@@ -58,6 +58,12 @@ def test_manifest_builds_checkpoint_ref_and_scp_command(tmp_path: Path) -> None:
     ]
 
 
+def test_default_manifest_points_to_current_large_scene_checkpoint() -> None:
+    module = _load_module()
+
+    assert module.DEFAULT_MANIFEST.name == "remote_large_scene_c22_2900_checkpoint_manifest.json"
+
+
 def test_local_checkpoint_status_validates_size_and_hash(tmp_path: Path) -> None:
     module = _load_module()
     payload = b"checkpoint"

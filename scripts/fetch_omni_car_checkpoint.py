@@ -14,7 +14,12 @@ from pathlib import Path
 from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_MANIFEST = ROOT_DIR / "artifacts" / "omni_car" / "axis_track_2999_checkpoint_manifest.json"
+DEFAULT_MANIFEST = (
+    ROOT_DIR
+    / "artifacts"
+    / "omni_car"
+    / "remote_large_scene_c22_2900_checkpoint_manifest.json"
+)
 DEFAULT_CACHE_DIR = ROOT_DIR / "artifacts" / "omni_car" / "checkpoints"
 
 
