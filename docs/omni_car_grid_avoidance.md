@@ -142,10 +142,15 @@ wrapper delegates to `scripts/sync_remote_bundle.py`, which updates an existing
 remote repo/worktree in place by fetching the bundle and resetting tracked files
 to the local HEAD on the stable remote branch
 `codex/omni-car-grid-ppo-wt-remote`. It does not delete the remote worktree, so
-logs and other untracked training artifacts remain in place. The
-`--bundle-source-url` path is important when the local checkout is a
-partial/promisor clone; the script creates and verifies a temporary full clone
-before serving the bundle.
+logs and other untracked training artifacts remain in place.
+
+For normal repeat syncs, the wrapper first checks the remote worktree HEAD. If
+that commit is already the local HEAD, sync is a no-op. If the remote commit is
+an ancestor of local HEAD, the wrapper sends an incremental bundle from that
+base and does not use GitHub or the local clone proxy. If the remote base is
+missing or divergent, it falls back to `--bundle-source-url`, which creates and
+verifies a temporary full clone before serving the bundle; this fallback is
+important when the local checkout is a partial/promisor clone.
 
 ## Environment benchmark
 
@@ -179,23 +184,33 @@ uv run scripts/benchmark_omni_car_env.py \
 The attempt to parallelize this path with Python threads regresses throughput.
 The bottleneck is not raw arithmetic; it is many small obstacle AABB raster
 tasks plus large occupancy/observation buffer writes. Threading adds chunk
-dispatch and synchronization without changing that memory-access pattern. The
-current fast path fixes that in three ways:
+dispatch and synchronization without changing that memory-access pattern. A
+profile of the threaded diagnostic path showed the concrete failure mode:
+splitting by env chunk calls `_fill_occupancy_grid` once per worker, so the
+process repeats body-frame obstacle transforms and grid clears, then the main
+thread waits on `Future.result()`.
+
+The production path therefore stays single-process/vectorized. It fixes CPU
+cost in four ways:
 
 - occupancy grids are rasterized only inside each obstacle's local AABB instead
   of scanning the full `80 x 80` grid for every obstacle
 - clearance is computed in one batched vectorized pass across all envs
 - observation, critic, grid, velocity-limit, and env-index arrays are reused
   instead of reallocated on every step
+- large batches (`>=256` envs) precompute obstacle bounds in batched NumPy
+  arrays before the AABB raster loop, while the `128` env training case keeps
+  the lower-overhead scalar AABB path
 
-With those changes, the local serial benchmark moved again:
+With those changes, the local serial benchmark moved again. A same-machine
+comparison against commit `4271cf84` on 2026-06-27 showed:
 
 - default `14` obstacles, `128` envs: roughly `57.3 ms/step` -> `8.7 ms/step`
 - default `14` obstacles, `512` envs: roughly `102.1 ms/step` -> `33.9 ms/step`
-- training-like `18` obstacles, `128` envs: `10.4 ms/step` serial,
-  `12.1 ms/step` with `2` grid workers, `13.5 ms/step` with `4` grid workers
-- training-like `18` obstacles, `512` envs: `41.1 ms/step` serial,
-  `46.5 ms/step` with `2` grid workers, `52.8 ms/step` with `4` grid workers
+- training-like `18` obstacles, `128` envs: old serial `12.45 ms/step`,
+  current serial `12.49 ms/step`, current `4` grid workers `15.60 ms/step`
+- training-like `18` obstacles, `512` envs: old serial `44.85 ms/step`,
+  current serial `42.58 ms/step`
 
 That is a better lever than Python threading for this environment because it
 cuts the CPU work itself instead of parallelizing avoidable work.

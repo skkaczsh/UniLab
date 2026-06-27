@@ -38,6 +38,7 @@ class SyncPlan:
     venv_source: str | None
     bundle_source_url: str | None
     clone_proxy: str | None
+    incremental_base: str | None
 
     @property
     def bundle_path(self) -> Path:
@@ -118,6 +119,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Optional HTTP(S) proxy used only for --bundle-source-url cloning.",
     )
+    parser.add_argument(
+        "--incremental-base",
+        default=None,
+        help=(
+            "Optional prerequisite commit. When set, create an incremental bundle "
+            "containing <branch> excluding this base commit; the remote repo must "
+            "already contain the base."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print plan and exit.")
     return parser.parse_args(argv)
 
@@ -189,6 +199,7 @@ def _create_plan(args: argparse.Namespace) -> SyncPlan:
         venv_source=args.venv_source,
         bundle_source_url=args.bundle_source_url,
         clone_proxy=args.clone_proxy,
+        incremental_base=args.incremental_base,
     )
 
 
@@ -204,8 +215,11 @@ def _bundle_env(plan: SyncPlan) -> dict[str, str]:
 
 
 def _create_bundle_from_repo(plan: SyncPlan, source_repo: Path) -> None:
+    refspec = [plan.branch]
+    if plan.incremental_base:
+        refspec.append(f"^{plan.incremental_base}")
     subprocess.run(
-        ["git", "-C", str(source_repo), "bundle", "create", str(plan.bundle_path), plan.branch],
+        ["git", "-C", str(source_repo), "bundle", "create", str(plan.bundle_path), *refspec],
         check=True,
     )
 
@@ -250,7 +264,7 @@ def _fetch_local_head_into_source(plan: SyncPlan, source_repo: Path) -> None:
         )
 
 
-def _verify_bundle_clones(plan: SyncPlan) -> None:
+def _verify_complete_bundle_clones(plan: SyncPlan) -> None:
     with tempfile.TemporaryDirectory(prefix="unilab-bundle-check-") as tmp:
         checkout = Path(tmp) / "checkout"
         subprocess.run(
@@ -260,11 +274,27 @@ def _verify_bundle_clones(plan: SyncPlan) -> None:
         subprocess.run(["git", "-C", str(checkout), "fsck", "--full"], check=True)
 
 
+def _verify_incremental_bundle(plan: SyncPlan) -> None:
+    subprocess.run(
+        ["git", "-C", str(plan.repo_root), "bundle", "verify", str(plan.bundle_path)],
+        check=True,
+    )
+
+
+def _verify_bundle(plan: SyncPlan) -> None:
+    if plan.incremental_base:
+        _verify_incremental_bundle(plan)
+    else:
+        _verify_complete_bundle_clones(plan)
+
+
 def _create_bundle(plan: SyncPlan) -> None:
     plan.bundle_dir.mkdir(parents=True, exist_ok=True)
     if plan.bundle_path.exists():
         plan.bundle_path.unlink()
-    if plan.bundle_source_url:
+    if plan.incremental_base:
+        _create_bundle_from_repo(plan, plan.repo_root)
+    elif plan.bundle_source_url:
         with tempfile.TemporaryDirectory(prefix="unilab-bundle-source-") as tmp:
             source_repo = Path(tmp) / "repo"
             _clone_bundle_source(plan, source_repo)
@@ -272,7 +302,7 @@ def _create_bundle(plan: SyncPlan) -> None:
             _create_bundle_from_repo(plan, source_repo)
     else:
         _create_bundle_from_repo(plan, plan.repo_root)
-    _verify_bundle_clones(plan)
+    _verify_bundle(plan)
 
 
 def _wait_for_http_server(*, host: str, port: int, bundle_name: str, timeout_s: float = 10.0) -> None:
@@ -335,16 +365,30 @@ def _build_remote_script(plan: SyncPlan) -> str:
         f"mkdir -p {shlex.quote(bundle_parent)} {shlex.quote(repo_parent)} {shlex.quote(worktree_parent)}",
         f"curl --fail --location {shlex.quote(plan.bundle_url)} -o {shlex.quote(plan.remote_bundle_path)}",
         f"if ! git -C {shlex.quote(plan.remote_repo_path)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then",
-        f"  git clone {shlex.quote(plan.remote_bundle_path)} {shlex.quote(plan.remote_repo_path)}",
-        "else",
-        (
-            f"  git -C {shlex.quote(plan.remote_repo_path)} fetch --force "
-            f"{shlex.quote(plan.remote_bundle_path)} "
-            f"{shlex.quote('refs/heads/' + plan.branch + ':' + sync_ref)}"
-        ),
-        "fi",
-        f"git -C {shlex.quote(plan.remote_repo_path)} cat-file -e {shlex.quote(plan.head + '^{commit}')}",
     ]
+    if plan.incremental_base:
+        lines.extend(
+            [
+                "  echo 'Incremental bundle requires an existing remote repo with the base commit.' >&2",
+                "  exit 2",
+            ]
+        )
+    else:
+        lines.append(
+            f"  git clone {shlex.quote(plan.remote_bundle_path)} {shlex.quote(plan.remote_repo_path)}"
+        )
+    lines.extend(
+        [
+            "else",
+            (
+                f"  git -C {shlex.quote(plan.remote_repo_path)} fetch --force "
+                f"{shlex.quote(plan.remote_bundle_path)} "
+                f"{shlex.quote('refs/heads/' + plan.branch + ':' + sync_ref)}"
+            ),
+            "fi",
+            f"git -C {shlex.quote(plan.remote_repo_path)} cat-file -e {shlex.quote(plan.head + '^{commit}')}",
+        ]
+    )
     if plan.origin_url:
         lines.extend(
             [
@@ -405,6 +449,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"bundle_url={plan.bundle_url}")
         print(f"bundle_source_url={plan.bundle_source_url}")
         print(f"clone_proxy={plan.clone_proxy}")
+        print(f"incremental_base={plan.incremental_base}")
         print("--- remote script ---")
         print(_build_remote_script(plan))
         return 0

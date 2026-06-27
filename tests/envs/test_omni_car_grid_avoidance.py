@@ -354,6 +354,30 @@ def test_omni_car_grid_and_clearance_match_dense_reference() -> None:
     env.close()
 
 
+def test_omni_car_large_batch_grid_matches_scalar_path() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=260,
+        env_cfg_override={
+            "seed": 29,
+            "obstacles": {
+                "count": 4,
+            },
+        },
+    )
+    env.init_state()
+    env_indices = np.arange(env.num_envs, dtype=np.int32)
+    batched = np.zeros((env.num_envs, env._cfg.grid.size, env._cfg.grid.size), dtype=env._dtype)
+    scalar = np.zeros_like(batched)
+
+    env._fill_occupancy_grid(env_indices, batched)
+    env._fill_occupancy_grid_scalar(env_indices, scalar)
+
+    np.testing.assert_array_equal(batched, scalar)
+    env.close()
+
+
 def test_omni_car_logs_pre_reset_collision_metrics() -> None:
     env = registry.make(
         "OmniCarGridAvoidance",

@@ -54,6 +54,19 @@ def test_no_clone_proxy_omits_proxy_args() -> None:
     assert "http://127.0.0.1:7890" not in sync_args
 
 
+def test_build_sync_args_uses_incremental_base_without_source_clone() -> None:
+    module = _load_module()
+    args = module._parse_args(["--incremental-base", "a" * 40])
+
+    sync_args = module.build_sync_args(args)
+
+    assert "--incremental-base" in sync_args
+    assert "a" * 40 in sync_args
+    assert "--bundle-source-url" not in sync_args
+    assert "https://github.com/skkaczsh/UniLab.git" not in sync_args
+    assert "--clone-proxy" not in sync_args
+
+
 def test_clone_proxy_env_override() -> None:
     module = _load_module()
 
@@ -78,3 +91,43 @@ def test_main_delegates_to_bundle_sync(monkeypatch) -> None:
     assert captured["argv"] is not None
     assert "--local-host" in captured["argv"]
     assert "192.168.0.3" in captured["argv"]
+
+
+def test_main_noops_when_remote_matches_local(monkeypatch) -> None:
+    module = _load_module()
+    head = "b" * 40
+
+    monkeypatch.setattr(module, "_auto_incremental_base", lambda args: (head, True))
+
+    def _unexpected_main(argv):  # type: ignore[no-untyped-def]
+        raise AssertionError(f"sync should not run for up-to-date remote: {argv}")
+
+    monkeypatch.setattr(module.sync_remote_bundle, "main", _unexpected_main)
+
+    rc = module.main(["--local-host", "192.168.0.3"])
+
+    assert rc == 0
+
+
+def test_main_auto_incremental_omits_full_clone(monkeypatch) -> None:
+    module = _load_module()
+    base = "a" * 40
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(module, "_auto_incremental_base", lambda args: (base, False))
+
+    def _fake_main(argv):  # type: ignore[no-untyped-def]
+        captured["argv"] = list(argv)
+        return 0
+
+    monkeypatch.setattr(module.sync_remote_bundle, "main", _fake_main)
+
+    rc = module.main(["--local-host", "192.168.0.3"])
+
+    assert rc == 0
+    assert captured["argv"] is not None
+    sync_args = captured["argv"]
+    assert "--incremental-base" in sync_args
+    assert base in sync_args
+    assert "--bundle-source-url" not in sync_args
+    assert "--clone-proxy" not in sync_args

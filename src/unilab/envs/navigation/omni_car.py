@@ -227,6 +227,10 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._grid_points = np.stack([gx.reshape(-1), gy.reshape(-1)], axis=1).astype(self._dtype)
         self._grid_x = self._grid_points[:, 0]
         self._grid_y = self._grid_points[:, 1]
+        self._grid_size = int(cfg.grid.size)
+        self._grid_cell_size = float(cfg.grid.cell_size)
+        self._grid_half_index = self._grid_size / 2.0 - 0.5
+        self._grid_pad = self._grid_cell_size * 0.5
         self._grid_extent = cfg.grid.size * cfg.grid.cell_size * 0.5
 
     def _apply_reward_config(self) -> None:
@@ -692,10 +696,89 @@ class OmniCarGridAvoidanceEnv(ABEnv):
     def _fill_occupancy_grid(self, env_indices: np.ndarray, grid: np.ndarray) -> None:
         env_indices = np.asarray(env_indices, dtype=np.int32)
         grid.fill(0.0)
-        if self._cfg.obstacles.count == 0:
+        if env_indices.size == 0 or self._cfg.obstacles.count == 0:
+            return
+        if env_indices.size < 256:
+            self._fill_occupancy_grid_scalar(env_indices, grid)
             return
         local_xy_batch = self._world_to_body_obstacles(env_indices)
-        pad = self._cfg.grid.cell_size * 0.5
+        center_x = local_xy_batch[:, :, 0]
+        center_y = local_xy_batch[:, :, 1]
+        in_range = (np.abs(center_x) <= self._grid_extent) & (
+            np.abs(center_y) <= self._grid_extent
+        )
+        obstacle_types = self._obstacle_type[env_indices]
+        circle_mask = obstacle_types == self._OBSTACLE_CIRCLE
+        radii = self._obstacle_radius[env_indices] + self._grid_pad
+        half_extents = self._obstacle_half_extents[env_indices]
+        rel_yaw = self._obstacle_yaw[env_indices] - self._pose[env_indices, 2][:, None]
+        cos_yaw = np.cos(rel_yaw)
+        sin_yaw = np.sin(rel_yaw)
+        rect_extent_x = (
+            np.abs(cos_yaw) * half_extents[:, :, 0]
+            + np.abs(sin_yaw) * half_extents[:, :, 1]
+            + self._grid_pad
+        )
+        rect_extent_y = (
+            np.abs(sin_yaw) * half_extents[:, :, 0]
+            + np.abs(cos_yaw) * half_extents[:, :, 1]
+            + self._grid_pad
+        )
+        extent_x = np.where(circle_mask, radii, rect_extent_x)
+        extent_y = np.where(circle_mask, radii, rect_extent_y)
+        ix0, ix1, iy0, iy1 = self._grid_bounds_batch(center_x, center_y, extent_x, extent_y)
+
+        for row in range(env_indices.size):
+            obstacle_ids = np.flatnonzero(in_range[row])
+            if obstacle_ids.size == 0:
+                continue
+            grid_view = grid[row]
+
+            circle_ids = obstacle_ids[circle_mask[row, obstacle_ids]]
+            for obstacle_id in circle_ids:
+                center_x_i = float(center_x[row, obstacle_id])
+                center_y_i = float(center_y[row, obstacle_id])
+                radius = float(radii[row, obstacle_id])
+                ix0_i = int(ix0[row, obstacle_id])
+                ix1_i = int(ix1[row, obstacle_id])
+                iy0_i = int(iy0[row, obstacle_id])
+                iy1_i = int(iy1[row, obstacle_id])
+                delta_x = self._grid_axis[ix0_i:ix1_i, None] - center_x_i
+                delta_y = self._grid_axis[None, iy0_i:iy1_i] - center_y_i
+                hits = delta_x * delta_x + delta_y * delta_y <= radius * radius
+                np.maximum(
+                    grid_view[ix0_i:ix1_i, iy0_i:iy1_i],
+                    hits,
+                    out=grid_view[ix0_i:ix1_i, iy0_i:iy1_i],
+                )
+
+            rect_ids = obstacle_ids[~circle_mask[row, obstacle_ids]]
+            for obstacle_id in rect_ids:
+                center_x_i = float(center_x[row, obstacle_id])
+                center_y_i = float(center_y[row, obstacle_id])
+                half_extent_x = float(half_extents[row, obstacle_id, 0])
+                half_extent_y = float(half_extents[row, obstacle_id, 1])
+                cos_yaw_i = float(cos_yaw[row, obstacle_id])
+                sin_yaw_i = float(sin_yaw[row, obstacle_id])
+                ix0_i = int(ix0[row, obstacle_id])
+                ix1_i = int(ix1[row, obstacle_id])
+                iy0_i = int(iy0[row, obstacle_id])
+                iy1_i = int(iy1[row, obstacle_id])
+                delta_x = self._grid_axis[ix0_i:ix1_i, None] - center_x_i
+                delta_y = self._grid_axis[None, iy0_i:iy1_i] - center_y_i
+                local_x = cos_yaw_i * delta_x + sin_yaw_i * delta_y
+                local_y = -sin_yaw_i * delta_x + cos_yaw_i * delta_y
+                hits = (np.abs(local_x) <= half_extent_x + self._grid_pad) & (
+                    np.abs(local_y) <= half_extent_y + self._grid_pad
+                )
+                np.maximum(
+                    grid_view[ix0_i:ix1_i, iy0_i:iy1_i],
+                    hits,
+                    out=grid_view[ix0_i:ix1_i, iy0_i:iy1_i],
+                )
+
+    def _fill_occupancy_grid_scalar(self, env_indices: np.ndarray, grid: np.ndarray) -> None:
+        local_xy_batch = self._world_to_body_obstacles(env_indices)
         for row, env_id in enumerate(env_indices):
             local_xy = local_xy_batch[row]
             in_range = (np.abs(local_xy[:, 0]) <= self._grid_extent) & (
@@ -711,7 +794,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             for obstacle_id in circle_ids:
                 center_x = float(local_xy[obstacle_id, 0])
                 center_y = float(local_xy[obstacle_id, 1])
-                radius = float(self._obstacle_radius[env_id, obstacle_id] + pad)
+                radius = float(self._obstacle_radius[env_id, obstacle_id] + self._grid_pad)
                 ix0, ix1, iy0, iy1 = self._grid_bounds(center_x, center_y, radius, radius)
                 delta_x = self._grid_axis[ix0:ix1, None] - center_x
                 delta_y = self._grid_axis[None, iy0:iy1] - center_y
@@ -727,15 +810,23 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 rel_yaw = float(self._obstacle_yaw[env_id, obstacle_id] - self._pose[env_id, 2])
                 cos_yaw = float(np.cos(rel_yaw))
                 sin_yaw = float(np.sin(rel_yaw))
-                aabb_x = abs(cos_yaw) * half_extent_x + abs(sin_yaw) * half_extent_y + pad
-                aabb_y = abs(sin_yaw) * half_extent_x + abs(cos_yaw) * half_extent_y + pad
+                aabb_x = (
+                    abs(cos_yaw) * half_extent_x
+                    + abs(sin_yaw) * half_extent_y
+                    + self._grid_pad
+                )
+                aabb_y = (
+                    abs(sin_yaw) * half_extent_x
+                    + abs(cos_yaw) * half_extent_y
+                    + self._grid_pad
+                )
                 ix0, ix1, iy0, iy1 = self._grid_bounds(center_x, center_y, aabb_x, aabb_y)
                 delta_x = self._grid_axis[ix0:ix1, None] - center_x
                 delta_y = self._grid_axis[None, iy0:iy1] - center_y
                 local_x = cos_yaw * delta_x + sin_yaw * delta_y
                 local_y = -sin_yaw * delta_x + cos_yaw * delta_y
-                hits = (np.abs(local_x) <= half_extent_x + pad) & (
-                    np.abs(local_y) <= half_extent_y + pad
+                hits = (np.abs(local_x) <= half_extent_x + self._grid_pad) & (
+                    np.abs(local_y) <= half_extent_y + self._grid_pad
                 )
                 np.maximum(grid_view[ix0:ix1, iy0:iy1], hits, out=grid_view[ix0:ix1, iy0:iy1])
 
@@ -761,14 +852,65 @@ class OmniCarGridAvoidanceEnv(ABEnv):
     def _grid_bounds(
         self, center_x: float, center_y: float, extent_x: float, extent_y: float
     ) -> tuple[int, int, int, int]:
-        grid_size = self._cfg.grid.size
-        half_size = grid_size / 2.0 - 0.5
-        cell_size = self._cfg.grid.cell_size
-        ix0 = max(int(math.floor((center_x - extent_x) / cell_size + half_size)) - 1, 0)
-        ix1 = min(int(math.ceil((center_x + extent_x) / cell_size + half_size)) + 2, grid_size)
-        iy0 = max(int(math.floor((center_y - extent_y) / cell_size + half_size)) - 1, 0)
-        iy1 = min(int(math.ceil((center_y + extent_y) / cell_size + half_size)) + 2, grid_size)
+        ix0 = max(
+            int(math.floor((center_x - extent_x) / self._grid_cell_size + self._grid_half_index))
+            - 1,
+            0,
+        )
+        ix1 = min(
+            int(math.ceil((center_x + extent_x) / self._grid_cell_size + self._grid_half_index))
+            + 2,
+            self._grid_size,
+        )
+        iy0 = max(
+            int(math.floor((center_y - extent_y) / self._grid_cell_size + self._grid_half_index))
+            - 1,
+            0,
+        )
+        iy1 = min(
+            int(math.ceil((center_y + extent_y) / self._grid_cell_size + self._grid_half_index))
+            + 2,
+            self._grid_size,
+        )
         return ix0, ix1, iy0, iy1
+
+    def _grid_bounds_batch(
+        self,
+        center_x: np.ndarray,
+        center_y: np.ndarray,
+        extent_x: np.ndarray,
+        extent_y: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        ix0 = (
+            np.floor((center_x - extent_x) / self._grid_cell_size + self._grid_half_index).astype(
+                np.int32
+            )
+            - 1
+        )
+        ix1 = (
+            np.ceil((center_x + extent_x) / self._grid_cell_size + self._grid_half_index).astype(
+                np.int32
+            )
+            + 2
+        )
+        iy0 = (
+            np.floor((center_y - extent_y) / self._grid_cell_size + self._grid_half_index).astype(
+                np.int32
+            )
+            - 1
+        )
+        iy1 = (
+            np.ceil((center_y + extent_y) / self._grid_cell_size + self._grid_half_index).astype(
+                np.int32
+            )
+            + 2
+        )
+        return (
+            np.clip(ix0, 0, self._grid_size),
+            np.clip(ix1, 0, self._grid_size),
+            np.clip(iy0, 0, self._grid_size),
+            np.clip(iy1, 0, self._grid_size),
+        )
 
     def _compute_clearance(self, env_indices: np.ndarray) -> np.ndarray:
         env_indices = np.asarray(env_indices, dtype=np.int32)
