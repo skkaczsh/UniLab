@@ -23,6 +23,7 @@ DEFAULT_ORIGIN_URL = "git@github.com:skkaczsh/UniLab.git"
 DEFAULT_REMOTE_BUNDLE_PATH = "/home/zsh/develop/repos/UniLab.gitbundle"
 DEFAULT_REMOTE_REPO_PATH = "/home/zsh/develop/repos/UniLab"
 DEFAULT_REMOTE_WORKTREE_PATH = "/home/zsh/develop/worktrees/UniLab-omni-car-git"
+DEFAULT_REMOTE_WORKTREE_BRANCH = "codex/omni-car-grid-ppo-wt-remote"
 DEFAULT_VENV_SOURCE = "/home/zsh/develop/worktrees/UniLab-omni-car/.venv"
 
 
@@ -60,6 +61,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--remote-bundle-path", default=DEFAULT_REMOTE_BUNDLE_PATH)
     parser.add_argument("--remote-repo-path", default=DEFAULT_REMOTE_REPO_PATH)
     parser.add_argument("--remote-worktree-path", default=DEFAULT_REMOTE_WORKTREE_PATH)
+    parser.add_argument(
+        "--remote-worktree-branch",
+        default=DEFAULT_REMOTE_WORKTREE_BRANCH,
+        help="Stable branch name used for the remote training worktree.",
+    )
     parser.add_argument("--venv-source", default=DEFAULT_VENV_SOURCE)
     parser.add_argument("--dry-run", action="store_true", help="Print sync plan and exit.")
     return parser.parse_args(argv)
@@ -85,6 +91,8 @@ def build_sync_args(args: argparse.Namespace) -> list[str]:
         str(args.remote_repo_path),
         "--remote-worktree-path",
         str(args.remote_worktree_path),
+        "--remote-worktree-branch",
+        str(args.remote_worktree_branch),
         "--venv-source",
         str(args.venv_source),
     ]

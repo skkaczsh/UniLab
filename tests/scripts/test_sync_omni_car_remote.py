@@ -27,9 +27,21 @@ def test_build_sync_args_uses_omni_car_remote_defaults() -> None:
     assert "https://github.com/skkaczsh/UniLab.git" in sync_args
     assert "git@github.com:skkaczsh/UniLab.git" in sync_args
     assert "/home/zsh/develop/worktrees/UniLab-omni-car-git" in sync_args
+    assert "--remote-worktree-branch" in sync_args
+    assert "codex/omni-car-grid-ppo-wt-remote" in sync_args
     assert "--clone-proxy" in sync_args
     assert "http://127.0.0.1:7890" in sync_args
     assert "--dry-run" in sync_args
+
+
+def test_remote_worktree_branch_does_not_follow_local_branch_name() -> None:
+    module = _load_module()
+    args = module._parse_args([])
+
+    sync_args = module.build_sync_args(args)
+
+    assert "codex/omni-car-grid-ppo-wt-remote" in sync_args
+    assert "codex/omni-car-grid-ppo-wt-remote-remote" not in sync_args
 
 
 def test_no_clone_proxy_omits_proxy_args() -> None:

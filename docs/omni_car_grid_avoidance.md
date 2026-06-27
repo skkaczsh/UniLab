@@ -105,10 +105,12 @@ uv run scripts/sync_omni_car_remote.py
 Pass `--local-host <LAN-IP>` if auto-detection chooses the wrong interface. The
 wrapper delegates to `scripts/sync_remote_bundle.py`, which updates an existing
 remote repo/worktree in place by fetching the bundle and resetting tracked files
-to the local HEAD. It does not delete the remote worktree, so logs and other
-untracked training artifacts remain in place. The `--bundle-source-url` path is
-important when the local checkout is a partial/promisor clone; the script
-creates and verifies a temporary full clone before serving the bundle.
+to the local HEAD on the stable remote branch
+`codex/omni-car-grid-ppo-wt-remote`. It does not delete the remote worktree, so
+logs and other untracked training artifacts remain in place. The
+`--bundle-source-url` path is important when the local checkout is a
+partial/promisor clone; the script creates and verifies a temporary full clone
+before serving the bundle.
 
 ## Environment benchmark
 
