@@ -132,34 +132,48 @@ def build_train_remote_script(plan: RemoteTmuxPlan, train_command: Sequence[str]
     )
 
 
-def build_status_remote_script(plan: RemoteTmuxPlan, *, tail_lines: int) -> str:
+def build_status_remote_script(
+    plan: RemoteTmuxPlan, *, tail_lines: int, summary_window: int = 0
+) -> str:
     session = shlex.quote(plan.session)
     tail = max(int(tail_lines), 1)
+    window = max(int(summary_window), 0)
+    log_file = f"logs/tmux/{_safe_log_stem(plan.session)}.log"
     status_file = f"logs/tmux/{_safe_log_stem(plan.session)}.status"
-    return "\n".join(
-        [
-            "set -euo pipefail",
-            f"cd {shlex.quote(plan.worktree)}",
-            "echo '--- git ---'",
-            "git status --short --branch",
-            "git rev-parse HEAD",
-            "echo '--- gpu ---'",
-            "nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total "
-            "--format=csv,noheader || true",
-            "echo '--- tmux sessions ---'",
-            "tmux list-sessions 2>/dev/null || true",
-            f"if tmux has-session -t {session} 2>/dev/null; then",
-            f"  echo '--- {plan.session} tail ---'",
-            f"  tmux capture-pane -pt {session} -S -{tail} || true",
-            "else",
-            f"  echo 'tmux session not found: {plan.session}'",
-            f"  if test -f {shlex.quote(status_file)}; then",
-            f"    echo '--- {plan.session} last status ---'",
-            f"    cat {shlex.quote(status_file)}",
-            "  fi",
-            "fi",
-        ]
-    )
+    lines = [
+        "set -euo pipefail",
+        f"cd {shlex.quote(plan.worktree)}",
+        "echo '--- git ---'",
+        "git status --short --branch",
+        "git rev-parse HEAD",
+        "echo '--- gpu ---'",
+        "nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total "
+        "--format=csv,noheader || true",
+        "echo '--- tmux sessions ---'",
+        "tmux list-sessions 2>/dev/null || true",
+        f"if tmux has-session -t {session} 2>/dev/null; then",
+        f"  echo '--- {plan.session} tail ---'",
+        f"  tmux capture-pane -pt {session} -S -{tail} || true",
+        "else",
+        f"  echo 'tmux session not found: {plan.session}'",
+        f"  if test -f {shlex.quote(status_file)}; then",
+        f"    echo '--- {plan.session} last status ---'",
+        f"    cat {shlex.quote(status_file)}",
+        "  fi",
+        "fi",
+    ]
+    if window > 0:
+        lines.extend(
+            [
+                f"if test -f {shlex.quote(log_file)} "
+                "&& test -f scripts/summarize_omni_car_training_log.py; then",
+                f"  echo '--- {plan.session} summary ---'",
+                "/home/zsh/.local/bin/uv run scripts/summarize_omni_car_training_log.py "
+                f"{shlex.quote(log_file)} --window {window} || true",
+                "fi",
+            ]
+        )
+    return "\n".join(lines)
 
 
 def build_ssh_command(plan: RemoteTmuxPlan, remote_script: str) -> list[str]:
@@ -187,6 +201,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     status = subparsers.add_parser("status", help="Inspect remote git/GPU/tmux state.")
     _add_common_args(status)
     status.add_argument("--tail-lines", type=int, default=80, help="Pane lines to capture.")
+    status.add_argument(
+        "--summary-window",
+        type=int,
+        default=0,
+        help="If > 0, print a JSON summary over the latest N logged iterations.",
+    )
 
     train = subparsers.add_parser("train", help="Start OmniCar PPO training in a remote tmux session.")
     _add_common_args(train)
@@ -228,7 +248,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     plan = _plan_from_args(args)
     if args.command == "status":
-        remote_script = build_status_remote_script(plan, tail_lines=int(args.tail_lines))
+        remote_script = build_status_remote_script(
+            plan,
+            tail_lines=int(args.tail_lines),
+            summary_window=int(args.summary_window),
+        )
     elif args.command == "train":
         train_command = build_train_command(
             run_name=str(args.run_name),

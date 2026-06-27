@@ -95,6 +95,23 @@ def test_status_remote_script_reports_git_gpu_and_tmux_tail() -> None:
     assert "last status" in script
 
 
+def test_status_remote_script_can_include_training_summary() -> None:
+    module = _load_module()
+    plan = module.RemoteTmuxPlan(
+        remote="zsh@skkac.top",
+        ssh_port=6010,
+        worktree="/remote/worktree",
+        session="omni-car",
+        proxy=None,
+    )
+
+    script = module.build_status_remote_script(plan, tail_lines=20, summary_window=12)
+
+    assert "scripts/summarize_omni_car_training_log.py" in script
+    assert "logs/tmux/omni-car.log --window 12" in script
+    assert "--- omni-car summary ---" in script
+
+
 def test_build_ssh_command_passes_remote_script_as_single_argument() -> None:
     module = _load_module()
     plan = module.RemoteTmuxPlan(

@@ -106,6 +106,14 @@ uv run scripts/remote_omni_car_tmux.py train \
   --max-iterations 3000
 ```
 
+Use `--summary-window` with `status` to include a JSON summary from the tmux log:
+
+```bash
+uv run scripts/remote_omni_car_tmux.py status \
+  --session omni-car-large-scene-c22 \
+  --summary-window 20
+```
+
 Summarize a long tmux log into a small JSON artifact before committing progress
 snapshots:
 
