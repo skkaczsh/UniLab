@@ -127,6 +127,17 @@ The evidence is stored in
 `artifacts/omni_car/remote_tmux_cpuopt_seed1_axis_late_checkpoint_scan.json`,
 and `artifacts/omni_car/remote_tmux_cpuopt_seed1_axis_2950_multiseed_eval.json`.
 
+The CPU/sync-path validation run `remote_tmux_cpu_path_fcbbd4` completed on
+commit `fcbbd4c16cf1192b5e16c218452771d289690a59` (`2026-06-27 23:45:31
++08:00` to `2026-06-28 00:01:45 +08:00`). It used the same `128` envs,
+`32` steps/env, `3000` iterations profile and mainly validates the current
+remote sync / tmux / CPU environment path. Its final `model_2999.pt` has
+SHA-256 `d5f34aefd71478255fdf2621b862ef49cdf70d06340da43c78da3bea028bfb9d`.
+The scan selected `2999` with `collision_fraction=0.0138` but
+`omni_car/tracking_error=0.4262`; the collision gate passed, the tracking gate
+did not, so it does not replace the current selected checkpoint. Evidence is
+stored in `artifacts/omni_car/remote_tmux_cpu_path_fcbbd4_checkpoint_scan.json`.
+
 ## Remote sync
 
 When GitHub SSH/HTTPS is unreliable from the training host, sync the current
