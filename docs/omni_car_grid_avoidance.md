@@ -106,6 +106,16 @@ uv run scripts/remote_omni_car_tmux.py train \
   --max-iterations 3000
 ```
 
+Summarize a long tmux log into a small JSON artifact before committing progress
+snapshots:
+
+```bash
+uv run scripts/summarize_omni_car_training_log.py \
+  artifacts/omni_car/remote_large_scene_c22_tmux.log \
+  --window 20 \
+  --output artifacts/omni_car/remote_large_scene_c22_progress.json
+```
+
 The `remote_tmux_axis_next` relaunch completed cleanly through this path
 (`3000` iterations, `128` envs, `32` steps/env, `algo.save_interval=100`), but
 it is not the selected checkpoint. Its final `model_2999.pt` single-seed eval
