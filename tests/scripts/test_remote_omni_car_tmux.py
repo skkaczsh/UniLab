@@ -67,6 +67,11 @@ def test_train_remote_script_exports_proxy_and_guards_existing_session() -> None
     assert "tmux new-session -d -s" in script
     assert "HTTP_PROXY=http://127.0.0.1:7890" in script
     assert "logs/tmux/omni_car_train.log" in script
+    assert "logs/tmux/omni_car_train.status" in script
+    assert "state=running" in script
+    assert "exit_code=${PIPESTATUS[0]}" in script
+    assert "state=completed" in script
+    assert "state=failed" in script
     assert "uv run train algo.max_iterations=1" in script
 
 
@@ -86,6 +91,8 @@ def test_status_remote_script_reports_git_gpu_and_tmux_tail() -> None:
     assert "nvidia-smi --query-gpu" in script
     assert "tmux list-sessions" in script
     assert "tmux capture-pane -pt omni-car -S -120" in script
+    assert "logs/tmux/omni-car.status" in script
+    assert "last status" in script
 
 
 def test_build_ssh_command_passes_remote_script_as_single_argument() -> None:

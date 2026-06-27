@@ -83,16 +83,33 @@ def build_train_command(
 def build_train_remote_script(plan: RemoteTmuxPlan, train_command: Sequence[str]) -> str:
     session = shlex.quote(plan.session)
     log_file = f"logs/tmux/{_safe_log_stem(plan.session)}.log"
+    status_file = f"logs/tmux/{_safe_log_stem(plan.session)}.status"
     inner_lines = [
         "set -euo pipefail",
         *_proxy_exports(plan.proxy),
         f"cd {shlex.quote(plan.worktree)}",
         "mkdir -p logs/tmux",
+        f"log_file={shlex.quote(log_file)}",
+        f"status_file={shlex.quote(status_file)}",
+        "started_at=$(date -Is)",
         'echo "[remote_omni_car_tmux] started $(date -Is)"',
         'echo "[remote_omni_car_tmux] commit $(git rev-parse HEAD)"',
+        "printf 'state=running\\nstarted_at=%s\\ncommit=%s\\nlog=%s\\n' "
+        '"$started_at" "$(git rev-parse HEAD)" "$log_file" > "$status_file"',
         "nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total "
         "--format=csv,noheader || true",
-        f"{shlex.join(train_command)} 2>&1 | tee -a {shlex.quote(log_file)}",
+        "set +e",
+        f"{shlex.join(train_command)} 2>&1 | tee -a \"$log_file\"",
+        "exit_code=${PIPESTATUS[0]}",
+        "set -e",
+        "ended_at=$(date -Is)",
+        "if [ \"$exit_code\" -eq 0 ]; then state=completed; else state=failed; fi",
+        'echo "[remote_omni_car_tmux] ${state} exit_code=${exit_code} ended_at=${ended_at}" '
+        '| tee -a "$log_file"',
+        "printf 'state=%s\\nstarted_at=%s\\nended_at=%s\\nexit_code=%s\\ncommit=%s\\nlog=%s\\n' "
+        '"$state" "$started_at" "$ended_at" "$exit_code" "$(git rev-parse HEAD)" "$log_file" '
+        '> "$status_file"',
+        "exit \"$exit_code\"",
     ]
     inner = "\n".join(inner_lines)
     tmux_command = f"bash -lc {shlex.quote(inner)}"
@@ -108,6 +125,7 @@ def build_train_remote_script(plan: RemoteTmuxPlan, train_command: Sequence[str]
             f"echo 'started tmux session: {plan.session}'",
             f"echo 'capture: tmux capture-pane -pt {plan.session} -S -80'",
             f"echo 'log: {log_file}'",
+            f"echo 'status: {status_file}'",
         ]
     )
 
@@ -115,6 +133,7 @@ def build_train_remote_script(plan: RemoteTmuxPlan, train_command: Sequence[str]
 def build_status_remote_script(plan: RemoteTmuxPlan, *, tail_lines: int) -> str:
     session = shlex.quote(plan.session)
     tail = max(int(tail_lines), 1)
+    status_file = f"logs/tmux/{_safe_log_stem(plan.session)}.status"
     return "\n".join(
         [
             "set -euo pipefail",
@@ -132,6 +151,10 @@ def build_status_remote_script(plan: RemoteTmuxPlan, *, tail_lines: int) -> str:
             f"  tmux capture-pane -pt {session} -S -{tail} || true",
             "else",
             f"  echo 'tmux session not found: {plan.session}'",
+            f"  if test -f {shlex.quote(status_file)}; then",
+            f"    echo '--- {plan.session} last status ---'",
+            f"    cat {shlex.quote(status_file)}",
+            "  fi",
             "fi",
         ]
     )
