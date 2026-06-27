@@ -80,10 +80,22 @@ uv run python scripts/benchmark_omni_car_env.py \
   --profile-top 15
 ```
 
-On this branch, the current vectorized occupancy-grid pass reduced a local
-`128`-env microbenchmark from roughly `146.8 ms/step` to `57.3 ms/step`, which
-substantially increases rollout throughput and makes it easier to keep the GPU
-learner fed.
+The earlier attempt to parallelize this path with a Python `ThreadPoolExecutor`
+regressed throughput. The bottleneck was not raw arithmetic; it was the amount
+of memory scanned per obstacle plus the overhead of dispatching many small
+Python tasks. The current fast path fixes that in two ways:
+
+- occupancy grids are rasterized only inside each obstacle's local AABB instead
+  of scanning the full `80 x 80` grid for every obstacle
+- clearance is computed in one batched vectorized pass across all envs
+
+With those changes, the local benchmark moved again:
+
+- `128` envs: roughly `57.3 ms/step` -> `10.6 ms/step`
+- `512` envs: roughly `102.1 ms/step` -> `34.6 ms/step`
+
+That is a better lever than Python threading for this environment because it
+cuts the CPU work itself instead of parallelizing avoidable work.
 
 ## Native viewer
 

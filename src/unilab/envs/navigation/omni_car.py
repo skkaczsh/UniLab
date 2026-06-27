@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 from os import PathLike
@@ -210,6 +211,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         xs = np.arange(cfg.grid.size, dtype=np.float32) + 0.5 - cfg.grid.size / 2.0
         ys = np.arange(cfg.grid.size, dtype=np.float32) + 0.5 - cfg.grid.size / 2.0
         gx, gy = np.meshgrid(xs * cfg.grid.cell_size, ys * cfg.grid.cell_size, indexing="ij")
+        self._grid_axis = (xs * cfg.grid.cell_size).astype(self._dtype)
         self._grid_points = np.stack([gx.reshape(-1), gy.reshape(-1)], axis=1).astype(self._dtype)
         self._grid_x = self._grid_points[:, 0]
         self._grid_y = self._grid_points[:, 1]
@@ -675,52 +677,56 @@ class OmniCarGridAvoidanceEnv(ABEnv):
 
     def _occupancy_grid(self, env_indices: np.ndarray) -> np.ndarray:
         env_indices = np.asarray(env_indices, dtype=np.int32)
-        grid = np.zeros(
-            (env_indices.size, self._cfg.grid.size * self._cfg.grid.size), dtype=self._dtype
-        )
+        grid_size = self._cfg.grid.size
+        grid = np.zeros((env_indices.size, grid_size, grid_size), dtype=self._dtype)
         if self._cfg.obstacles.count == 0:
-            return grid
-        grid_x = self._grid_x
-        grid_y = self._grid_y
+            return grid.reshape(env_indices.size, -1)
+        local_xy_batch = self._world_to_body_obstacles(env_indices)
         pad = self._cfg.grid.cell_size * 0.5
         for row, env_id in enumerate(env_indices):
-            local_xy = self._world_to_body_points(env_id, self._obstacle_xy[env_id])
+            local_xy = local_xy_batch[row]
             in_range = (np.abs(local_xy[:, 0]) <= self._grid_extent) & (
                 np.abs(local_xy[:, 1]) <= self._grid_extent
             )
             obstacle_ids = np.flatnonzero(in_range)
             if obstacle_ids.size == 0:
                 continue
-            occupied = np.zeros((grid_x.shape[0],), dtype=bool)
+            grid_view = grid[row]
             obstacle_types = self._obstacle_type[env_id, obstacle_ids]
 
             circle_ids = obstacle_ids[obstacle_types == self._OBSTACLE_CIRCLE]
-            if circle_ids.size > 0:
-                centers = local_xy[circle_ids]
-                radii = self._obstacle_radius[env_id, circle_ids] + pad
-                delta_x = grid_x[None, :] - centers[:, 0:1]
-                delta_y = grid_y[None, :] - centers[:, 1:2]
-                occupied |= np.any(delta_x * delta_x + delta_y * delta_y <= radii[:, None] ** 2, axis=0)
+            for obstacle_id in circle_ids:
+                center_x = float(local_xy[obstacle_id, 0])
+                center_y = float(local_xy[obstacle_id, 1])
+                radius = float(self._obstacle_radius[env_id, obstacle_id] + pad)
+                ix0, ix1, iy0, iy1 = self._grid_bounds(center_x, center_y, radius, radius)
+                delta_x = self._grid_axis[ix0:ix1, None] - center_x
+                delta_y = self._grid_axis[None, iy0:iy1] - center_y
+                hits = delta_x * delta_x + delta_y * delta_y <= radius * radius
+                np.maximum(grid_view[ix0:ix1, iy0:iy1], hits, out=grid_view[ix0:ix1, iy0:iy1])
 
             rect_ids = obstacle_ids[obstacle_types != self._OBSTACLE_CIRCLE]
-            if rect_ids.size > 0:
-                centers = local_xy[rect_ids]
-                rel_yaw = self._obstacle_yaw[env_id, rect_ids] - self._pose[env_id, 2]
-                delta_x = grid_x[None, :] - centers[:, 0:1]
-                delta_y = grid_y[None, :] - centers[:, 1:2]
-                cos_yaw = np.cos(-rel_yaw)[:, None]
-                sin_yaw = np.sin(-rel_yaw)[:, None]
-                local_x = cos_yaw * delta_x - sin_yaw * delta_y
-                local_y = sin_yaw * delta_x + cos_yaw * delta_y
-                half_extents = self._obstacle_half_extents[env_id, rect_ids]
-                occupied |= np.any(
-                    (np.abs(local_x) <= half_extents[:, 0:1] + pad)
-                    & (np.abs(local_y) <= half_extents[:, 1:2] + pad),
-                    axis=0,
+            for obstacle_id in rect_ids:
+                center_x = float(local_xy[obstacle_id, 0])
+                center_y = float(local_xy[obstacle_id, 1])
+                half_extent_x = float(self._obstacle_half_extents[env_id, obstacle_id, 0])
+                half_extent_y = float(self._obstacle_half_extents[env_id, obstacle_id, 1])
+                rel_yaw = float(self._obstacle_yaw[env_id, obstacle_id] - self._pose[env_id, 2])
+                cos_yaw = float(np.cos(rel_yaw))
+                sin_yaw = float(np.sin(rel_yaw))
+                aabb_x = abs(cos_yaw) * half_extent_x + abs(sin_yaw) * half_extent_y + pad
+                aabb_y = abs(sin_yaw) * half_extent_x + abs(cos_yaw) * half_extent_y + pad
+                ix0, ix1, iy0, iy1 = self._grid_bounds(center_x, center_y, aabb_x, aabb_y)
+                delta_x = self._grid_axis[ix0:ix1, None] - center_x
+                delta_y = self._grid_axis[None, iy0:iy1] - center_y
+                local_x = cos_yaw * delta_x + sin_yaw * delta_y
+                local_y = -sin_yaw * delta_x + cos_yaw * delta_y
+                hits = (np.abs(local_x) <= half_extent_x + pad) & (
+                    np.abs(local_y) <= half_extent_y + pad
                 )
+                np.maximum(grid_view[ix0:ix1, iy0:iy1], hits, out=grid_view[ix0:ix1, iy0:iy1])
 
-            grid[row, occupied] = 1.0
-        return grid
+        return grid.reshape(env_indices.size, -1)
 
     def _world_to_body_points(self, env_id: int, points_world: np.ndarray) -> np.ndarray:
         delta = points_world - self._pose[env_id, :2]
@@ -731,6 +737,28 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         y = s * delta[:, 0] + c * delta[:, 1]
         return np.stack([x, y], axis=1).astype(self._dtype)
 
+    def _world_to_body_obstacles(self, env_indices: np.ndarray) -> np.ndarray:
+        env_indices = np.asarray(env_indices, dtype=np.int32)
+        pose = self._pose[env_indices]
+        delta = self._obstacle_xy[env_indices] - pose[:, None, :2]
+        cos_yaw = np.cos(pose[:, 2])[:, None]
+        sin_yaw = np.sin(pose[:, 2])[:, None]
+        x = cos_yaw * delta[:, :, 0] + sin_yaw * delta[:, :, 1]
+        y = -sin_yaw * delta[:, :, 0] + cos_yaw * delta[:, :, 1]
+        return np.stack([x, y], axis=2).astype(self._dtype, copy=False)
+
+    def _grid_bounds(
+        self, center_x: float, center_y: float, extent_x: float, extent_y: float
+    ) -> tuple[int, int, int, int]:
+        grid_size = self._cfg.grid.size
+        half_size = grid_size / 2.0 - 0.5
+        cell_size = self._cfg.grid.cell_size
+        ix0 = max(int(math.floor((center_x - extent_x) / cell_size + half_size)) - 1, 0)
+        ix1 = min(int(math.ceil((center_x + extent_x) / cell_size + half_size)) + 2, grid_size)
+        iy0 = max(int(math.floor((center_y - extent_y) / cell_size + half_size)) - 1, 0)
+        iy1 = min(int(math.ceil((center_y + extent_y) / cell_size + half_size)) + 2, grid_size)
+        return ix0, ix1, iy0, iy1
+
     def _compute_clearance(self, env_indices: np.ndarray) -> np.ndarray:
         env_indices = np.asarray(env_indices, dtype=np.int32)
         clearance = np.full((env_indices.size,), self._grid_extent, dtype=self._dtype)
@@ -738,35 +766,33 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         safety_radius = half_diag + self._cfg.grid.safety_margin_m
         if self._cfg.obstacles.count == 0:
             return clearance
-        for row, env_id in enumerate(env_indices):
-            local_xy = self._world_to_body_points(env_id, self._obstacle_xy[env_id])
-            obstacle_types = self._obstacle_type[env_id]
-            signed = np.empty((self._cfg.obstacles.count,), dtype=self._dtype)
+        local_xy = self._world_to_body_obstacles(env_indices)
+        obstacle_types = self._obstacle_type[env_indices]
+        signed = np.empty((env_indices.size, self._cfg.obstacles.count), dtype=self._dtype)
 
-            circle_mask = obstacle_types == self._OBSTACLE_CIRCLE
-            if np.any(circle_mask):
-                signed[circle_mask] = np.linalg.norm(local_xy[circle_mask], axis=1) - self._obstacle_radius[
-                    env_id, circle_mask
-                ]
+        circle_mask = obstacle_types == self._OBSTACLE_CIRCLE
+        if np.any(circle_mask):
+            circle_signed = np.linalg.norm(local_xy, axis=2) - self._obstacle_radius[env_indices]
+            signed[circle_mask] = circle_signed[circle_mask]
 
-            rect_mask = ~circle_mask
-            if np.any(rect_mask):
-                centers = local_xy[rect_mask]
-                rel_yaw = self._obstacle_yaw[env_id, rect_mask] - self._pose[env_id, 2]
-                cos_yaw = np.cos(-rel_yaw)
-                sin_yaw = np.sin(-rel_yaw)
-                local_x = cos_yaw * centers[:, 0] - sin_yaw * centers[:, 1]
-                local_y = sin_yaw * centers[:, 0] + cos_yaw * centers[:, 1]
-                half_extents = self._obstacle_half_extents[env_id, rect_mask]
-                qx = np.abs(local_x) - half_extents[:, 0]
-                qy = np.abs(local_y) - half_extents[:, 1]
-                outside_x = np.maximum(qx, 0.0)
-                outside_y = np.maximum(qy, 0.0)
-                outside_distance = np.sqrt(outside_x * outside_x + outside_y * outside_y)
-                inside_distance = np.minimum(np.maximum(qx, qy), 0.0)
-                signed[rect_mask] = outside_distance + inside_distance
+        rect_mask = ~circle_mask
+        if np.any(rect_mask):
+            rel_yaw = self._obstacle_yaw[env_indices] - self._pose[env_indices, 2][:, None]
+            cos_yaw = np.cos(rel_yaw)
+            sin_yaw = np.sin(rel_yaw)
+            local_x = cos_yaw * local_xy[:, :, 0] + sin_yaw * local_xy[:, :, 1]
+            local_y = -sin_yaw * local_xy[:, :, 0] + cos_yaw * local_xy[:, :, 1]
+            half_extents = self._obstacle_half_extents[env_indices]
+            qx = np.abs(local_x) - half_extents[:, :, 0]
+            qy = np.abs(local_y) - half_extents[:, :, 1]
+            outside_x = np.maximum(qx, 0.0)
+            outside_y = np.maximum(qy, 0.0)
+            outside_distance = np.sqrt(outside_x * outside_x + outside_y * outside_y)
+            inside_distance = np.minimum(np.maximum(qx, qy), 0.0)
+            rect_signed = outside_distance + inside_distance
+            signed[rect_mask] = rect_signed[rect_mask]
 
-            clearance[row] = np.min(signed - safety_radius).astype(self._dtype)
+        clearance[:] = np.min(signed - safety_radius, axis=1).astype(self._dtype, copy=False)
         return clearance
 
     def _compute_reward(self, action: np.ndarray) -> np.ndarray:
