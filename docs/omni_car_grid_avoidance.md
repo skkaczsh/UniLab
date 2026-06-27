@@ -200,6 +200,18 @@ This reports:
 - per-axis `vx`, `vy`, `vyaw` tracking MAE / RMSE
 - logged reward terms for response progress and track / diff / jerk costs
 
+For a new long run, scan candidate checkpoints with the same reference gates
+before deciding whether it replaces the current best:
+
+```bash
+uv run scripts/scan_omni_car_checkpoints.py \
+  --load-run /absolute/path/to/run_dir \
+  --checkpoints 500 900 1200 1500 1800 2200 2600 2900 2999 \
+  --reference-collision 0.02705078125 \
+  --reference-tracking 0.3830635432736017 \
+  --output artifacts/omni_car/<run_name>_checkpoint_scan.json
+```
+
 Latest tuned run on the remote RTX 5070 Ti host:
 
 - run dir:
