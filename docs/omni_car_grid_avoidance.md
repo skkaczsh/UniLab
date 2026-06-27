@@ -102,6 +102,16 @@ and did not pass the current best gate: the best scanned checkpoint was
 The evidence is stored in
 `artifacts/omni_car/remote_tmux_seed2_axis_checkpoint_scan.json`.
 
+The first long run after the CPU step-path optimization,
+`remote_tmux_cpuopt_seed11_axis`, also completed cleanly on the optimized commit
+`c0a5d4901a8bddf3053222c1c411ddc2a3fad3d2` (`2026-06-27 16:26:33 +08:00` to
+`16:43:48 +08:00`). Its final `model_2999.pt` has SHA-256
+`9f7f7dd9a324285002fce73196fefc1bde6fdb01de544b803987d1d0ee62a2b1`. The best
+scanned checkpoint was again `2999`, with `collision_fraction=0.0409` and
+`omni_car/tracking_error=0.5023`, so it did not pass the current best gate. The
+evidence is stored in
+`artifacts/omni_car/remote_tmux_cpuopt_seed11_axis_checkpoint_scan.json`.
+
 ## Remote sync
 
 When GitHub SSH/HTTPS is unreliable from the training host, sync the current
