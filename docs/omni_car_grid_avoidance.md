@@ -35,13 +35,18 @@ Reward shaping emphasizes four things:
 
 1. Track commanded planar and yaw intent.
 2. Improve response speed when clearance allows.
-3. Penalize per-axis action diff and jerk independently for `vx`, `vy`, `vyaw`.
-4. Preserve clearance and heavily punish collision.
+3. Penalize per-axis safe-space tracking error independently for `vx`, `vy`, `vyaw`.
+4. Penalize per-axis action diff and jerk independently for `vx`, `vy`, `vyaw`.
+5. Preserve clearance and heavily punish collision.
 
 The current tuning pass intentionally shifted some burden from reward penalties
 back into the physical envelope: acceleration caps were loosened so the policy
 can respond to intent and obstacles faster, while collision and clearance terms
 were strengthened to stop the extra agility from turning into reckless contact.
+The latest yaw-response pass adds explicit clearance-gated per-axis tracking
+costs and raises yaw intent/tracking weight. This addresses a failure mode seen
+in the `remote_5070_git_long_3000` run where later checkpoints became very
+smooth by suppressing yaw output instead of following `vyaw` commands.
 
 ## Training
 
@@ -174,7 +179,7 @@ This reports:
 - episodic return / episode length
 - collision fraction and worst observed clearance
 - per-axis `vx`, `vy`, `vyaw` tracking MAE / RMSE
-- logged reward terms for response progress and diff / jerk costs
+- logged reward terms for response progress and track / diff / jerk costs
 
 Latest tuned run on the remote RTX 5070 Ti host:
 

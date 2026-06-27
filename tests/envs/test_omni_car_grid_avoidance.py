@@ -32,6 +32,9 @@ def test_omni_car_grid_contract() -> None:
     assert "commands" in next_state.info
     assert "omni_car/tracking_error" in next_state.info["log"]
     assert "omni_car/response_progress" in next_state.info["log"]
+    assert "omni_car/vx_track_cost" in next_state.info["log"]
+    assert "omni_car/vy_track_cost" in next_state.info["log"]
+    assert "omni_car/vyaw_track_cost" in next_state.info["log"]
     assert "omni_car/vx_diff_cost" in next_state.info["log"]
     assert "omni_car/vy_diff_cost" in next_state.info["log"]
     assert "omni_car/vyaw_diff_cost" in next_state.info["log"]
@@ -85,6 +88,9 @@ def test_omni_car_response_diff_and_jerk_rewards_are_measured() -> None:
                 "intent_projection": 0.0,
                 "yaw_intent": 0.0,
                 "response": 1.0,
+                "vx_track": 0.0,
+                "vy_track": 0.0,
+                "vyaw_track": 0.0,
                 "vx_diff": 0.0,
                 "vy_diff": 0.0,
                 "vyaw_diff": 0.0,
@@ -131,6 +137,46 @@ def test_omni_car_response_diff_and_jerk_rewards_are_measured() -> None:
 
     np.testing.assert_allclose(env._jerk_cost, [[1.0, 9.0, 4.0]], atol=1e-6)
     assert jerk_reward[0] == pytest.approx(-(1.0 + 18.0 + 12.0))
+    env.close()
+
+
+def test_omni_car_axis_tracking_penalty_is_clearance_gated() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 14,
+            "obstacles": {"count": 0},
+            "reward": {
+                "intent": 0.0,
+                "intent_projection": 0.0,
+                "yaw_intent": 0.0,
+                "response": 0.0,
+                "vx_track": 1.0,
+                "vy_track": 2.0,
+                "vyaw_track": 3.0,
+                "vx_diff": 0.0,
+                "vy_diff": 0.0,
+                "vyaw_diff": 0.0,
+                "vx_jerk": 0.0,
+                "vy_jerk": 0.0,
+                "vyaw_jerk": 0.0,
+                "clearance": 0.0,
+                "collision": 0.0,
+            },
+        },
+    )
+    env.init_state()
+    env._commands[:] = np.asarray([[1.0, -1.0, 1.0]], dtype=np.float32)
+
+    safe_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
+    np.testing.assert_allclose(env._track_cost, [[0.25, 0.25, 0.25]], atol=1e-6)
+    assert safe_reward[0] == pytest.approx(-(0.25 + 0.5 + 0.75))
+
+    env._nearest_clearance[:] = 0.0
+    blocked_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
+    assert blocked_reward[0] == pytest.approx(0.0)
     env.close()
 
 

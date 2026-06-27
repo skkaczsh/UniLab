@@ -65,6 +65,9 @@ class OmniCarRewardCfg:
     intent_projection: float = 5.0
     yaw_intent: float = 4.2
     response: float = 7.0
+    vx_track: float = 0.0
+    vy_track: float = 0.0
+    vyaw_track: float = 0.0
     vx_diff: float = 8.0
     vy_diff: float = 8.0
     vyaw_diff: float = 10.0
@@ -199,6 +202,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._truncated = np.zeros((self._num_envs,), dtype=bool)
         self._tracking_error = np.zeros((self._num_envs,), dtype=self._dtype)
         self._response_progress = np.zeros((self._num_envs,), dtype=self._dtype)
+        self._track_cost = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._diff_cost = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._jerk_cost = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._obs_buffer = np.zeros(
@@ -285,6 +289,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._collision[env_indices] = False
         self._tracking_error[env_indices] = 0.0
         self._response_progress[env_indices] = 0.0
+        self._track_cost[env_indices] = 0.0
         self._diff_cost[env_indices] = 0.0
         self._jerk_cost[env_indices] = 0.0
         self._nearest_clearance[env_indices] = self._compute_clearance(env_indices)
@@ -326,6 +331,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "collision": self._collision.copy(),
             "tracking_error": self._tracking_error.copy(),
             "response_progress": self._response_progress.copy(),
+            "track_cost": self._track_cost.copy(),
             "diff_cost": self._diff_cost.copy(),
             "jerk_cost": self._jerk_cost.copy(),
         }
@@ -377,6 +383,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             ),
             "omni_car/tracking_error": float(np.mean(log_snapshot["tracking_error"])),
             "omni_car/response_progress": float(np.mean(log_snapshot["response_progress"])),
+            "omni_car/vx_track_cost": float(np.mean(log_snapshot["track_cost"][:, 0])),
+            "omni_car/vy_track_cost": float(np.mean(log_snapshot["track_cost"][:, 1])),
+            "omni_car/vyaw_track_cost": float(np.mean(log_snapshot["track_cost"][:, 2])),
             "omni_car/vx_diff_cost": float(np.mean(log_snapshot["diff_cost"][:, 0])),
             "omni_car/vy_diff_cost": float(np.mean(log_snapshot["diff_cost"][:, 1])),
             "omni_car/vyaw_diff_cost": float(np.mean(log_snapshot["diff_cost"][:, 2])),
@@ -812,8 +821,12 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         response_progress = safety_gate * np.maximum(prev_error - new_error, 0.0)
         action_delta = action - self._last_action
         action_jerk = action_delta - self._last_action_delta
+        track_cost = ((action - cmd) / high) ** 2
         diff_cost = (action_delta / accel_delta) ** 2
         jerk_cost = (action_jerk / accel_delta) ** 2
+        track_weights = np.asarray(
+            [cfg.vx_track, cfg.vy_track, cfg.vyaw_track], dtype=self._dtype
+        )
         diff_weights = np.asarray(
             [cfg.vx_diff, cfg.vy_diff, cfg.vyaw_diff], dtype=self._dtype
         )
@@ -823,6 +836,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         clearance_penalty = np.exp(-np.maximum(self._nearest_clearance, 0.0) / 0.35)
         self._tracking_error = new_error.astype(self._dtype)
         self._response_progress = response_progress.astype(self._dtype)
+        self._track_cost = track_cost.astype(self._dtype)
         self._diff_cost = diff_cost.astype(self._dtype)
         self._jerk_cost = jerk_cost.astype(self._dtype)
         reward = (
@@ -830,6 +844,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             + cfg.intent_projection * projection
             + cfg.yaw_intent * yaw_reward
             + cfg.response * response_progress
+            - safety_gate * np.sum(track_cost * track_weights, axis=1)
             - np.sum(diff_cost * diff_weights, axis=1)
             - np.sum(jerk_cost * jerk_weights, axis=1)
             - cfg.clearance * clearance_penalty
