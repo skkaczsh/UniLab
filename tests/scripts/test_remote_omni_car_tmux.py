@@ -30,7 +30,7 @@ def test_train_command_uses_omni_car_defaults_and_extra_overrides() -> None:
     )
 
     assert command[:8] == [
-        "uv",
+        "/home/zsh/.local/bin/uv",
         "run",
         "train",
         "--algo",

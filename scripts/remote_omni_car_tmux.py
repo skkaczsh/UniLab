@@ -17,6 +17,7 @@ DEFAULT_SSH_PORT = 6010
 DEFAULT_WORKTREE = "/home/zsh/develop/worktrees/UniLab-omni-car-git"
 DEFAULT_SESSION = "omni-car-train"
 DEFAULT_PROXY = "http://127.0.0.1:7890"
+DEFAULT_UV_BIN = "/home/zsh/.local/bin/uv"
 
 
 @dataclass(frozen=True)
@@ -59,10 +60,11 @@ def build_train_command(
     num_envs: int,
     num_steps_per_env: int,
     logger: str,
+    uv_bin: str = DEFAULT_UV_BIN,
     extra_overrides: Sequence[str] = (),
 ) -> list[str]:
     return [
-        "uv",
+        uv_bin,
         "run",
         "train",
         "--algo",
@@ -193,6 +195,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     train.add_argument("--num-envs", type=int, default=128, help="Parallel env count.")
     train.add_argument("--num-steps-per-env", type=int, default=32, help="PPO rollout length.")
     train.add_argument(
+        "--uv-bin",
+        default=DEFAULT_UV_BIN,
+        help="Remote uv executable used inside tmux.",
+    )
+    train.add_argument(
         "--logger",
         default="tensorboard",
         choices=("tensorboard", "wandb"),
@@ -229,6 +236,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             num_envs=int(args.num_envs),
             num_steps_per_env=int(args.num_steps_per_env),
             logger=str(args.logger),
+            uv_bin=str(args.uv_bin),
             extra_overrides=args.overrides,
         )
         remote_script = build_train_remote_script(plan, train_command)
