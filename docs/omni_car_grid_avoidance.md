@@ -15,6 +15,29 @@ deviating smoothly when obstacles block the path.
   in reward, while absolute feasibility comes from velocity and acceleration
   caps.
 
+## Large scene mode
+
+The default MuJoCo task now runs in an IsaacLab-style shared scene instead of
+giving every vectorized env an isolated local obstacle cloud.
+
+- One `36 m x 36 m` world is shared by all vectorized cars.
+- Static obstacles are sampled once into the world with mixed circles, boxes,
+  and wall segments.
+- Dense regions receive a higher fraction of obstacles, while the rest of the
+  world remains sparsely populated.
+- The outside boundary is represented by thick segmented wall obstacles and an
+  explicit border-clearance collision check.
+- Other cars are inserted into each agent's local `80 x 80` occupancy grid as
+  dynamic circular obstacles.
+- Agent-agent, static-obstacle, and border collisions are logged separately and
+  all contribute to the terminal collision penalty.
+- In large-scene mode, timeout reset is disabled by default. Episodes reset only
+  on collision/death or when cumulative reward has not improved for the
+  configured stagnation window.
+
+The policy still sees a body-centered local grid; the large scene changes the
+source of that grid, not the network input contract.
+
 ## Current training profile
 
 The MuJoCo owner config lives in
@@ -22,13 +45,14 @@ The MuJoCo owner config lives in
 
 Current defaults in this branch:
 
-- Episode horizon: `60 s`
+- Trainer episode horizon statistic: `300 s`
 - Observation history: `24` frames
 - Command resample interval: `2.5 s`
 - Command smoothing time constant: `0.55 s`
 - PPO rollout: `128` envs, `32` steps per env
 - Policy architecture: `OmniCarGridCNNModel` (`CNN + MLP`)
-- Obstacle sampling: `18` mixed obstacles with a `0.90 m` keepout radius
+- Scene: shared `36 m` world, `260` mixed static obstacles, heterogeneous dense
+  regions, thick closed perimeter, and car-to-car dynamic obstacles
 - Physical acceleration caps: `3.5 / 3.5 / 4.5` for `vx / vy / vyaw`
 
 Reward shaping emphasizes four things:

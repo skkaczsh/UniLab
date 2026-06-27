@@ -407,6 +407,91 @@ def test_omni_car_logs_pre_reset_collision_metrics() -> None:
     env.close()
 
 
+def test_omni_car_large_scene_agent_collision_is_dynamic_obstacle() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=2,
+        env_cfg_override={
+            "seed": 37,
+            "max_episode_seconds": 0.05,
+            "obstacles": {"count": 0},
+            "large_scene": {
+                "enabled": True,
+                "world_size_m": 10.0,
+                "static_obstacle_count": 0,
+                "border_wall_segments_per_side": 1,
+                "agent_collision_radius_m": 0.35,
+                "reset_on_timeout": False,
+                "stagnation_warmup_steps": 1000,
+            },
+        },
+    )
+    env.init_state()
+    env._pose[0] = np.asarray([0.0, 0.0, 0.0], dtype=np.float32)
+    env._pose[1] = np.asarray([0.30, 0.0, 0.0], dtype=np.float32)
+
+    grid = env._occupancy_grid(np.asarray([0], dtype=np.int32))
+    assert np.count_nonzero(grid) > 0
+
+    state = env.step(np.zeros((2, 3), dtype=np.float32))
+
+    assert bool(state.info["agent_collision"][0]) is True
+    assert bool(state.info["collision"][0]) is True
+    assert state.info["log"]["omni_car/agent_collision_rate"] == pytest.approx(1.0)
+    assert bool(state.truncated[0]) is False
+    env.close()
+
+
+def test_omni_car_large_scene_border_collision_and_stagnation_reset() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 41,
+            "max_episode_seconds": 0.05,
+            "obstacles": {"count": 0},
+            "large_scene": {
+                "enabled": True,
+                "world_size_m": 8.0,
+                "static_obstacle_count": 0,
+                "border_wall_segments_per_side": 1,
+                "agent_collision_radius_m": 0.35,
+                "reset_on_timeout": False,
+                "stagnation_warmup_steps": 1,
+                "stagnation_window_steps": 1,
+                "stagnation_min_return_delta": 1.0e9,
+            },
+            "reward": {
+                "intent": 0.0,
+                "intent_projection": 0.0,
+                "yaw_intent": 0.0,
+                "response": 0.0,
+                "vx_diff": 0.0,
+                "vy_diff": 0.0,
+                "vyaw_diff": 0.0,
+                "vx_jerk": 0.0,
+                "vy_jerk": 0.0,
+                "vyaw_jerk": 0.0,
+                "clearance": 0.0,
+                "collision": 0.0,
+            },
+        },
+    )
+    env.init_state()
+
+    state = env.step(np.zeros((1, 3), dtype=np.float32))
+    assert bool(state.info["stagnated"][0]) is True
+    assert bool(state.truncated[0]) is False
+
+    env._pose[0] = np.asarray([4.2, 0.0, 0.0], dtype=np.float32)
+    clearance = env._compute_clearance(np.asarray([0], dtype=np.int32))
+    assert clearance[0] <= 0.0
+    assert bool(env._border_collision[0]) is True
+    env.close()
+
+
 def test_omni_car_cfg_validates_grid_shape() -> None:
     cfg = OmniCarGridAvoidanceCfg()
     cfg.grid.size = 79

@@ -60,6 +60,28 @@ class OmniCarObstacleCfg:
 
 
 @dataclass
+class OmniCarLargeSceneCfg:
+    enabled: bool = False
+    world_size_m: float = 32.0
+    static_obstacle_count: int = 220
+    max_local_static_obstacles: int = 72
+    max_dynamic_agents: int = 24
+    dense_region_count: int = 5
+    dense_region_fraction: float = 0.55
+    dense_region_radius_min_m: float = 2.0
+    dense_region_radius_max_m: float = 5.0
+    border_wall_segments_per_side: int = 24
+    border_wall_thickness_m: float = 0.35
+    agent_collision_radius_m: float = 0.34
+    agent_spawn_keepout_m: float = 0.55
+    reset_on_timeout: bool = False
+    stagnation_warmup_steps: int = 240
+    stagnation_window_steps: int = 400
+    stagnation_min_return_delta: float = 1.0
+    resample_scene_on_full_reset: bool = False
+
+
+@dataclass
 class OmniCarRewardCfg:
     intent: float = 14.0
     intent_projection: float = 5.0
@@ -101,6 +123,7 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
     grid: OmniCarGridCfg = field(default_factory=OmniCarGridCfg)
     body: OmniCarBodyCfg = field(default_factory=OmniCarBodyCfg)
     obstacles: OmniCarObstacleCfg = field(default_factory=OmniCarObstacleCfg)
+    large_scene: OmniCarLargeSceneCfg = field(default_factory=OmniCarLargeSceneCfg)
     reward: OmniCarRewardCfg = field(default_factory=OmniCarRewardCfg)
     physical_limits: OmniCarPhysicalLimitCfg = field(default_factory=OmniCarPhysicalLimitCfg)
     reward_config: dict[str, Any] | None = None
@@ -137,6 +160,27 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
             raise ValueError("obstacle type fractions must be non-negative with positive sum")
         if self.obs_history_len <= 0:
             raise ValueError("obs_history_len must be a positive integer")
+        scene = self.large_scene
+        if scene.world_size_m <= 2.0:
+            raise ValueError("large_scene.world_size_m must be greater than 2m")
+        if scene.static_obstacle_count < 0:
+            raise ValueError("large_scene.static_obstacle_count must be non-negative")
+        if scene.max_local_static_obstacles <= 0:
+            raise ValueError("large_scene.max_local_static_obstacles must be positive")
+        if scene.max_dynamic_agents <= 0:
+            raise ValueError("large_scene.max_dynamic_agents must be positive")
+        if scene.dense_region_count <= 0:
+            raise ValueError("large_scene.dense_region_count must be positive")
+        if not 0.0 <= scene.dense_region_fraction <= 1.0:
+            raise ValueError("large_scene.dense_region_fraction must be in [0, 1]")
+        if scene.dense_region_radius_max_m < scene.dense_region_radius_min_m:
+            raise ValueError("large_scene dense radius max must be >= min")
+        if scene.border_wall_segments_per_side <= 0:
+            raise ValueError("large_scene.border_wall_segments_per_side must be positive")
+        if min(scene.border_wall_thickness_m, scene.agent_collision_radius_m) <= 0.0:
+            raise ValueError("large_scene border thickness and agent radius must be positive")
+        if scene.stagnation_window_steps <= 0:
+            raise ValueError("large_scene.stagnation_window_steps must be positive")
         limits = self.physical_limits
         if min(limits.max_x_speed, limits.max_y_speed, limits.max_yaw_rate) <= 0.0:
             raise ValueError("physical velocity limits must be positive")
@@ -206,8 +250,34 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         )
         self._obstacle_yaw = np.zeros((self._num_envs, cfg.obstacles.count), dtype=self._dtype)
         self._obstacle_type = np.zeros((self._num_envs, cfg.obstacles.count), dtype=np.int8)
+        self._large_scene_enabled = bool(cfg.large_scene.enabled)
+        border_obstacle_count = (
+            4 * int(cfg.large_scene.border_wall_segments_per_side)
+            if self._large_scene_enabled
+            else 0
+        )
+        self._scene_obstacle_count = (
+            int(cfg.large_scene.static_obstacle_count) + border_obstacle_count
+            if self._large_scene_enabled
+            else 0
+        )
+        self._scene_initialized = False
+        self._scene_obstacle_xy = np.zeros((self._scene_obstacle_count, 2), dtype=self._dtype)
+        self._scene_obstacle_radius = np.zeros((self._scene_obstacle_count,), dtype=self._dtype)
+        self._scene_obstacle_half_extents = np.zeros(
+            (self._scene_obstacle_count, 2), dtype=self._dtype
+        )
+        self._scene_obstacle_yaw = np.zeros((self._scene_obstacle_count,), dtype=self._dtype)
+        self._scene_obstacle_type = np.zeros((self._scene_obstacle_count,), dtype=np.int8)
         self._nearest_clearance = np.zeros((self._num_envs,), dtype=self._dtype)
         self._collision = np.zeros((self._num_envs,), dtype=bool)
+        self._static_collision = np.zeros((self._num_envs,), dtype=bool)
+        self._agent_collision = np.zeros((self._num_envs,), dtype=bool)
+        self._border_collision = np.zeros((self._num_envs,), dtype=bool)
+        self._stagnated = np.zeros((self._num_envs,), dtype=bool)
+        self._episode_return = np.zeros((self._num_envs,), dtype=self._dtype)
+        self._best_episode_return = np.zeros((self._num_envs,), dtype=self._dtype)
+        self._steps_since_reward_improvement = np.zeros((self._num_envs,), dtype=np.uint32)
         self._truncated = np.zeros((self._num_envs,), dtype=bool)
         self._tracking_error = np.zeros((self._num_envs,), dtype=self._dtype)
         self._response_progress = np.zeros((self._num_envs,), dtype=self._dtype)
@@ -287,7 +357,16 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         env_indices = np.asarray(env_indices, dtype=np.int32)
         if env_indices.size == 0:
             return self._build_obs(env_indices), self._info(env_indices)
-        self._pose[env_indices] = 0.0
+        if self._large_scene_enabled:
+            full_reset = env_indices.size == self._num_envs
+            if (
+                not self._scene_initialized
+                or (full_reset and self._cfg.large_scene.resample_scene_on_full_reset)
+            ):
+                self._sample_large_scene()
+            self._reset_large_scene_agents(env_indices)
+        else:
+            self._pose[env_indices] = 0.0
         self._velocity[env_indices] = 0.0
         self._last_action[env_indices] = 0.0
         self._last_action_delta[env_indices] = 0.0
@@ -295,8 +374,16 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._raw_commands[env_indices] = sampled_commands
         self._commands[env_indices] = sampled_commands.copy()
         self._seed_history(env_indices)
-        self._sample_obstacles(env_indices)
+        if not self._large_scene_enabled:
+            self._sample_obstacles(env_indices)
         self._collision[env_indices] = False
+        self._static_collision[env_indices] = False
+        self._agent_collision[env_indices] = False
+        self._border_collision[env_indices] = False
+        self._stagnated[env_indices] = False
+        self._episode_return[env_indices] = 0.0
+        self._best_episode_return[env_indices] = 0.0
+        self._steps_since_reward_improvement[env_indices] = 0
         self._tracking_error[env_indices] = 0.0
         self._response_progress[env_indices] = 0.0
         self._track_cost[env_indices] = 0.0
@@ -335,10 +422,15 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._nearest_clearance = self._compute_clearance(self._all_env_indices)
         self._collision = self._nearest_clearance <= 0.0
         reward = self._compute_reward(limited)
+        self._update_reward_progress(reward)
         log_snapshot = {
             "commands": self._commands.copy(),
             "nearest_clearance": self._nearest_clearance.copy(),
             "collision": self._collision.copy(),
+            "static_collision": self._static_collision.copy(),
+            "agent_collision": self._agent_collision.copy(),
+            "border_collision": self._border_collision.copy(),
+            "stagnated": self._stagnated.copy(),
             "tracking_error": self._tracking_error.copy(),
             "response_progress": self._response_progress.copy(),
             "track_cost": self._track_cost.copy(),
@@ -347,11 +439,13 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         }
         terminated = self._collision.copy()
         self._truncated.fill(False)
-        if self._cfg.max_episode_steps is not None:
+        if self._cfg.max_episode_steps is not None and (
+            not self._large_scene_enabled or self._cfg.large_scene.reset_on_timeout
+        ):
             np.greater_equal(
                 self._state.info["steps"], self._cfg.max_episode_steps, out=self._truncated
             )
-        done = terminated | self._truncated
+        done = terminated | self._truncated | self._stagnated
 
         self._append_history()
 
@@ -359,6 +453,10 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._state.info["commands"] = self._commands.copy()
         self._state.info["nearest_clearance"] = self._nearest_clearance.copy()
         self._state.info["collision"] = self._collision.copy()
+        self._state.info["static_collision"] = self._static_collision.copy()
+        self._state.info["agent_collision"] = self._agent_collision.copy()
+        self._state.info["border_collision"] = self._border_collision.copy()
+        self._state.info["stagnated"] = self._stagnated.copy()
         final_observation = None
         if np.any(done):
             final_observation = {key: value.copy() for key, value in obs.items()}
@@ -388,6 +486,18 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._state.info["log"] = {
             "omni_car/mean_clearance": float(np.mean(log_snapshot["nearest_clearance"])),
             "omni_car/collision_rate": float(np.mean(log_snapshot["collision"].astype(np.float32))),
+            "omni_car/static_collision_rate": float(
+                np.mean(log_snapshot["static_collision"].astype(np.float32))
+            ),
+            "omni_car/agent_collision_rate": float(
+                np.mean(log_snapshot["agent_collision"].astype(np.float32))
+            ),
+            "omni_car/border_collision_rate": float(
+                np.mean(log_snapshot["border_collision"].astype(np.float32))
+            ),
+            "omni_car/stagnation_reset_rate": float(
+                np.mean(log_snapshot["stagnated"].astype(np.float32))
+            ),
             "omni_car/command_norm": float(
                 np.mean(np.linalg.norm(log_snapshot["commands"][:, :2], axis=1))
             ),
@@ -625,6 +735,195 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             self._obstacle_yaw[env_id] = yaw.astype(self._dtype)
             self._obstacle_type[env_id] = obstacle_types
 
+    def _sample_large_scene(self) -> None:
+        scene = self._cfg.large_scene
+        obstacle_cfg = self._cfg.obstacles
+        if self._scene_obstacle_count == 0:
+            self._scene_initialized = True
+            return
+
+        type_weights = np.asarray(
+            [
+                obstacle_cfg.circle_fraction,
+                obstacle_cfg.box_fraction,
+                obstacle_cfg.wall_fraction,
+            ],
+            dtype=np.float64,
+        )
+        type_weights = type_weights / np.sum(type_weights)
+        static_count = int(scene.static_obstacle_count)
+        border_count = self._scene_obstacle_count - static_count
+        half_world = 0.5 * float(scene.world_size_m)
+        spawn_limit = max(
+            0.5,
+            half_world - max(
+                scene.border_wall_thickness_m,
+                obstacle_cfg.wall_length_max_m * 0.5,
+                obstacle_cfg.radius_max_m,
+            ),
+        )
+
+        if static_count > 0:
+            obstacle_types = self._rng.choice(3, size=(static_count,), p=type_weights).astype(
+                np.int8
+            )
+            radii = self._rng.uniform(
+                obstacle_cfg.radius_min_m, obstacle_cfg.radius_max_m, size=(static_count,)
+            )
+            half_extents = np.zeros((static_count, 2), dtype=self._dtype)
+            yaw = self._rng.uniform(-np.pi, np.pi, size=(static_count,)).astype(self._dtype)
+
+            dense_count = int(round(static_count * scene.dense_region_fraction))
+            uniform_count = static_count - dense_count
+            region_centers = self._rng.uniform(
+                -spawn_limit * 0.70,
+                spawn_limit * 0.70,
+                size=(scene.dense_region_count, 2),
+            )
+            region_radii = self._rng.uniform(
+                scene.dense_region_radius_min_m,
+                scene.dense_region_radius_max_m,
+                size=(scene.dense_region_count,),
+            )
+            dense_xy = np.empty((dense_count, 2), dtype=self._dtype)
+            if dense_count > 0:
+                region_ids = self._rng.integers(0, scene.dense_region_count, size=(dense_count,))
+                angles = self._rng.uniform(-np.pi, np.pi, size=(dense_count,))
+                radii_scale = np.sqrt(self._rng.uniform(0.0, 1.0, size=(dense_count,)))
+                offsets = np.stack(
+                    [
+                        np.cos(angles) * region_radii[region_ids] * radii_scale,
+                        np.sin(angles) * region_radii[region_ids] * radii_scale,
+                    ],
+                    axis=1,
+                )
+                dense_xy = region_centers[region_ids] + offsets
+            uniform_xy = self._rng.uniform(
+                -spawn_limit, spawn_limit, size=(uniform_count, 2)
+            ).astype(self._dtype)
+            xy = np.concatenate([dense_xy, uniform_xy], axis=0).astype(self._dtype, copy=False)
+            np.clip(xy, -spawn_limit, spawn_limit, out=xy)
+
+            box_mask = obstacle_types == self._OBSTACLE_BOX
+            wall_mask = obstacle_types == self._OBSTACLE_WALL
+            half_extents[box_mask, 0] = 0.5 * self._rng.uniform(
+                obstacle_cfg.box_length_min_m,
+                obstacle_cfg.box_length_max_m,
+                size=int(np.count_nonzero(box_mask)),
+            )
+            half_extents[box_mask, 1] = 0.5 * self._rng.uniform(
+                obstacle_cfg.box_width_min_m,
+                obstacle_cfg.box_width_max_m,
+                size=int(np.count_nonzero(box_mask)),
+            )
+            half_extents[wall_mask, 0] = 0.5 * self._rng.uniform(
+                obstacle_cfg.wall_length_min_m,
+                obstacle_cfg.wall_length_max_m,
+                size=int(np.count_nonzero(wall_mask)),
+            )
+            half_extents[wall_mask, 1] = 0.5 * self._rng.uniform(
+                obstacle_cfg.wall_width_min_m,
+                obstacle_cfg.wall_width_max_m,
+                size=int(np.count_nonzero(wall_mask)),
+            )
+
+            self._scene_obstacle_xy[:static_count] = xy
+            self._scene_obstacle_radius[:static_count] = radii.astype(self._dtype)
+            self._scene_obstacle_half_extents[:static_count] = half_extents
+            self._scene_obstacle_yaw[:static_count] = yaw
+            self._scene_obstacle_type[:static_count] = obstacle_types
+
+        if border_count > 0:
+            start = static_count
+            segments = int(scene.border_wall_segments_per_side)
+            segment_len = scene.world_size_m / segments
+            half_thickness = 0.5 * scene.border_wall_thickness_m
+            centers = np.linspace(
+                -half_world + 0.5 * segment_len,
+                half_world - 0.5 * segment_len,
+                segments,
+                dtype=np.float64,
+            )
+            obstacle_id = start
+            for side in (-1.0, 1.0):
+                y = side * (half_world - half_thickness)
+                for x in centers:
+                    self._scene_obstacle_xy[obstacle_id] = [x, y]
+                    self._scene_obstacle_half_extents[obstacle_id] = [
+                        0.5 * segment_len,
+                        half_thickness,
+                    ]
+                    self._scene_obstacle_yaw[obstacle_id] = 0.0
+                    self._scene_obstacle_type[obstacle_id] = self._OBSTACLE_WALL
+                    obstacle_id += 1
+            for side in (-1.0, 1.0):
+                x = side * (half_world - half_thickness)
+                for y in centers:
+                    self._scene_obstacle_xy[obstacle_id] = [x, y]
+                    self._scene_obstacle_half_extents[obstacle_id] = [
+                        0.5 * segment_len,
+                        half_thickness,
+                    ]
+                    self._scene_obstacle_yaw[obstacle_id] = np.pi * 0.5
+                    self._scene_obstacle_type[obstacle_id] = self._OBSTACLE_WALL
+                    obstacle_id += 1
+
+        self._scene_initialized = True
+
+    def _reset_large_scene_agents(self, env_indices: np.ndarray) -> None:
+        scene = self._cfg.large_scene
+        half_world = 0.5 * float(scene.world_size_m)
+        agent_radius = float(scene.agent_collision_radius_m)
+        spawn_limit = half_world - max(
+            scene.border_wall_thickness_m + agent_radius + scene.agent_spawn_keepout_m,
+            agent_radius,
+        )
+        spawn_limit = max(spawn_limit, 0.25)
+        env_set = set(int(env_id) for env_id in env_indices)
+        active_ids = [int(env_id) for env_id in range(self._num_envs) if env_id not in env_set]
+        accepted: list[int] = []
+
+        for env_id in env_indices:
+            env_int = int(env_id)
+            pose = None
+            for _ in range(128):
+                candidate_xy = self._rng.uniform(-spawn_limit, spawn_limit, size=(2,)).astype(
+                    self._dtype
+                )
+                candidate_yaw = float(self._rng.uniform(-np.pi, np.pi))
+                if not self._candidate_spawn_is_clear(
+                    candidate_xy,
+                    active_ids + accepted,
+                    agent_radius,
+                    scene.agent_spawn_keepout_m,
+                ):
+                    continue
+                pose = [candidate_xy[0], candidate_xy[1], candidate_yaw]
+                break
+            if pose is None:
+                angle = 2.0 * np.pi * (env_int + 0.5) / max(self._num_envs, 1)
+                radius = spawn_limit * 0.5
+                pose = [radius * np.cos(angle), radius * np.sin(angle), angle + np.pi]
+            self._pose[env_int] = np.asarray(pose, dtype=self._dtype)
+            accepted.append(env_int)
+
+    def _candidate_spawn_is_clear(
+        self,
+        candidate_xy: np.ndarray,
+        other_ids: list[int],
+        agent_radius: float,
+        keepout: float,
+    ) -> bool:
+        if other_ids:
+            other_xy = self._pose[np.asarray(other_ids, dtype=np.int32), :2]
+            min_distance = float(np.min(np.linalg.norm(other_xy - candidate_xy[None, :], axis=1)))
+            if min_distance < 2.0 * agent_radius + keepout:
+                return False
+        if self._scene_obstacle_count == 0:
+            return True
+        signed = self._static_signed_distances(candidate_xy[None, :], np.asarray([0.0]))
+        return float(np.min(signed)) > agent_radius + keepout
+
     def _apply_physical_limits(self, actions: np.ndarray) -> np.ndarray:
         target = np.clip(actions, -self._velocity_limit, self._velocity_limit).astype(self._dtype)
         delta = np.clip(
@@ -696,6 +995,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
     def _fill_occupancy_grid(self, env_indices: np.ndarray, grid: np.ndarray) -> None:
         env_indices = np.asarray(env_indices, dtype=np.int32)
         grid.fill(0.0)
+        if self._large_scene_enabled:
+            self._fill_large_scene_occupancy_grid(env_indices, grid)
+            return
         if env_indices.size == 0 or self._cfg.obstacles.count == 0:
             return
         if env_indices.size < 256:
@@ -830,6 +1132,114 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 )
                 np.maximum(grid_view[ix0:ix1, iy0:iy1], hits, out=grid_view[ix0:ix1, iy0:iy1])
 
+    def _fill_large_scene_occupancy_grid(self, env_indices: np.ndarray, grid: np.ndarray) -> None:
+        if env_indices.size == 0:
+            return
+        scene = self._cfg.large_scene
+        agent_radius = float(scene.agent_collision_radius_m + self._grid_pad)
+        for row, env_id in enumerate(env_indices):
+            env_int = int(env_id)
+            grid_view = grid[row]
+            if self._scene_obstacle_count > 0:
+                local_xy = self._world_to_body_points(env_int, self._scene_obstacle_xy)
+                obstacle_ids = self._select_local_obstacles(
+                    local_xy,
+                    max_count=scene.max_local_static_obstacles,
+                    extra_extent=max(
+                        self._cfg.obstacles.radius_max_m,
+                        self._cfg.obstacles.wall_length_max_m * 0.5,
+                        scene.border_wall_thickness_m,
+                    ),
+                )
+                if obstacle_ids.size > 0:
+                    rel_yaw = self._scene_obstacle_yaw[obstacle_ids] - self._pose[env_int, 2]
+                    self._rasterize_local_obstacles(
+                        grid_view,
+                        local_xy[obstacle_ids],
+                        self._scene_obstacle_type[obstacle_ids],
+                        self._scene_obstacle_radius[obstacle_ids],
+                        self._scene_obstacle_half_extents[obstacle_ids],
+                        rel_yaw,
+                    )
+
+            if self._num_envs <= 1:
+                continue
+            other_ids = self._all_env_indices[self._all_env_indices != env_int]
+            local_agents = self._world_to_body_points(env_int, self._pose[other_ids, :2])
+            agent_ids = self._select_local_obstacles(
+                local_agents,
+                max_count=scene.max_dynamic_agents,
+                extra_extent=agent_radius,
+            )
+            for agent_id in agent_ids:
+                center_x = float(local_agents[agent_id, 0])
+                center_y = float(local_agents[agent_id, 1])
+                ix0, ix1, iy0, iy1 = self._grid_bounds(
+                    center_x, center_y, agent_radius, agent_radius
+                )
+                delta_x = self._grid_axis[ix0:ix1, None] - center_x
+                delta_y = self._grid_axis[None, iy0:iy1] - center_y
+                hits = delta_x * delta_x + delta_y * delta_y <= agent_radius * agent_radius
+                np.maximum(grid_view[ix0:ix1, iy0:iy1], hits, out=grid_view[ix0:ix1, iy0:iy1])
+
+    def _select_local_obstacles(
+        self, local_xy: np.ndarray, *, max_count: int, extra_extent: float
+    ) -> np.ndarray:
+        if local_xy.size == 0:
+            return np.zeros((0,), dtype=np.int32)
+        extent = self._grid_extent + float(extra_extent)
+        in_range = (np.abs(local_xy[:, 0]) <= extent) & (np.abs(local_xy[:, 1]) <= extent)
+        obstacle_ids = np.flatnonzero(in_range).astype(np.int32)
+        if obstacle_ids.size <= max_count:
+            return obstacle_ids
+        distances = np.sum(local_xy[obstacle_ids] * local_xy[obstacle_ids], axis=1)
+        keep = np.argpartition(distances, max_count - 1)[:max_count]
+        return obstacle_ids[keep]
+
+    def _rasterize_local_obstacles(
+        self,
+        grid_view: np.ndarray,
+        local_xy: np.ndarray,
+        obstacle_types: np.ndarray,
+        radii: np.ndarray,
+        half_extents: np.ndarray,
+        rel_yaw: np.ndarray,
+    ) -> None:
+        for obstacle_id, center in enumerate(local_xy):
+            center_x = float(center[0])
+            center_y = float(center[1])
+            obstacle_type = int(obstacle_types[obstacle_id])
+            if obstacle_type == self._OBSTACLE_CIRCLE:
+                radius = float(radii[obstacle_id] + self._grid_pad)
+                ix0, ix1, iy0, iy1 = self._grid_bounds(center_x, center_y, radius, radius)
+                delta_x = self._grid_axis[ix0:ix1, None] - center_x
+                delta_y = self._grid_axis[None, iy0:iy1] - center_y
+                hits = delta_x * delta_x + delta_y * delta_y <= radius * radius
+            else:
+                half_extent_x = float(half_extents[obstacle_id, 0])
+                half_extent_y = float(half_extents[obstacle_id, 1])
+                cos_yaw = float(np.cos(rel_yaw[obstacle_id]))
+                sin_yaw = float(np.sin(rel_yaw[obstacle_id]))
+                aabb_x = (
+                    abs(cos_yaw) * half_extent_x
+                    + abs(sin_yaw) * half_extent_y
+                    + self._grid_pad
+                )
+                aabb_y = (
+                    abs(sin_yaw) * half_extent_x
+                    + abs(cos_yaw) * half_extent_y
+                    + self._grid_pad
+                )
+                ix0, ix1, iy0, iy1 = self._grid_bounds(center_x, center_y, aabb_x, aabb_y)
+                delta_x = self._grid_axis[ix0:ix1, None] - center_x
+                delta_y = self._grid_axis[None, iy0:iy1] - center_y
+                rect_x = cos_yaw * delta_x + sin_yaw * delta_y
+                rect_y = -sin_yaw * delta_x + cos_yaw * delta_y
+                hits = (np.abs(rect_x) <= half_extent_x + self._grid_pad) & (
+                    np.abs(rect_y) <= half_extent_y + self._grid_pad
+                )
+            np.maximum(grid_view[ix0:ix1, iy0:iy1], hits, out=grid_view[ix0:ix1, iy0:iy1])
+
     def _world_to_body_points(self, env_id: int, points_world: np.ndarray) -> np.ndarray:
         delta = points_world - self._pose[env_id, :2]
         yaw = -float(self._pose[env_id, 2])
@@ -848,6 +1258,41 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         x = cos_yaw * delta[:, :, 0] + sin_yaw * delta[:, :, 1]
         y = -sin_yaw * delta[:, :, 0] + cos_yaw * delta[:, :, 1]
         return np.stack([x, y], axis=2).astype(self._dtype, copy=False)
+
+    def _static_signed_distances(self, points_world: np.ndarray, yaw: np.ndarray) -> np.ndarray:
+        points_world = np.asarray(points_world, dtype=self._dtype)
+        yaw = np.asarray(yaw, dtype=self._dtype)
+        if self._scene_obstacle_count == 0:
+            return np.full((points_world.shape[0], 1), self._grid_extent, dtype=self._dtype)
+        delta = self._scene_obstacle_xy[None, :, :] - points_world[:, None, :]
+        local_xy = np.empty_like(delta)
+        cos_yaw_point = np.cos(yaw)[:, None]
+        sin_yaw_point = np.sin(yaw)[:, None]
+        local_xy[:, :, 0] = cos_yaw_point * delta[:, :, 0] + sin_yaw_point * delta[:, :, 1]
+        local_xy[:, :, 1] = -sin_yaw_point * delta[:, :, 0] + cos_yaw_point * delta[:, :, 1]
+        signed = np.empty((points_world.shape[0], self._scene_obstacle_count), dtype=self._dtype)
+        circle_mask = self._scene_obstacle_type == self._OBSTACLE_CIRCLE
+        if np.any(circle_mask):
+            circle_dist = np.linalg.norm(local_xy[:, circle_mask], axis=2)
+            signed[:, circle_mask] = circle_dist - self._scene_obstacle_radius[circle_mask]
+
+        rect_mask = ~circle_mask
+        if np.any(rect_mask):
+            rel_yaw = self._scene_obstacle_yaw[rect_mask][None, :] - yaw[:, None]
+            cos_yaw = np.cos(rel_yaw)
+            sin_yaw = np.sin(rel_yaw)
+            rect_xy = local_xy[:, rect_mask]
+            rect_x = cos_yaw * rect_xy[:, :, 0] + sin_yaw * rect_xy[:, :, 1]
+            rect_y = -sin_yaw * rect_xy[:, :, 0] + cos_yaw * rect_xy[:, :, 1]
+            half_extents = self._scene_obstacle_half_extents[rect_mask][None, :, :]
+            qx = np.abs(rect_x) - half_extents[:, :, 0]
+            qy = np.abs(rect_y) - half_extents[:, :, 1]
+            outside_x = np.maximum(qx, 0.0)
+            outside_y = np.maximum(qy, 0.0)
+            outside_distance = np.sqrt(outside_x * outside_x + outside_y * outside_y)
+            inside_distance = np.minimum(np.maximum(qx, qy), 0.0)
+            signed[:, rect_mask] = outside_distance + inside_distance
+        return signed.astype(self._dtype, copy=False)
 
     def _grid_bounds(
         self, center_x: float, center_y: float, extent_x: float, extent_y: float
@@ -917,6 +1362,40 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         clearance = np.full((env_indices.size,), self._grid_extent, dtype=self._dtype)
         half_diag = 0.5 * float(np.hypot(self._cfg.body.length_m, self._cfg.body.width_m))
         safety_radius = half_diag + self._cfg.grid.safety_margin_m
+        if self._large_scene_enabled:
+            if env_indices.size == 0:
+                return clearance
+            scene = self._cfg.large_scene
+            static_signed = self._static_signed_distances(
+                self._pose[env_indices, :2], self._pose[env_indices, 2]
+            )
+            static_clearance = np.min(static_signed - safety_radius, axis=1)
+            if self._num_envs > 1:
+                delta = self._pose[env_indices, None, :2] - self._pose[None, :, :2]
+                distances = np.linalg.norm(delta, axis=2)
+                self_mask = env_indices[:, None] == self._all_env_indices[None, :]
+                distances[self_mask] = np.inf
+                agent_clearance = np.min(
+                    distances - 2.0 * float(scene.agent_collision_radius_m), axis=1
+                )
+            else:
+                agent_clearance = np.full((env_indices.size,), np.inf, dtype=self._dtype)
+            half_world = 0.5 * float(scene.world_size_m)
+            border_clearance = (
+                half_world
+                - np.max(np.abs(self._pose[env_indices, :2]), axis=1)
+                - float(scene.agent_collision_radius_m)
+            )
+            clearance[:] = np.minimum(
+                np.minimum(static_clearance, agent_clearance), border_clearance
+            ).astype(self._dtype, copy=False)
+            self._static_collision[env_indices] = static_clearance <= 0.0
+            self._agent_collision[env_indices] = agent_clearance <= 0.0
+            self._border_collision[env_indices] = border_clearance <= 0.0
+            return clearance
+        self._static_collision[env_indices] = False
+        self._agent_collision[env_indices] = False
+        self._border_collision[env_indices] = False
         if self._cfg.obstacles.count == 0:
             return clearance
         local_xy = self._world_to_body_obstacles(env_indices)
@@ -996,6 +1475,22 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         )
         return reward.astype(self._dtype)
 
+    def _update_reward_progress(self, reward: np.ndarray) -> None:
+        if not self._large_scene_enabled:
+            self._stagnated.fill(False)
+            return
+        scene = self._cfg.large_scene
+        self._episode_return += reward.astype(self._dtype, copy=False)
+        improved = self._episode_return > (
+            self._best_episode_return + float(scene.stagnation_min_return_delta)
+        )
+        self._best_episode_return[improved] = self._episode_return[improved]
+        self._steps_since_reward_improvement[improved] = 0
+        self._steps_since_reward_improvement[~improved] += 1
+        warm = self._state.info["steps"] >= int(scene.stagnation_warmup_steps)
+        stale = self._steps_since_reward_improvement >= int(scene.stagnation_window_steps)
+        self._stagnated = (warm & stale).astype(bool)
+
     def _make_velocity_limit(self) -> np.ndarray:
         limits = self._cfg.physical_limits
         return np.asarray(
@@ -1029,6 +1524,10 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "commands": self._commands[env_indices].copy(),
             "nearest_clearance": self._nearest_clearance[env_indices].copy(),
             "collision": self._collision[env_indices].copy(),
+            "static_collision": self._static_collision[env_indices].copy(),
+            "agent_collision": self._agent_collision[env_indices].copy(),
+            "border_collision": self._border_collision[env_indices].copy(),
+            "stagnated": self._stagnated[env_indices].copy(),
         }
 
     @staticmethod
@@ -1085,11 +1584,16 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._gl_draw_floor(GL)
         self._gl_draw_grid_footprint(GL, pose)
         self._gl_draw_obstacles(GL)
+        if self._large_scene_enabled:
+            self._gl_draw_other_cars(GL)
         self._gl_draw_car(GL, pose)
         self._gl_draw_arrows(GL, pose)
 
     def _gl_draw_floor(self, GL: Any) -> None:
-        extent = 6
+        if self._large_scene_enabled:
+            extent = int(math.ceil(self._cfg.large_scene.world_size_m * 0.5))
+        else:
+            extent = 6
         GL.glLineWidth(1.0)
         GL.glColor4f(0.28, 0.31, 0.34, 1.0)
         GL.glBegin(GL.GL_LINES)
@@ -1123,19 +1627,31 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         GL.glPopMatrix()
 
     def _gl_draw_obstacles(self, GL: Any) -> None:
-        for obstacle_id, center in enumerate(self._obstacle_xy[0]):
-            obstacle_type = int(self._obstacle_type[0, obstacle_id])
+        if self._large_scene_enabled:
+            obstacle_xy = self._scene_obstacle_xy
+            obstacle_type_array = self._scene_obstacle_type
+            obstacle_radius = self._scene_obstacle_radius
+            obstacle_half_extents = self._scene_obstacle_half_extents
+            obstacle_yaw = self._scene_obstacle_yaw
+        else:
+            obstacle_xy = self._obstacle_xy[0]
+            obstacle_type_array = self._obstacle_type[0]
+            obstacle_radius = self._obstacle_radius[0]
+            obstacle_half_extents = self._obstacle_half_extents[0]
+            obstacle_yaw = self._obstacle_yaw[0]
+        for obstacle_id, center in enumerate(obstacle_xy):
+            obstacle_type = int(obstacle_type_array[obstacle_id])
             if obstacle_type == self._OBSTACLE_CIRCLE:
                 GL.glColor4f(0.95, 0.24, 0.12, 0.95)
                 self._gl_cylinder(
                     GL,
                     x=float(center[0]),
                     y=float(center[1]),
-                    radius=float(self._obstacle_radius[0, obstacle_id]),
+                    radius=float(obstacle_radius[obstacle_id]),
                     height=0.32,
                 )
             else:
-                half_extents = self._obstacle_half_extents[0, obstacle_id]
+                half_extents = obstacle_half_extents[obstacle_id]
                 if obstacle_type == self._OBSTACLE_WALL:
                     GL.glColor4f(0.68, 0.20, 0.95, 0.92)
                     half_z = 0.22
@@ -1144,7 +1660,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                     half_z = 0.16
                 GL.glPushMatrix()
                 GL.glTranslatef(float(center[0]), float(center[1]), half_z)
-                GL.glRotatef(float(np.degrees(self._obstacle_yaw[0, obstacle_id])), 0.0, 0.0, 1.0)
+                GL.glRotatef(float(np.degrees(obstacle_yaw[obstacle_id])), 0.0, 0.0, 1.0)
                 self._gl_box(
                     GL,
                     half_x=float(half_extents[0]),
@@ -1152,6 +1668,24 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                     half_z=half_z,
                 )
                 GL.glPopMatrix()
+
+    def _gl_draw_other_cars(self, GL: Any) -> None:
+        for env_id in range(1, self._num_envs):
+            pose = self._pose[env_id]
+            GL.glPushMatrix()
+            GL.glTranslatef(float(pose[0]), float(pose[1]), 0.08)
+            GL.glRotatef(float(np.degrees(pose[2])), 0.0, 0.0, 1.0)
+            if self._collision[env_id]:
+                GL.glColor4f(1.0, 0.15, 0.08, 0.92)
+            else:
+                GL.glColor4f(0.25, 0.78, 0.65, 0.72)
+            self._gl_box(
+                GL,
+                half_x=self._cfg.body.length_m * 0.5,
+                half_y=self._cfg.body.width_m * 0.5,
+                half_z=0.08,
+            )
+            GL.glPopMatrix()
 
     def _gl_draw_car(self, GL: Any, pose: np.ndarray) -> None:
         GL.glPushMatrix()

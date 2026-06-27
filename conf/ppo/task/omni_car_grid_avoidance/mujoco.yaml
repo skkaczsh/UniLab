@@ -43,7 +43,7 @@ algo:
     entropy_coef: 0.005
 
 env:
-  max_episode_seconds: 60.0
+  max_episode_seconds: 300.0
   obs_history_len: 24
   sim_dt: 0.05
   ctrl_dt: 0.05
@@ -78,6 +78,25 @@ env:
     wall_fraction: 0.30
     spawn_radius_m: 4.2
     keepout_radius_m: 0.90
+  large_scene:
+    enabled: true
+    world_size_m: 36.0
+    static_obstacle_count: 260
+    max_local_static_obstacles: 72
+    max_dynamic_agents: 24
+    dense_region_count: 6
+    dense_region_fraction: 0.58
+    dense_region_radius_min_m: 2.0
+    dense_region_radius_max_m: 5.2
+    border_wall_segments_per_side: 28
+    border_wall_thickness_m: 0.35
+    agent_collision_radius_m: 0.34
+    agent_spawn_keepout_m: 0.60
+    reset_on_timeout: false
+    stagnation_warmup_steps: 240
+    stagnation_window_steps: 420
+    stagnation_min_return_delta: 1.0
+    resample_scene_on_full_reset: false
   reward:
     intent: 16.0
     intent_projection: 5.5
