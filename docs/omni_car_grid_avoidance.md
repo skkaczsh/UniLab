@@ -211,8 +211,7 @@ evaluator model/debug logs by default so stdout remains valid JSON; add
 uv run scripts/scan_omni_car_checkpoints.py \
   --load-run /absolute/path/to/run_dir \
   --checkpoints 500 900 1200 1500 1800 2200 2600 2900 2999 \
-  --reference-collision 0.02705078125 \
-  --reference-tracking 0.3830635432736017 \
+  --reference-manifest artifacts/omni_car/axis_track_2999_checkpoint_manifest.json \
   --output artifacts/omni_car/<run_name>_checkpoint_scan.json
 ```
 

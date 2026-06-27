@@ -79,6 +79,32 @@ def thin_checkpoint_ids(ids: Sequence[int], *, every: int | None, include_last: 
     return sorted(set(selected))
 
 
+def load_reference_manifest(manifest_path: Path) -> dict[str, float | str]:
+    with manifest_path.open("r", encoding="utf-8") as stream:
+        manifest = json.load(stream)
+    if not isinstance(manifest, dict):
+        raise ValueError(f"Reference manifest must be a JSON object: {manifest_path}")
+    evaluation = manifest.get("evaluation")
+    aggregate = evaluation.get("aggregate") if isinstance(evaluation, dict) else None
+    if not isinstance(aggregate, dict):
+        raise ValueError(f"Reference manifest missing evaluation.aggregate: {manifest_path}")
+    collision = aggregate.get("collision_fraction_mean")
+    tracking = aggregate.get("tracking_error_mean")
+    if not isinstance(collision, int | float):
+        raise ValueError(
+            f"Reference manifest missing numeric aggregate.collision_fraction_mean: {manifest_path}"
+        )
+    if not isinstance(tracking, int | float):
+        raise ValueError(
+            f"Reference manifest missing numeric aggregate.tracking_error_mean: {manifest_path}"
+        )
+    return {
+        "source": str(manifest_path),
+        "collision": float(collision),
+        "tracking": float(tracking),
+    }
+
+
 def _float_metric(summary: dict[str, Any], key: str) -> float:
     value = summary.get(key)
     if not isinstance(value, int | float):
@@ -181,6 +207,7 @@ def scan_checkpoints(
     jerk_weight: float,
     reference_collision: float | None,
     reference_tracking: float | None,
+    reference_source: str | None = None,
     evaluator: Evaluator = evaluate_omni_car_checkpoint.evaluate_checkpoint,
     verbose: bool = False,
 ) -> dict[str, Any]:
@@ -226,6 +253,7 @@ def scan_checkpoints(
             "jerk": float(jerk_weight),
         },
         "reference": {
+            "source": reference_source,
             "collision": reference_collision,
             "tracking": reference_tracking,
         },
@@ -264,6 +292,15 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--collision-weight", type=float, default=10.0)
     parser.add_argument("--tracking-weight", type=float, default=1.0)
     parser.add_argument("--jerk-weight", type=float, default=0.25)
+    parser.add_argument(
+        "--reference-manifest",
+        type=Path,
+        default=None,
+        help=(
+            "Best-checkpoint manifest whose evaluation.aggregate values define "
+            "reference collision/tracking gates."
+        ),
+    )
     parser.add_argument("--reference-collision", type=float, default=None)
     parser.add_argument("--reference-tracking", type=float, default=None)
     parser.add_argument("--output", type=Path, default=None, help="Optional JSON output path.")
@@ -288,12 +325,27 @@ def _selected_checkpoints(args: argparse.Namespace) -> list[int]:
     raise ValueError("Provide --checkpoints or use --discover with a run directory.")
 
 
+def _resolve_references(args: argparse.Namespace) -> tuple[float | None, float | None, str | None]:
+    reference_collision = args.reference_collision
+    reference_tracking = args.reference_tracking
+    reference_source = None
+    if args.reference_manifest is not None:
+        manifest_reference = load_reference_manifest(args.reference_manifest)
+        reference_source = str(manifest_reference["source"])
+        if reference_collision is None:
+            reference_collision = float(manifest_reference["collision"])
+        if reference_tracking is None:
+            reference_tracking = float(manifest_reference["tracking"])
+    return reference_collision, reference_tracking, reference_source
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     checkpoints = _selected_checkpoints(args)
     if args.dry_run:
         print(json.dumps({"load_run": args.load_run, "checkpoints": checkpoints}, indent=2))
         return 0
+    reference_collision, reference_tracking, reference_source = _resolve_references(args)
     result = scan_checkpoints(
         load_run=str(args.load_run),
         checkpoints=checkpoints,
@@ -304,8 +356,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         collision_weight=float(args.collision_weight),
         tracking_weight=float(args.tracking_weight),
         jerk_weight=float(args.jerk_weight),
-        reference_collision=args.reference_collision,
-        reference_tracking=args.reference_tracking,
+        reference_collision=reference_collision,
+        reference_tracking=reference_tracking,
+        reference_source=reference_source,
         verbose=bool(args.verbose),
     )
     text = json.dumps(result, indent=2, sort_keys=True)

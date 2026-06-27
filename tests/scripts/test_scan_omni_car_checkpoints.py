@@ -73,6 +73,59 @@ def test_reference_gate_requires_all_provided_metrics_to_pass() -> None:
     assert gate["passed"] is False
 
 
+def test_load_reference_manifest_reads_aggregate_gates(tmp_path: Path) -> None:
+    module = _load_module()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        """
+        {
+          "evaluation": {
+            "aggregate": {
+              "collision_fraction_mean": 0.027,
+              "tracking_error_mean": 0.383
+            }
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    reference = module.load_reference_manifest(manifest)
+
+    assert reference["source"] == str(manifest)
+    assert reference["collision"] == 0.027
+    assert reference["tracking"] == 0.383
+
+
+def test_resolve_references_uses_manifest_and_allows_explicit_override(tmp_path: Path) -> None:
+    module = _load_module()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        """
+        {
+          "evaluation": {
+            "aggregate": {
+              "collision_fraction_mean": 0.027,
+              "tracking_error_mean": 0.383
+            }
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+    args = Namespace(
+        reference_manifest=manifest,
+        reference_collision=0.05,
+        reference_tracking=None,
+    )
+
+    collision, tracking, source = module._resolve_references(args)
+
+    assert collision == 0.05
+    assert tracking == 0.383
+    assert source == str(manifest)
+
+
 def test_scan_checkpoints_ranks_and_reports_reference_gate() -> None:
     module = _load_module()
     summaries = {
@@ -95,11 +148,13 @@ def test_scan_checkpoints_ranks_and_reports_reference_gate() -> None:
         jerk_weight=0.25,
         reference_collision=0.03,
         reference_tracking=0.40,
+        reference_source="/tmp/reference.json",
         evaluator=_fake_evaluator,
     )
 
     assert result["best_by_score"]["checkpoint"] == 200
     assert result["best_passing_reference_gate"]["checkpoint"] == 200
+    assert result["reference"]["source"] == "/tmp/reference.json"
     assert result["evaluations"][0]["reference_gate"]["passed"] is False
     assert result["evaluations"][1]["reference_gate"]["passed"] is True
 
