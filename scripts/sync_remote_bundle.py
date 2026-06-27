@@ -61,7 +61,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="LAN host/IP for the temporary local HTTP server. Auto-detected by default.",
     )
-    parser.add_argument("--http-port", type=int, default=8766, help="Temporary local HTTP port.")
+    parser.add_argument(
+        "--http-port",
+        type=int,
+        default=0,
+        help="Temporary local HTTP port. Defaults to an automatically selected free port.",
+    )
     parser.add_argument(
         "--bundle-dir",
         type=Path,
@@ -133,11 +138,23 @@ def _resolve_local_host(explicit_host: str | None, remote: str) -> str:
         sock.close()
 
 
+def _resolve_http_port(explicit_port: int) -> int:
+    if explicit_port > 0:
+        return explicit_port
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind(("0.0.0.0", 0))
+        return int(sock.getsockname()[1])
+    finally:
+        sock.close()
+
+
 def _create_plan(args: argparse.Namespace) -> SyncPlan:
     repo_root = args.repo_root.resolve()
     branch, head = _resolve_branch(repo_root)
     bundle_name = f"{repo_root.name}-{branch.replace('/', '_')}.bundle"
     local_host = _resolve_local_host(args.local_host, args.remote)
+    http_port = _resolve_http_port(int(args.http_port))
     remote_worktree_branch = args.remote_worktree_branch or f"{branch}-remote"
     return SyncPlan(
         repo_root=repo_root,
@@ -146,7 +163,7 @@ def _create_plan(args: argparse.Namespace) -> SyncPlan:
         remote=args.remote,
         ssh_port=int(args.ssh_port),
         local_host=local_host,
-        http_port=int(args.http_port),
+        http_port=http_port,
         bundle_name=bundle_name,
         bundle_dir=args.bundle_dir.resolve(),
         remote_bundle_path=str(args.remote_bundle_path),
@@ -170,6 +187,7 @@ def _create_bundle(plan: SyncPlan) -> None:
 
 def _wait_for_http_server(*, host: str, port: int, bundle_name: str, timeout_s: float = 10.0) -> None:
     deadline = time.monotonic() + timeout_s
+    last_error = ""
     while time.monotonic() < deadline:
         try:
             conn = http.client.HTTPConnection(host, port, timeout=1.0)
@@ -177,14 +195,18 @@ def _wait_for_http_server(*, host: str, port: int, bundle_name: str, timeout_s: 
             response = conn.getresponse()
             if response.status == 200:
                 return
+            last_error = f"HTTP {response.status} for /{bundle_name}"
         except OSError:
+            last_error = "connection failed"
             time.sleep(0.1)
         finally:
             try:
                 conn.close()  # type: ignore[name-defined]
             except Exception:
                 pass
-    raise TimeoutError(f"Timed out waiting for local bundle server on http://{host}:{port}")
+    raise TimeoutError(
+        f"Timed out waiting for local bundle server on http://{host}:{port}; {last_error}"
+    )
 
 
 def _start_http_server(plan: SyncPlan) -> subprocess.Popen[str]:
