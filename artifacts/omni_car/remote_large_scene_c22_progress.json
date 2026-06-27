@@ -2,8 +2,8 @@
   "best": {
     "Mean episode length": {
       "max": {
-        "iteration": 16,
-        "value": 283.73
+        "iteration": 2987,
+        "value": 293.54
       },
       "min": {
         "iteration": 463,
@@ -12,8 +12,8 @@
     },
     "Mean reward": {
       "max": {
-        "iteration": 2081,
-        "value": 2243.57
+        "iteration": 2988,
+        "value": 4791.72
       },
       "min": {
         "iteration": 16,
@@ -46,8 +46,8 @@
         "value": 0.8462
       },
       "min": {
-        "iteration": 2042,
-        "value": 0.514
+        "iteration": 2701,
+        "value": 0.4828
       }
     },
     "omni_car/static_collision_rate": {
@@ -71,69 +71,69 @@
       }
     }
   },
-  "iteration_count": 2139,
+  "iteration_count": 3000,
   "latest": {
-    "iteration": 2138,
+    "iteration": 2999,
     "max_iteration": 3000,
     "metrics": {
       "Mean action std": 0.05,
-      "Mean entropy loss": -4.8346,
-      "Mean episode length": 99.3,
-      "Mean reward": 1668.56,
-      "Mean surrogate loss": 0.0005,
-      "Mean value loss": 42293.0249,
-      "Steps per second": 5259,
-      "Total steps": 8761344,
-      "omni_car/agent_collision_rate": 0.0039,
+      "Mean entropy loss": -4.9853,
+      "Mean episode length": 287.86,
+      "Mean reward": 4748.71,
+      "Mean surrogate loss": 0.0091,
+      "Mean value loss": 44191.8428,
+      "Steps per second": 5657,
+      "Total steps": 12288000,
+      "omni_car/agent_collision_rate": 0.001,
       "omni_car/border_collision_rate": 0.0,
-      "omni_car/collision_rate": 0.0112,
-      "omni_car/command_norm": 1.3784,
-      "omni_car/mean_clearance": 0.565,
-      "omni_car/response_progress": 0.0188,
+      "omni_car/collision_rate": 0.0039,
+      "omni_car/command_norm": 1.3722,
+      "omni_car/mean_clearance": 0.5221,
+      "omni_car/response_progress": 0.0175,
       "omni_car/stagnation_reset_rate": 0.0,
-      "omni_car/static_collision_rate": 0.0073,
-      "omni_car/tracking_error": 0.3981,
-      "omni_car/vx_diff_cost": 0.2726,
-      "omni_car/vx_jerk_cost": 0.3004,
-      "omni_car/vx_track_cost": 0.0363,
-      "omni_car/vy_diff_cost": 0.3771,
-      "omni_car/vy_jerk_cost": 0.3538,
-      "omni_car/vy_track_cost": 0.0594,
-      "omni_car/vyaw_diff_cost": 0.104,
-      "omni_car/vyaw_jerk_cost": 0.1697,
-      "omni_car/vyaw_track_cost": 0.0978
+      "omni_car/static_collision_rate": 0.0029,
+      "omni_car/tracking_error": 0.4506,
+      "omni_car/vx_diff_cost": 0.2329,
+      "omni_car/vx_jerk_cost": 0.3116,
+      "omni_car/vx_track_cost": 0.0501,
+      "omni_car/vy_diff_cost": 0.319,
+      "omni_car/vy_jerk_cost": 0.3497,
+      "omni_car/vy_track_cost": 0.0961,
+      "omni_car/vyaw_diff_cost": 0.0954,
+      "omni_car/vyaw_jerk_cost": 0.1587,
+      "omni_car/vyaw_track_cost": 0.1115
     }
   },
   "log_path": "artifacts/omni_car/remote_large_scene_c22_tmux.log",
-  "progress_fraction": 0.7126666666666667,
+  "progress_fraction": 0.9996666666666667,
   "window": {
     "mean": {
       "Mean action std": 0.05,
-      "Mean entropy loss": -4.842905,
-      "Mean episode length": 102.228,
-      "Mean reward": 1708.7450000000001,
-      "Mean surrogate loss": 0.0086,
-      "Mean value loss": 38617.19956,
-      "Steps per second": 5379.4,
-      "Total steps": 8722432.0,
-      "omni_car/agent_collision_rate": 0.0037600000000000003,
+      "Mean entropy loss": -4.976445,
+      "Mean episode length": 263.76599999999996,
+      "Mean reward": 4376.4645,
+      "Mean surrogate loss": 0.00843,
+      "Mean value loss": 36482.66216,
+      "Steps per second": 5629.45,
+      "Total steps": 12249088.0,
+      "omni_car/agent_collision_rate": 0.000995,
       "omni_car/border_collision_rate": 0.0,
-      "omni_car/collision_rate": 0.01011,
-      "omni_car/command_norm": 1.3047900000000001,
-      "omni_car/mean_clearance": 0.55992,
-      "omni_car/response_progress": 0.02039,
+      "omni_car/collision_rate": 0.003725,
+      "omni_car/command_norm": 1.328895,
+      "omni_car/mean_clearance": 0.552055,
+      "omni_car/response_progress": 0.017929999999999998,
       "omni_car/stagnation_reset_rate": 0.0,
-      "omni_car/static_collision_rate": 0.0063750000000000005,
-      "omni_car/tracking_error": 0.391555,
-      "omni_car/vx_diff_cost": 0.28451,
-      "omni_car/vx_jerk_cost": 0.31059000000000003,
-      "omni_car/vx_track_cost": 0.035339999999999996,
-      "omni_car/vy_diff_cost": 0.37946,
-      "omni_car/vy_jerk_cost": 0.358775,
-      "omni_car/vy_track_cost": 0.06265000000000001,
-      "omni_car/vyaw_diff_cost": 0.101245,
-      "omni_car/vyaw_jerk_cost": 0.15607500000000002,
-      "omni_car/vyaw_track_cost": 0.090115
+      "omni_car/static_collision_rate": 0.002745,
+      "omni_car/tracking_error": 0.426535,
+      "omni_car/vx_diff_cost": 0.22390500000000002,
+      "omni_car/vx_jerk_cost": 0.300235,
+      "omni_car/vx_track_cost": 0.04961,
+      "omni_car/vy_diff_cost": 0.293845,
+      "omni_car/vy_jerk_cost": 0.35489000000000004,
+      "omni_car/vy_track_cost": 0.08020000000000001,
+      "omni_car/vyaw_diff_cost": 0.095635,
+      "omni_car/vyaw_jerk_cost": 0.153975,
+      "omni_car/vyaw_track_cost": 0.09973
     },
     "size": 20
   }
