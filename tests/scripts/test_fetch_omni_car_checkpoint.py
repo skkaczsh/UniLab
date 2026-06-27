@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -62,6 +63,41 @@ def test_default_manifest_points_to_current_large_scene_checkpoint() -> None:
     module = _load_module()
 
     assert module.DEFAULT_MANIFEST.name == "remote_large_scene_c22_2900_checkpoint_manifest.json"
+
+
+def test_tracked_checkpoint_manifests_use_standard_commands() -> None:
+    module = _load_module()
+    root = Path(__file__).resolve().parents[2]
+    manifest_paths = sorted((root / "artifacts" / "omni_car").glob("*checkpoint_manifest.json"))
+
+    assert manifest_paths
+    seen_cache_names: set[str] = set()
+    for manifest_path in manifest_paths:
+        ref = module.load_checkpoint_ref(manifest_path)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        commands = manifest["commands"]
+        cache_name = ref.local_cache_name or ref.checkpoint_name
+
+        assert cache_name not in seen_cache_names
+        seen_cache_names.add(cache_name)
+        assert ref.task == "OmniCarGridAvoidance"
+        assert ref.remote_host == "zsh@skkac.top"
+        assert ref.ssh_port == 6010
+        assert ref.remote_path.endswith(f"/{ref.checkpoint_name}")
+        assert re.fullmatch(r"[0-9a-f]{64}", ref.expected_sha256)
+        assert ref.expected_bytes > 0
+        assert commands["local_fetch_checkpoint"].startswith(
+            "uv run scripts/fetch_omni_car_checkpoint.py --manifest "
+        )
+        assert commands["local_verify_checkpoint"].startswith(
+            "uv run scripts/fetch_omni_car_checkpoint.py --manifest "
+        )
+        assert " --verify-only" in commands["local_verify_checkpoint"]
+        assert "uv run scripts/evaluate_omni_car_checkpoint.py" in commands["remote_eval_seed_7"]
+        for command in commands.values():
+            assert "uv run python scripts/" not in command
+            assert "shasum" not in command
+            assert "mkdir -p artifacts/omni_car/checkpoints" not in command
 
 
 def test_local_checkpoint_status_validates_size_and_hash(tmp_path: Path) -> None:
