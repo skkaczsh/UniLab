@@ -204,6 +204,19 @@ steps, seeds `7 / 17 / 23 / 31 / 43`). Across those seeds:
 - `vx / vy / vyaw tracking_mae`: mean `0.3850 / 0.3831 / 0.4184`
 - `vx / vy / vyaw jerk_cost`: mean `0.1338 / 0.1530 / 0.0476`
 
+The checkpoint itself is intentionally not committed. Its reproducibility
+manifest is stored in
+`artifacts/omni_car/axis_track_2999_checkpoint_manifest.json`, including the
+remote run path, byte count, SHA-256, evaluation artifact, and copy/viewer
+commands. To cache it locally for the native viewer:
+
+```bash
+mkdir -p artifacts/omni_car/checkpoints
+scp -P 6010 zsh@skkac.top:/home/zsh/develop/worktrees/UniLab-omni-car-git/logs/remote_5070_axis_track_3000/OmniCarGridAvoidance/2026-06-27_14-11-59_mujoco/model_2999.pt artifacts/omni_car/checkpoints/model_2999.pt
+shasum -a 256 artifacts/omni_car/checkpoints/model_2999.pt
+uv run scripts/view_omni_car_checkpoint.py --load-run artifacts/omni_car/checkpoints/model_2999.pt --device cpu
+```
+
 Previous pre-axis-tracking comparison run:
 
 - run dir:
