@@ -24,6 +24,8 @@ def test_build_sync_args_uses_omni_car_remote_defaults() -> None:
     assert sync_args[:2] == ["--remote", "zsh@skkac.top"]
     assert "--ssh-port" in sync_args
     assert "6010" in sync_args
+    assert "--transport" in sync_args
+    assert "scp" in sync_args
     assert "https://github.com/skkaczsh/UniLab.git" in sync_args
     assert "git@github.com:skkaczsh/UniLab.git" in sync_args
     assert "/home/zsh/develop/worktrees/UniLab-omni-car-git" in sync_args
@@ -62,6 +64,8 @@ def test_build_sync_args_uses_incremental_base_without_source_clone() -> None:
 
     assert "--incremental-base" in sync_args
     assert "a" * 40 in sync_args
+    assert "--transport" in sync_args
+    assert "scp" in sync_args
     assert "--bundle-source-url" not in sync_args
     assert "https://github.com/skkaczsh/UniLab.git" not in sync_args
     assert "--clone-proxy" not in sync_args

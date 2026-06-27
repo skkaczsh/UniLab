@@ -81,6 +81,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Disable automatic incremental bundle selection.",
     )
+    parser.add_argument(
+        "--transport",
+        choices=("scp", "http"),
+        default="scp",
+        help="Bundle transfer method. scp avoids opening a local HTTP port.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print sync plan and exit.")
     return parser.parse_args(argv)
 
@@ -152,6 +158,8 @@ def build_sync_args(args: argparse.Namespace, *, incremental_base: str | None = 
         str(Path(args.repo_root)),
         "--http-port",
         str(args.http_port),
+        "--transport",
+        str(args.transport),
         "--origin-url",
         str(args.origin_url),
         "--remote-bundle-path",

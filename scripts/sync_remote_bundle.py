@@ -39,6 +39,7 @@ class SyncPlan:
     bundle_source_url: str | None
     clone_proxy: str | None
     incremental_base: str | None
+    transport: str
 
     @property
     def bundle_path(self) -> Path:
@@ -128,6 +129,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "already contain the base."
         ),
     )
+    parser.add_argument(
+        "--transport",
+        choices=("http", "scp"),
+        default="http",
+        help="How to copy the bundle to the remote host.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print plan and exit.")
     return parser.parse_args(argv)
 
@@ -200,6 +207,7 @@ def _create_plan(args: argparse.Namespace) -> SyncPlan:
         bundle_source_url=args.bundle_source_url,
         clone_proxy=args.clone_proxy,
         incremental_base=args.incremental_base,
+        transport=args.transport,
     )
 
 
@@ -355,6 +363,24 @@ def _start_http_server(plan: SyncPlan) -> subprocess.Popen[str]:
     return server
 
 
+def _copy_bundle_scp(plan: SyncPlan) -> None:
+    bundle_parent = str(Path(plan.remote_bundle_path).parent)
+    subprocess.run(
+        ["ssh", "-p", str(plan.ssh_port), plan.remote, f"mkdir -p {shlex.quote(bundle_parent)}"],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "scp",
+            "-P",
+            str(plan.ssh_port),
+            str(plan.bundle_path),
+            f"{plan.remote}:{plan.remote_bundle_path}",
+        ],
+        check=True,
+    )
+
+
 def _build_remote_script(plan: SyncPlan) -> str:
     bundle_parent = str(Path(plan.remote_bundle_path).parent)
     repo_parent = str(Path(plan.remote_repo_path).parent)
@@ -363,9 +389,16 @@ def _build_remote_script(plan: SyncPlan) -> str:
     lines = [
         "set -euo pipefail",
         f"mkdir -p {shlex.quote(bundle_parent)} {shlex.quote(repo_parent)} {shlex.quote(worktree_parent)}",
-        f"curl --fail --location {shlex.quote(plan.bundle_url)} -o {shlex.quote(plan.remote_bundle_path)}",
-        f"if ! git -C {shlex.quote(plan.remote_repo_path)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then",
     ]
+    if plan.transport == "http":
+        lines.append(
+            f"curl --fail --location {shlex.quote(plan.bundle_url)} -o {shlex.quote(plan.remote_bundle_path)}"
+        )
+    else:
+        lines.append(f"test -s {shlex.quote(plan.remote_bundle_path)}")
+    lines.append(
+        f"if ! git -C {shlex.quote(plan.remote_repo_path)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then"
+    )
     if plan.incremental_base:
         lines.extend(
             [
@@ -450,20 +483,26 @@ def main(argv: list[str] | None = None) -> int:
         print(f"bundle_source_url={plan.bundle_source_url}")
         print(f"clone_proxy={plan.clone_proxy}")
         print(f"incremental_base={plan.incremental_base}")
+        print(f"transport={plan.transport}")
         print("--- remote script ---")
         print(_build_remote_script(plan))
         return 0
 
     _create_bundle(plan)
-    server = _start_http_server(plan)
+    server = None
+    if plan.transport == "http":
+        server = _start_http_server(plan)
+    else:
+        _copy_bundle_scp(plan)
     try:
         _run_remote_script(plan)
     finally:
-        server.terminate()
-        try:
-            server.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            server.kill()
+        if server is not None:
+            server.terminate()
+            try:
+                server.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                server.kill()
     return 0
 
 

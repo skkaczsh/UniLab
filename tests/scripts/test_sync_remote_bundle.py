@@ -37,6 +37,7 @@ def test_remote_script_updates_existing_worktree_without_deleting_it() -> None:
         bundle_source_url=None,
         clone_proxy=None,
         incremental_base=None,
+        transport="http",
     )
 
     remote_script = sync._build_remote_script(plan)
@@ -72,6 +73,7 @@ def test_bundle_env_sets_proxy_for_source_clone() -> None:
         bundle_source_url="https://github.com/skkaczsh/UniLab.git",
         clone_proxy="http://127.0.0.1:7890",
         incremental_base=None,
+        transport="http",
     )
 
     env = sync._bundle_env(plan)
@@ -102,6 +104,7 @@ def test_bundle_source_fetches_local_head_after_bare_clone(monkeypatch) -> None:
         bundle_source_url="https://github.com/skkaczsh/UniLab.git",
         clone_proxy="http://127.0.0.1:7890",
         incremental_base=None,
+        transport="http",
     )
     calls: list[list[str]] = []
 
@@ -150,6 +153,7 @@ def test_incremental_bundle_uses_prerequisite_refspec_and_verify(monkeypatch) ->
         bundle_source_url="https://github.com/skkaczsh/UniLab.git",
         clone_proxy="http://127.0.0.1:7890",
         incremental_base="a" * 40,
+        transport="http",
     )
     calls: list[list[str]] = []
 
@@ -204,6 +208,7 @@ def test_incremental_remote_script_requires_existing_repo() -> None:
         bundle_source_url=None,
         clone_proxy=None,
         incremental_base="a" * 40,
+        transport="http",
     )
 
     remote_script = sync._build_remote_script(plan)
@@ -211,3 +216,33 @@ def test_incremental_remote_script_requires_existing_repo() -> None:
     assert "Incremental bundle requires an existing remote repo" in remote_script
     assert "git clone /home/zsh/develop/repos/UniLab.gitbundle" not in remote_script
     assert "fetch --force /home/zsh/develop/repos/UniLab.gitbundle" in remote_script
+
+
+def test_scp_remote_script_uses_pre_copied_bundle() -> None:
+    sync = _load_sync_module()
+    plan = sync.SyncPlan(
+        repo_root=Path("/local/UniLab"),
+        branch="codex/omni-car-grid-ppo-wt",
+        head="b" * 40,
+        remote="zsh@skkac.top",
+        ssh_port=6010,
+        local_host="192.168.0.3",
+        http_port=8766,
+        bundle_name="unilab.bundle",
+        bundle_dir=Path("/tmp"),
+        remote_bundle_path="/home/zsh/develop/repos/UniLab.gitbundle",
+        remote_repo_path="/home/zsh/develop/repos/UniLab",
+        remote_worktree_path="/home/zsh/develop/worktrees/UniLab-omni-car-git",
+        remote_worktree_branch="codex/omni-car-grid-ppo-wt-remote",
+        origin_url=None,
+        venv_source=None,
+        bundle_source_url=None,
+        clone_proxy=None,
+        incremental_base=None,
+        transport="scp",
+    )
+
+    remote_script = sync._build_remote_script(plan)
+
+    assert "curl --fail" not in remote_script
+    assert "test -s /home/zsh/develop/repos/UniLab.gitbundle" in remote_script
