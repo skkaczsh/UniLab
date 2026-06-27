@@ -1,0 +1,174 @@
+{
+  "task": "OmniCarGridAvoidance",
+  "branch": "codex/omni-car-grid-ppo-wt",
+  "source_commit": "95b95ce40d4574214c6d5f8081584c6ca637f123",
+  "remote": {
+    "host": "zsh@skkac.top",
+    "ssh_port": 6010,
+    "worktree": "/home/zsh/develop/worktrees/UniLab-omni-car-git"
+  },
+  "run": {
+    "name": "remote_tmux_axis_next",
+    "session": "omni-car-axis-next",
+    "run_dir": "/home/zsh/develop/worktrees/UniLab-omni-car-git/logs/remote_tmux_axis_next/OmniCarGridAvoidance/2026-06-27_15-00-11_mujoco",
+    "checkpoint": "model_2999.pt",
+    "checkpoint_path": "/home/zsh/develop/worktrees/UniLab-omni-car-git/logs/remote_tmux_axis_next/OmniCarGridAvoidance/2026-06-27_15-00-11_mujoco/model_2999.pt",
+    "checkpoint_bytes": 13166925,
+    "checkpoint_sha256": "2266df2195329fd835680a1ad329bf94f54d781d55b8be791aeaf2c1b755c9d4",
+    "started_at_utc": "2026-06-27T07:00:11.499671+00:00",
+    "ended_at_utc": "2026-06-27T07:17:22.685022+00:00",
+    "training_wall_time_sec": 1031.010606765747,
+    "total_env_steps": 12288000,
+    "completed_iterations": 2999
+  },
+  "launch": {
+    "command": "uv run scripts/remote_omni_car_tmux.py train --session omni-car-axis-next --run-name remote_tmux_axis_next --max-iterations 3000 -- algo.save_interval=100",
+    "logger": "tensorboard",
+    "num_envs": 128,
+    "num_steps_per_env": 32,
+    "max_iterations": 3000,
+    "save_interval": 100,
+    "proxy": "http://127.0.0.1:7890"
+  },
+  "single_seed_eval": {
+    "seed": 7,
+    "num_envs": 64,
+    "num_steps": 512,
+    "collision_fraction": 0.048065185546875,
+    "mean_episode_return": 97.0819326252786,
+    "mean_episode_length": 13.05015873015873,
+    "mean_step_reward": 12.119379364600519,
+    "omni_car/tracking_error": 0.5350657099625096,
+    "omni_car/response_progress": 0.02089030837487371,
+    "omni_car/mean_clearance": 2.349489758722484,
+    "vx_tracking_mae": 0.6887730706154522,
+    "vy_tracking_mae": 0.5771116988925407,
+    "vyaw_tracking_mae": 0.39145316338556757,
+    "omni_car/vx_jerk_cost": 0.24363809751230292,
+    "omni_car/vy_jerk_cost": 0.20433672903163824,
+    "omni_car/vyaw_jerk_cost": 0.08766910611484491
+  },
+  "checkpoint_scan_seed_7": [
+    {
+      "checkpoint": 500,
+      "collision_fraction": 0.080322265625,
+      "tracking_error": 0.5255346458288841,
+      "mean_episode_return": 48.26717214234807,
+      "vx_tracking_mae": 0.6521953019639959,
+      "vy_tracking_mae": 0.5783873048585049,
+      "vyaw_tracking_mae": 0.4701726057424338,
+      "vx_jerk": 0.21092902243253775,
+      "vy_jerk": 0.22920959700422827,
+      "vyaw_jerk": 0.11813975998666137
+    },
+    {
+      "checkpoint": 900,
+      "collision_fraction": 0.087493896484375,
+      "tracking_error": 0.5618911189376377,
+      "mean_episode_return": 40.2988256574701,
+      "vx_tracking_mae": 0.6755817535592161,
+      "vy_tracking_mae": 0.6551786072154043,
+      "vyaw_tracking_mae": 0.48394252206536237,
+      "vx_jerk": 0.2592170961579541,
+      "vy_jerk": 0.16839415719005046,
+      "vyaw_jerk": 0.14537659675261239
+    },
+    {
+      "checkpoint": 1200,
+      "collision_fraction": 0.088836669921875,
+      "tracking_error": 0.560713387443684,
+      "mean_episode_return": 54.498760849505544,
+      "vx_tracking_mae": 0.686141224111501,
+      "vy_tracking_mae": 0.6627100442527691,
+      "vyaw_tracking_mae": 0.4555670745425626,
+      "vx_jerk": 0.2888370946748182,
+      "vy_jerk": 0.17689101764699444,
+      "vyaw_jerk": 0.14591571930941427
+    },
+    {
+      "checkpoint": 1500,
+      "collision_fraction": 0.079193115234375,
+      "tracking_error": 0.5626691486686468,
+      "mean_episode_return": 55.31651469196313,
+      "vx_tracking_mae": 0.6586840818830408,
+      "vy_tracking_mae": 0.6578814748540747,
+      "vyaw_tracking_mae": 0.4884365581021166,
+      "vx_jerk": 0.26139330586011056,
+      "vy_jerk": 0.19364624121953966,
+      "vyaw_jerk": 0.12349943543449626
+    },
+    {
+      "checkpoint": 1800,
+      "collision_fraction": 0.060333251953125,
+      "tracking_error": 0.5621695147710852,
+      "mean_episode_return": 69.97574939875457,
+      "vx_tracking_mae": 0.6772678073492724,
+      "vy_tracking_mae": 0.633400160120742,
+      "vyaw_tracking_mae": 0.4715376782932297,
+      "vx_jerk": 0.20773055795871187,
+      "vy_jerk": 0.17469470368814655,
+      "vyaw_jerk": 0.10062019819451962
+    },
+    {
+      "checkpoint": 2200,
+      "collision_fraction": 0.062530517578125,
+      "tracking_error": 0.5607864666962996,
+      "mean_episode_return": 85.07267860083894,
+      "vx_tracking_mae": 0.7239469845645985,
+      "vy_tracking_mae": 0.5727432680808242,
+      "vyaw_tracking_mae": 0.46878733378499216,
+      "vx_jerk": 0.2171907228330383,
+      "vy_jerk": 0.2258824174205074,
+      "vyaw_jerk": 0.11430118852877058
+    },
+    {
+      "checkpoint": 2600,
+      "collision_fraction": 0.06280517578125,
+      "tracking_error": 0.5482392854173668,
+      "mean_episode_return": 68.9741094239161,
+      "vx_tracking_mae": 0.6839576491282564,
+      "vy_tracking_mae": 0.5978230018677859,
+      "vyaw_tracking_mae": 0.4516334559328363,
+      "vx_jerk": 0.2169140914338641,
+      "vy_jerk": 0.22881499528011773,
+      "vyaw_jerk": 0.13146434959344333
+    },
+    {
+      "checkpoint": 2900,
+      "collision_fraction": 0.044525146484375,
+      "tracking_error": 0.5307737690745853,
+      "mean_episode_return": 100.37363931284406,
+      "vx_tracking_mae": 0.6943169879818569,
+      "vy_tracking_mae": 0.5628371973060942,
+      "vyaw_tracking_mae": 0.3933818699873619,
+      "vx_jerk": 0.20590612814339693,
+      "vy_jerk": 0.187704734998988,
+      "vyaw_jerk": 0.08352661720164178
+    },
+    {
+      "checkpoint": 2999,
+      "collision_fraction": 0.048065185546875,
+      "tracking_error": 0.5350657099625096,
+      "mean_episode_return": 97.0819326252786,
+      "vx_tracking_mae": 0.6887730706154522,
+      "vy_tracking_mae": 0.5771116988925407,
+      "vyaw_tracking_mae": 0.39145316338556757,
+      "vx_jerk": 0.24363809751230292,
+      "vy_jerk": 0.20433672903163824,
+      "vyaw_jerk": 0.08766910611484491
+    }
+  ],
+  "best_reference": {
+    "artifact": "artifacts/omni_car/axis_track_2999_checkpoint_manifest.json",
+    "run": "remote_5070_axis_track_3000",
+    "single_seed_7_collision_fraction": 0.02679443359375,
+    "single_seed_7_tracking_error": 0.3839861309970729,
+    "single_seed_7_mean_episode_return": 304.38774667311975,
+    "multi_seed_collision_fraction_mean": 0.02705078125,
+    "multi_seed_tracking_error_mean": 0.3830635432736017
+  },
+  "selection": {
+    "selected_as_best": false,
+    "reason": "The tmux relaunch reproduced training throughput and completed cleanly, but all scanned checkpoints have worse collision/tracking tradeoffs than remote_5070_axis_track_3000."
+  }
+}
