@@ -231,6 +231,22 @@ uv run scripts/benchmark_omni_car_env.py \
   --profile-top 18
 ```
 
+On the RTX 5070 Ti host, commit `a35f108d` measured the large-scene path at
+about `14.98 ms/step` for `128` envs, `372` total scene obstacles, `72` local
+static obstacles per agent, and `24` dynamic agents per agent. The matching
+training run spent roughly `0.67-0.71 s` in rollout collection versus
+`0.07-0.08 s` in PPO learning per iteration. That makes the CPU occupancy-grid
+raster path the current bottleneck; the CUDA learner is not saturated by neural
+network work.
+
+GPU acceleration can help, but only if the observation path becomes
+torch-native. A partial CUDA port that rasterizes the grid on GPU, copies it
+back to NumPy for the env API, and then lets the runner copy it back to CUDA for
+PPO will likely lose much of the gain to synchronization and PCIe copies. The
+right performance direction is to keep scene obstacles, agent poses, occupancy
+grids, and policy observations as torch tensors on the learner device, then
+feed the PPO actor/critic without CPU round-trips.
+
 The attempt to parallelize this path with Python threads regresses throughput.
 The bottleneck is not raw arithmetic; it is many small obstacle AABB raster
 tasks plus large occupancy/observation buffer writes. Threading adds chunk
