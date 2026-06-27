@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -64,3 +65,23 @@ def test_accumulator_tracks_axis_metrics_and_episode_stats() -> None:
     assert summary["omni_car/tracking_error"] == pytest.approx(0.6)
     assert summary["omni_car/response_progress"] == pytest.approx(0.075)
     assert summary["omni_car/vx_diff_cost"] == pytest.approx(0.15)
+
+
+def test_json_cli_suppresses_evaluator_noise(monkeypatch, capsys) -> None:
+    module = _load_module()
+
+    def _noisy_evaluate(_args):  # type: ignore[no-untyped-def]
+        print("model debug noise")
+        return {"checkpoint_path": "model.pt", "collision_fraction": 0.0}
+
+    monkeypatch.setattr(module, "evaluate_checkpoint", _noisy_evaluate)
+
+    rc = module.main(["--load-run", "model.pt", "--json"])
+
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "model debug noise" not in captured.out
+    assert json.loads(captured.out) == {
+        "checkpoint_path": "model.pt",
+        "collision_fraction": 0.0,
+    }

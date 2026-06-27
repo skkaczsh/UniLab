@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import sys
 from collections.abc import Sequence
@@ -279,10 +281,12 @@ def evaluate_checkpoint(args: argparse.Namespace) -> dict[str, float | int | lis
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
-    summary = evaluate_checkpoint(args)
     if args.json:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            summary = evaluate_checkpoint(args)
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:
+        summary = evaluate_checkpoint(args)
         print(_format_summary(summary))
         print("\nJSON:")
         print(json.dumps(summary, indent=2, sort_keys=True))
