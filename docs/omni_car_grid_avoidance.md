@@ -76,6 +76,8 @@ uv run python scripts/sync_remote_bundle.py \
   --remote zsh@skkac.top \
   --ssh-port 6010 \
   --local-host 192.168.0.3 \
+  --bundle-source-url https://github.com/skkaczsh/UniLab.git \
+  --clone-proxy http://127.0.0.1:7890 \
   --origin-url git@github.com:skkaczsh/UniLab.git \
   --venv-source /home/zsh/develop/worktrees/UniLab-omni-car/.venv
 ```
@@ -83,6 +85,9 @@ uv run python scripts/sync_remote_bundle.py \
 The script updates an existing remote repo/worktree in place by fetching the
 bundle and resetting tracked files to the local HEAD. It does not delete the
 remote worktree, so logs and other untracked training artifacts remain in place.
+The `--bundle-source-url` path is important when the local checkout is a
+partial/promisor clone; the script creates and verifies a temporary full clone
+before serving the bundle.
 
 ## Environment benchmark
 

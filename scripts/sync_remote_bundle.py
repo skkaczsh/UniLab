@@ -36,6 +36,8 @@ class SyncPlan:
     remote_worktree_branch: str
     origin_url: str | None
     venv_source: str | None
+    bundle_source_url: str | None
+    clone_proxy: str | None
 
     @property
     def bundle_path(self) -> Path:
@@ -102,6 +104,19 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--venv-source",
         default=None,
         help="Optional remote venv path to symlink into the remote worktree as .venv.",
+    )
+    parser.add_argument(
+        "--bundle-source-url",
+        default=None,
+        help=(
+            "Optional git URL to clone into a temporary full source before creating the "
+            "bundle. Use this when the local repo is a partial/promisor clone."
+        ),
+    )
+    parser.add_argument(
+        "--clone-proxy",
+        default=None,
+        help="Optional HTTP(S) proxy used only for --bundle-source-url cloning.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Print plan and exit.")
     return parser.parse_args(argv)
@@ -172,17 +187,64 @@ def _create_plan(args: argparse.Namespace) -> SyncPlan:
         remote_worktree_branch=remote_worktree_branch,
         origin_url=args.origin_url,
         venv_source=args.venv_source,
+        bundle_source_url=args.bundle_source_url,
+        clone_proxy=args.clone_proxy,
     )
+
+
+def _bundle_env(plan: SyncPlan) -> dict[str, str]:
+    env = dict(os.environ)
+    env["GIT_LFS_SKIP_SMUDGE"] = "1"
+    if plan.clone_proxy:
+        env["HTTP_PROXY"] = plan.clone_proxy
+        env["HTTPS_PROXY"] = plan.clone_proxy
+        env["http_proxy"] = plan.clone_proxy
+        env["https_proxy"] = plan.clone_proxy
+    return env
+
+
+def _create_bundle_from_repo(plan: SyncPlan, source_repo: Path) -> None:
+    subprocess.run(
+        ["git", "-C", str(source_repo), "bundle", "create", str(plan.bundle_path), plan.branch],
+        check=True,
+    )
+
+
+def _verify_bundle_clones(plan: SyncPlan) -> None:
+    with tempfile.TemporaryDirectory(prefix="unilab-bundle-check-") as tmp:
+        checkout = Path(tmp) / "checkout"
+        subprocess.run(
+            ["git", "clone", "--quiet", "--branch", plan.branch, str(plan.bundle_path), str(checkout)],
+            check=True,
+        )
+        subprocess.run(["git", "-C", str(checkout), "fsck", "--full"], check=True)
 
 
 def _create_bundle(plan: SyncPlan) -> None:
     plan.bundle_dir.mkdir(parents=True, exist_ok=True)
     if plan.bundle_path.exists():
         plan.bundle_path.unlink()
-    subprocess.run(
-        ["git", "-C", str(plan.repo_root), "bundle", "create", str(plan.bundle_path), plan.branch],
-        check=True,
-    )
+    if plan.bundle_source_url:
+        with tempfile.TemporaryDirectory(prefix="unilab-bundle-source-") as tmp:
+            source_repo = Path(tmp) / "repo"
+            subprocess.run(
+                [
+                    "git",
+                    "clone",
+                    "--quiet",
+                    "--single-branch",
+                    "--branch",
+                    plan.branch,
+                    plan.bundle_source_url,
+                    str(source_repo),
+                ],
+                check=True,
+                env=_bundle_env(plan),
+            )
+            _create_bundle_from_repo(plan, source_repo)
+    else:
+        _create_bundle_from_repo(plan, plan.repo_root)
+    _verify_bundle_clones(plan)
 
 
 def _wait_for_http_server(*, host: str, port: int, bundle_name: str, timeout_s: float = 10.0) -> None:
@@ -313,6 +375,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"head={plan.head}")
         print(f"bundle_path={plan.bundle_path}")
         print(f"bundle_url={plan.bundle_url}")
+        print(f"bundle_source_url={plan.bundle_source_url}")
+        print(f"clone_proxy={plan.clone_proxy}")
         print("--- remote script ---")
         print(_build_remote_script(plan))
         return 0

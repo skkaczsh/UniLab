@@ -33,6 +33,8 @@ def test_remote_script_updates_existing_worktree_without_deleting_it() -> None:
         remote_worktree_branch="codex/omni-car-grid-ppo-wt-remote",
         origin_url="git@github.com:skkaczsh/UniLab.git",
         venv_source="/home/zsh/develop/worktrees/UniLab-omni-car/.venv",
+        bundle_source_url=None,
+        clone_proxy=None,
     )
 
     remote_script = sync._build_remote_script(plan)
@@ -45,3 +47,32 @@ def test_remote_script_updates_existing_worktree_without_deleting_it() -> None:
     assert "git -C /home/zsh/develop/worktrees/UniLab-omni-car-git reset --hard" in remote_script
     assert "git@github.com:skkaczsh/UniLab.git" in remote_script
     assert "ln -sfn /home/zsh/develop/worktrees/UniLab-omni-car/.venv" in remote_script
+
+
+def test_bundle_env_sets_proxy_for_source_clone() -> None:
+    sync = _load_sync_module()
+    plan = sync.SyncPlan(
+        repo_root=Path("/local/UniLab"),
+        branch="codex/omni-car-grid-ppo-wt",
+        head="a" * 40,
+        remote="zsh@skkac.top",
+        ssh_port=6010,
+        local_host="192.168.0.3",
+        http_port=8766,
+        bundle_name="unilab.bundle",
+        bundle_dir=Path("/tmp"),
+        remote_bundle_path="/home/zsh/develop/repos/UniLab.gitbundle",
+        remote_repo_path="/home/zsh/develop/repos/UniLab",
+        remote_worktree_path="/home/zsh/develop/worktrees/UniLab-omni-car-git",
+        remote_worktree_branch="codex/omni-car-grid-ppo-wt-remote",
+        origin_url=None,
+        venv_source=None,
+        bundle_source_url="https://github.com/skkaczsh/UniLab.git",
+        clone_proxy="http://127.0.0.1:7890",
+    )
+
+    env = sync._bundle_env(plan)
+
+    assert env["GIT_LFS_SKIP_SMUDGE"] == "1"
+    assert env["HTTP_PROXY"] == "http://127.0.0.1:7890"
+    assert env["HTTPS_PROXY"] == "http://127.0.0.1:7890"
