@@ -194,6 +194,16 @@ Latest tuned run on the remote RTX 5070 Ti host:
 - `omni_car/tracking_error`: `0.3840`
 - `omni_car/vx / vy / vyaw jerk_cost`: `0.1322 / 0.1540 / 0.0476`
 
+Multi-seed evaluation evidence is stored in
+`artifacts/omni_car/axis_track_2999_multiseed_eval.json` (`64` envs, `512`
+steps, seeds `7 / 17 / 23 / 31 / 43`). Across those seeds:
+
+- `collision_fraction`: mean `0.0271`, range `0.0242 - 0.0304`
+- `mean_episode_return`: mean `284.4116`, range `263.3304 - 304.3877`
+- `omni_car/tracking_error`: mean `0.3831`, range `0.3730 - 0.3906`
+- `vx / vy / vyaw tracking_mae`: mean `0.3850 / 0.3831 / 0.4184`
+- `vx / vy / vyaw jerk_cost`: mean `0.1338 / 0.1530 / 0.0476`
+
 Previous pre-axis-tracking comparison run:
 
 - run dir:
