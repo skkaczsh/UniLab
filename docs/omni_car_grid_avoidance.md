@@ -68,7 +68,18 @@ uv run train --algo ppo --task omni_car_grid_avoidance --sim mujoco \
   training.logger=tensorboard \
   algo.num_envs=128 \
   algo.num_steps_per_env=32 \
-  algo.max_iterations=94
+  algo.max_iterations=3000
+```
+
+On the remote training host, prefer the tmux launcher so long runs survive SSH
+disconnects and use the remote Clash proxy for any `uv` network work:
+
+```bash
+uv run scripts/remote_omni_car_tmux.py status
+uv run scripts/remote_omni_car_tmux.py train \
+  --session omni-car-axis-next \
+  --run-name remote_tmux_axis_next \
+  --max-iterations 3000
 ```
 
 ## Remote sync
