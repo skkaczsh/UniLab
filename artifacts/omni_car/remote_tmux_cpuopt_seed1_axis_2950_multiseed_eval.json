@@ -1,0 +1,432 @@
+{
+  "aggregate": {
+    "checkpoint": "model_2950.pt",
+    "checkpoint_path": "/home/zsh/develop/worktrees/UniLab-omni-car-git/logs/remote_tmux_cpuopt_seed1_axis/OmniCarGridAvoidance/2026-06-27_20-18-10_mujoco/model_2950.pt",
+    "collision_fraction": {
+      "max": 0.03472900390625,
+      "mean": 0.03251953125,
+      "min": 0.029571533203125,
+      "stdev": 0.001947227156248597
+    },
+    "env_steps": {
+      "max": 32768.0,
+      "mean": 32768.0,
+      "min": 32768.0,
+      "stdev": 0.0
+    },
+    "episodes_completed": {
+      "max": 1138.0,
+      "mean": 1065.6,
+      "min": 969.0,
+      "stdev": 63.80673945595402
+    },
+    "mean_episode_length": {
+      "max": 19.59021113243762,
+      "mean": 18.546181762020954,
+      "min": 16.63268892794376,
+      "stdev": 1.1387033080665094
+    },
+    "mean_episode_return": {
+      "max": 272.16598167167814,
+      "mean": 244.9514212268204,
+      "min": 208.7068997348261,
+      "stdev": 23.38960392788137
+    },
+    "mean_step_reward": {
+      "max": 17.61054394818717,
+      "mean": 17.0610869319702,
+      "min": 16.575017576271534,
+      "stdev": 0.39450175263610526
+    },
+    "min_clearance_observed": {
+      "max": -0.4285755157470703,
+      "mean": -0.45611684322357177,
+      "min": -0.46864068508148193,
+      "stdev": 0.01647215392328597
+    },
+    "num_envs": {
+      "max": 64.0,
+      "mean": 64.0,
+      "min": 64.0,
+      "stdev": 0.0
+    },
+    "num_runs": 5,
+    "num_steps": {
+      "max": 512.0,
+      "mean": 512.0,
+      "min": 512.0,
+      "stdev": 0.0
+    },
+    "omni_car/collision_rate": {
+      "max": 0.03472900390625,
+      "mean": 0.03251953125,
+      "min": 0.029571533203125,
+      "stdev": 0.001947227156248597
+    },
+    "omni_car/command_norm": {
+      "max": 1.2953182391356677,
+      "mean": 1.2706588003318757,
+      "min": 1.24285584455356,
+      "stdev": 0.02198198595708397
+    },
+    "omni_car/mean_clearance": {
+      "max": 2.303326736087911,
+      "mean": 2.035687328869244,
+      "min": 1.8130858332442585,
+      "stdev": 0.21075468875411243
+    },
+    "omni_car/response_progress": {
+      "max": 0.018308885360966087,
+      "mean": 0.01811374097414955,
+      "min": 0.01789940918024513,
+      "stdev": 0.00018409038330998386
+    },
+    "omni_car/tracking_error": {
+      "max": 0.3868240306037478,
+      "mean": 0.3838616194203496,
+      "min": 0.38176333968294784,
+      "stdev": 0.0020713525277984237
+    },
+    "omni_car/vx_diff_cost": {
+      "max": 0.27550200215773657,
+      "mean": 0.27139175084012096,
+      "min": 0.25841641912120394,
+      "stdev": 0.007296884914585514
+    },
+    "omni_car/vx_jerk_cost": {
+      "max": 0.1723928289138712,
+      "mean": 0.1641358637541998,
+      "min": 0.15599181095603853,
+      "stdev": 0.006055231535886367
+    },
+    "omni_car/vx_track_cost": {
+      "max": 0.05363019874130259,
+      "mean": 0.05215489999536658,
+      "min": 0.0508950585135608,
+      "stdev": 0.001292810017946224
+    },
+    "omni_car/vy_diff_cost": {
+      "max": 0.3493393264943734,
+      "mean": 0.3449368479894474,
+      "min": 0.33899961196584627,
+      "stdev": 0.004361170445920604
+    },
+    "omni_car/vy_jerk_cost": {
+      "max": 0.20712180028203875,
+      "mean": 0.19807901079329895,
+      "min": 0.1893157477970817,
+      "stdev": 0.007477912567968194
+    },
+    "omni_car/vy_track_cost": {
+      "max": 0.08843124932900537,
+      "mean": 0.08474574203428346,
+      "min": 0.08307445178797934,
+      "stdev": 0.002182709854082558
+    },
+    "omni_car/vyaw_diff_cost": {
+      "max": 0.15867630624052254,
+      "mean": 0.15271783318021334,
+      "min": 0.14610168028229964,
+      "stdev": 0.005475583292292824
+    },
+    "omni_car/vyaw_jerk_cost": {
+      "max": 0.06474841769522754,
+      "mean": 0.06310836509619548,
+      "min": 0.05990123511855927,
+      "stdev": 0.002153269931538771
+    },
+    "omni_car/vyaw_track_cost": {
+      "max": 0.048780020646518096,
+      "mean": 0.04716485987883061,
+      "min": 0.045519252325902926,
+      "stdev": 0.001478724322438458
+    },
+    "seed": {
+      "max": 43.0,
+      "mean": 24.2,
+      "min": 7.0,
+      "stdev": 13.682105101189656
+    },
+    "seeds": [
+      7,
+      17,
+      23,
+      31,
+      43
+    ],
+    "vx_action_mean_abs": {
+      "max": 0.8244201790406294,
+      "mean": 0.7901095105639684,
+      "min": 0.7521237135858314,
+      "stdev": 0.032613585088339496
+    },
+    "vx_command_mean_abs": {
+      "max": 0.8511193652400983,
+      "mean": 0.827864587061536,
+      "min": 0.7909580017686935,
+      "stdev": 0.02475635824351545
+    },
+    "vx_tracking_mae": {
+      "max": 0.3659041723271188,
+      "mean": 0.3607434379191038,
+      "min": 0.3544246574391554,
+      "stdev": 0.00503172421782672
+    },
+    "vx_tracking_rmse": {
+      "max": 0.49635115655925927,
+      "mean": 0.4885391331212506,
+      "min": 0.4814727746153909,
+      "stdev": 0.0060931844217764425
+    },
+    "vy_action_mean_abs": {
+      "max": 0.8831707047189639,
+      "mean": 0.8493123345964477,
+      "min": 0.8253239554176162,
+      "stdev": 0.02307960008938056
+    },
+    "vy_command_mean_abs": {
+      "max": 0.838024601882676,
+      "mean": 0.8210769008137125,
+      "min": 0.8020335996101,
+      "stdev": 0.013256035701903512
+    },
+    "vy_tracking_mae": {
+      "max": 0.49584731116963354,
+      "mean": 0.4856806619473007,
+      "min": 0.4810328930418981,
+      "stdev": 0.0063414208776828886
+    },
+    "vy_tracking_rmse": {
+      "max": 0.6190686226142592,
+      "mean": 0.6061868550940789,
+      "min": 0.5982186579373965,
+      "stdev": 0.008035921513469609
+    },
+    "vyaw_action_mean_abs": {
+      "max": 0.8104588880506185,
+      "mean": 0.7924202448353981,
+      "min": 0.772607358134394,
+      "stdev": 0.01569006976633697
+    },
+    "vyaw_command_mean_abs": {
+      "max": 0.9757902420118825,
+      "mean": 0.943837396243455,
+      "min": 0.9244993999111832,
+      "stdev": 0.02248340374503368
+    },
+    "vyaw_tracking_mae": {
+      "max": 0.360856962416257,
+      "mean": 0.3514039587252752,
+      "min": 0.3433227132278134,
+      "stdev": 0.007554239189140549
+    },
+    "vyaw_tracking_rmse": {
+      "max": 0.47468632283702833,
+      "mean": 0.4653820261963567,
+      "min": 0.4555719349957605,
+      "stdev": 0.00845070975522952
+    }
+  },
+  "runs": [
+    {
+      "checkpoint_path": "/home/zsh/develop/worktrees/UniLab-omni-car-git/logs/remote_tmux_cpuopt_seed1_axis/OmniCarGridAvoidance/2026-06-27_20-18-10_mujoco/model_2950.pt",
+      "collision_fraction": 0.029571533203125,
+      "device": "cuda",
+      "env_steps": 32768,
+      "episodes_completed": 969,
+      "mean_episode_length": 19.07533539731682,
+      "mean_episode_return": 252.86158265740877,
+      "mean_step_reward": 17.61054394818717,
+      "min_clearance_observed": -0.4285755157470703,
+      "num_envs": 64,
+      "num_steps": 512,
+      "omni_car/collision_rate": 0.029571533203125,
+      "omni_car/command_norm": 1.2902823945041746,
+      "omni_car/mean_clearance": 2.303326736087911,
+      "omni_car/response_progress": 0.017938359203981236,
+      "omni_car/tracking_error": 0.38176333968294784,
+      "omni_car/vx_diff_cost": 0.25841641912120394,
+      "omni_car/vx_jerk_cost": 0.15599181095603853,
+      "omni_car/vx_track_cost": 0.0508950585135608,
+      "omni_car/vy_diff_cost": 0.34196192523813806,
+      "omni_car/vy_jerk_cost": 0.1893157477970817,
+      "omni_car/vy_track_cost": 0.08307445178797934,
+      "omni_car/vyaw_diff_cost": 0.14610168028229964,
+      "omni_car/vyaw_jerk_cost": 0.05990123511855927,
+      "omni_car/vyaw_track_cost": 0.04638968690414913,
+      "seed": 7,
+      "vx_action_mean_abs": 0.8244201790406294,
+      "vx_command_mean_abs": 0.8413405987901275,
+      "vx_tracking_mae": 0.3579632620332678,
+      "vx_tracking_rmse": 0.4814727746153909,
+      "vy_action_mean_abs": 0.8831707047189639,
+      "vy_command_mean_abs": 0.838024601882676,
+      "vy_tracking_mae": 0.4818714196438343,
+      "vy_tracking_rmse": 0.5982186579373965,
+      "vyaw_action_mean_abs": 0.7848992049728167,
+      "vyaw_command_mean_abs": 0.9244993999111832,
+      "vyaw_tracking_mae": 0.34670862273971537,
+      "vyaw_tracking_rmse": 0.45958043607414517
+    },
+    {
+      "checkpoint_path": "/home/zsh/develop/worktrees/UniLab-omni-car-git/logs/remote_tmux_cpuopt_seed1_axis/OmniCarGridAvoidance/2026-06-27_20-18-10_mujoco/model_2950.pt",
+      "collision_fraction": 0.033172607421875,
+      "device": "cuda",
+      "env_steps": 32768,
+      "episodes_completed": 1087,
+      "mean_episode_length": 18.495860165593378,
+      "mean_episode_return": 239.5615723104162,
+      "mean_step_reward": 16.575017576271534,
+      "min_clearance_observed": -0.46864068508148193,
+      "num_envs": 64,
+      "num_steps": 512,
+      "omni_car/collision_rate": 0.033172607421875,
+      "omni_car/command_norm": 1.258490872103721,
+      "omni_car/mean_clearance": 1.853752840514062,
+      "omni_car/response_progress": 0.018180609451519558,
+      "omni_car/tracking_error": 0.3868240306037478,
+      "omni_car/vx_diff_cost": 0.27550200215773657,
+      "omni_car/vx_jerk_cost": 0.1723928289138712,
+      "omni_car/vx_track_cost": 0.051062802638625726,
+      "omni_car/vy_diff_cost": 0.3493393264943734,
+      "omni_car/vy_jerk_cost": 0.20712180028203875,
+      "omni_car/vy_track_cost": 0.08843124932900537,
+      "omni_car/vyaw_diff_cost": 0.15867630624052254,
+      "omni_car/vyaw_jerk_cost": 0.06438014627019584,
+      "omni_car/vyaw_track_cost": 0.048780020646518096,
+      "seed": 17,
+      "vx_action_mean_abs": 0.7583705612571805,
+      "vx_command_mean_abs": 0.8144060829499313,
+      "vx_tracking_mae": 0.3544246574391554,
+      "vx_tracking_rmse": 0.48544573519742124,
+      "vy_action_mean_abs": 0.830473673111328,
+      "vy_command_mean_abs": 0.8200706066589092,
+      "vy_tracking_mae": 0.49584731116963354,
+      "vy_tracking_rmse": 0.6190686226142592,
+      "vyaw_action_mean_abs": 0.8062057976970323,
+      "vyaw_command_mean_abs": 0.9585829906901617,
+      "vyaw_tracking_mae": 0.35786319729001814,
+      "vyaw_tracking_rmse": 0.47468632283702833
+    },
+    {
+      "checkpoint_path": "/home/zsh/develop/worktrees/UniLab-omni-car-git/logs/remote_tmux_cpuopt_seed1_axis/OmniCarGridAvoidance/2026-06-27_20-18-10_mujoco/model_2950.pt",
+      "collision_fraction": 0.03472900390625,
+      "device": "cuda",
+      "env_steps": 32768,
+      "episodes_completed": 1138,
+      "mean_episode_length": 16.63268892794376,
+      "mean_episode_return": 208.7068997348261,
+      "mean_step_reward": 17.07521406232982,
+      "min_clearance_observed": -0.4531809687614441,
+      "num_envs": 64,
+      "num_steps": 512,
+      "omni_car/collision_rate": 0.03472900390625,
+      "omni_car/command_norm": 1.2953182391356677,
+      "omni_car/mean_clearance": 2.1878535447176546,
+      "omni_car/response_progress": 0.018308885360966087,
+      "omni_car/tracking_error": 0.3851444654283114,
+      "omni_car/vx_diff_cost": 0.27514040768437553,
+      "omni_car/vx_jerk_cost": 0.16217842138576088,
+      "omni_car/vx_track_cost": 0.05363019874130259,
+      "omni_car/vy_diff_cost": 0.34829347499180585,
+      "omni_car/vy_jerk_cost": 0.1946371801532223,
+      "omni_car/vy_track_cost": 0.08341660571750253,
+      "omni_car/vyaw_diff_cost": 0.15598840677557746,
+      "omni_car/vyaw_jerk_cost": 0.06465419113646931,
+      "omni_car/vyaw_track_cost": 0.04868667137270677,
+      "seed": 23,
+      "vx_action_mean_abs": 0.8078450913157553,
+      "vx_command_mean_abs": 0.8511193652400983,
+      "vx_tracking_mae": 0.36581324672127735,
+      "vx_tracking_rmse": 0.49635115655925927,
+      "vy_action_mean_abs": 0.856416450962115,
+      "vy_command_mean_abs": 0.8274855498764575,
+      "vy_tracking_mae": 0.4810328930418981,
+      "vy_tracking_rmse": 0.6025083166401418,
+      "vyaw_action_mean_abs": 0.8104588880506185,
+      "vyaw_command_mean_abs": 0.9757902420118825,
+      "vyaw_tracking_mae": 0.360856962416257,
+      "vyaw_tracking_rmse": 0.47350060309884867
+    },
+    {
+      "checkpoint_path": "/home/zsh/develop/worktrees/UniLab-omni-car-git/logs/remote_tmux_cpuopt_seed1_axis/OmniCarGridAvoidance/2026-06-27_20-18-10_mujoco/model_2950.pt",
+      "collision_fraction": 0.0333251953125,
+      "device": "cuda",
+      "env_steps": 32768,
+      "episodes_completed": 1092,
+      "mean_episode_length": 18.936813186813186,
+      "mean_episode_return": 251.46106975977293,
+      "mean_step_reward": 16.820889405353455,
+      "min_clearance_observed": -0.4653894603252411,
+      "num_envs": 64,
+      "num_steps": 512,
+      "omni_car/collision_rate": 0.0333251953125,
+      "omni_car/command_norm": 1.24285584455356,
+      "omni_car/mean_clearance": 2.0204176897823345,
+      "omni_car/response_progress": 0.01789940918024513,
+      "omni_car/tracking_error": 0.3829163830378093,
+      "omni_car/vx_diff_cost": 0.2734098720829934,
+      "omni_car/vx_jerk_cost": 0.1668785023575765,
+      "omni_car/vx_track_cost": 0.05177322051167721,
+      "omni_car/vy_diff_cost": 0.3460899012570735,
+      "omni_car/vy_jerk_cost": 0.20457257589441724,
+      "omni_car/vy_track_cost": 0.08498605798376957,
+      "omni_car/vyaw_diff_cost": 0.155054249917157,
+      "omni_car/vyaw_jerk_cost": 0.06474841769522754,
+      "omni_car/vyaw_track_cost": 0.04644866814487614,
+      "seed": 31,
+      "vx_action_mean_abs": 0.7521237135858314,
+      "vx_command_mean_abs": 0.7909580017686935,
+      "vx_tracking_mae": 0.35961185107469973,
+      "vx_tracking_rmse": 0.48616184367525145,
+      "vy_action_mean_abs": 0.8511768887722155,
+      "vy_command_mean_abs": 0.8177701460404201,
+      "vy_tracking_mae": 0.48798180593057694,
+      "vy_tracking_rmse": 0.6082691299501696,
+      "vyaw_action_mean_abs": 0.772607358134394,
+      "vyaw_command_mean_abs": 0.9343608524938303,
+      "vyaw_tracking_mae": 0.34826829795257197,
+      "vyaw_tracking_rmse": 0.46357083397600063
+    },
+    {
+      "checkpoint_path": "/home/zsh/develop/worktrees/UniLab-omni-car-git/logs/remote_tmux_cpuopt_seed1_axis/OmniCarGridAvoidance/2026-06-27_20-18-10_mujoco/model_2950.pt",
+      "collision_fraction": 0.03179931640625,
+      "device": "cuda",
+      "env_steps": 32768,
+      "episodes_completed": 1042,
+      "mean_episode_length": 19.59021113243762,
+      "mean_episode_return": 272.16598167167814,
+      "mean_step_reward": 17.223769667709007,
+      "min_clearance_observed": -0.46479758620262146,
+      "num_envs": 64,
+      "num_steps": 512,
+      "omni_car/collision_rate": 0.03179931640625,
+      "omni_car/command_norm": 1.2663466513622552,
+      "omni_car/mean_clearance": 1.8130858332442585,
+      "omni_car/response_progress": 0.01824144167403574,
+      "omni_car/tracking_error": 0.38265987834893167,
+      "omni_car/vx_diff_cost": 0.2744900531542953,
+      "omni_car/vx_jerk_cost": 0.16323775515775196,
+      "omni_car/vx_track_cost": 0.05341321957166656,
+      "omni_car/vy_diff_cost": 0.33899961196584627,
+      "omni_car/vy_jerk_cost": 0.19474774983973475,
+      "omni_car/vy_track_cost": 0.08382034535316052,
+      "omni_car/vyaw_diff_cost": 0.1477685226855101,
+      "omni_car/vyaw_jerk_cost": 0.06185783526052546,
+      "omni_car/vyaw_track_cost": 0.045519252325902926,
+      "seed": 43,
+      "vx_action_mean_abs": 0.8077880076204451,
+      "vx_command_mean_abs": 0.8414988865588291,
+      "vx_tracking_mae": 0.3659041723271188,
+      "vx_tracking_rmse": 0.49326415555892994,
+      "vy_action_mean_abs": 0.8253239554176162,
+      "vy_command_mean_abs": 0.8020335996101,
+      "vy_tracking_mae": 0.48166987995056054,
+      "vy_tracking_rmse": 0.6028695483284271,
+      "vyaw_action_mean_abs": 0.7879299753221289,
+      "vyaw_command_mean_abs": 0.9259534961102176,
+      "vyaw_tracking_mae": 0.3433227132278134,
+      "vyaw_tracking_rmse": 0.4555719349957605
+    }
+  ]
+}

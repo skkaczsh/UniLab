@@ -112,6 +112,21 @@ scanned checkpoint was again `2999`, with `collision_fraction=0.0409` and
 evidence is stored in
 `artifacts/omni_car/remote_tmux_cpuopt_seed11_axis_checkpoint_scan.json`.
 
+The matched-seed optimized rerun `remote_tmux_cpuopt_seed1_axis` used the same
+effective training seed as the selected best run (`algo.seed=1`) and completed
+on commit `000df9469c0dd46e410ea1b7635160bd1d600daa`. Its late checkpoint scan
+found the best tradeoff at `model_2950.pt` (SHA-256
+`5b28a1357b6986c9b5be2e4afa652c902217d2d9029cb55504abb1cd74558843`), with
+single-seed `collision_fraction=0.0296` and
+`omni_car/tracking_error=0.3818`. That improves tracking but misses the
+collision gate against the current reference `0.0271` / `0.3831`. A five-seed
+check of `model_2950.pt` was also below the selected checkpoint:
+`collision_fraction` mean `0.0325` and `omni_car/tracking_error` mean `0.3839`.
+The evidence is stored in
+`artifacts/omni_car/remote_tmux_cpuopt_seed1_axis_checkpoint_scan.json`,
+`artifacts/omni_car/remote_tmux_cpuopt_seed1_axis_late_checkpoint_scan.json`,
+and `artifacts/omni_car/remote_tmux_cpuopt_seed1_axis_2950_multiseed_eval.json`.
+
 ## Remote sync
 
 When GitHub SSH/HTTPS is unreliable from the training host, sync the current
