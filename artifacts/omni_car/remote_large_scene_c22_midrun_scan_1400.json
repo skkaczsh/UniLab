@@ -1,0 +1,90 @@
+{
+  "best_by_score": {
+    "checkpoint": 1200,
+    "checkpoint_path": "logs/remote_large_scene_c22_3000/OmniCarGridAvoidance/2026-06-28_00-28-16_mujoco/model_1200.pt",
+    "collision_fraction": 0.01171875,
+    "mean_episode_length": 60.854166666666664,
+    "mean_episode_return": 1236.9403803083114,
+    "mean_step_reward": 20.800633142800507,
+    "omni_car/mean_clearance": 0.7697775191627443,
+    "omni_car/response_progress": 0.019030381032280275,
+    "omni_car/tracking_error": 0.3871290743118152,
+    "omni_car/vx_jerk_cost": 0.06640586262983561,
+    "omni_car/vy_jerk_cost": 0.15351970356232414,
+    "omni_car/vyaw_jerk_cost": 0.022228386005735956,
+    "reference_gate": {
+      "enabled": false,
+      "passed": false
+    },
+    "selection_score": 0.5648550623612891,
+    "vx_tracking_mae": 0.30699769264663246,
+    "vy_tracking_mae": 0.32780913271849954,
+    "vyaw_tracking_mae": 0.5314091766985882
+  },
+  "best_passing_reference_gate": null,
+  "checkpoints": [
+    1200,
+    1400
+  ],
+  "device": "cpu",
+  "evaluations": [
+    {
+      "checkpoint": 1200,
+      "checkpoint_path": "logs/remote_large_scene_c22_3000/OmniCarGridAvoidance/2026-06-28_00-28-16_mujoco/model_1200.pt",
+      "collision_fraction": 0.01171875,
+      "mean_episode_length": 60.854166666666664,
+      "mean_episode_return": 1236.9403803083114,
+      "mean_step_reward": 20.800633142800507,
+      "omni_car/mean_clearance": 0.7697775191627443,
+      "omni_car/response_progress": 0.019030381032280275,
+      "omni_car/tracking_error": 0.3871290743118152,
+      "omni_car/vx_jerk_cost": 0.06640586262983561,
+      "omni_car/vy_jerk_cost": 0.15351970356232414,
+      "omni_car/vyaw_jerk_cost": 0.022228386005735956,
+      "reference_gate": {
+        "enabled": false,
+        "passed": false
+      },
+      "selection_score": 0.5648550623612891,
+      "vx_tracking_mae": 0.30699769264663246,
+      "vy_tracking_mae": 0.32780913271849954,
+      "vyaw_tracking_mae": 0.5314091766985882
+    },
+    {
+      "checkpoint": 1400,
+      "checkpoint_path": "logs/remote_large_scene_c22_3000/OmniCarGridAvoidance/2026-06-28_00-28-16_mujoco/model_1400.pt",
+      "collision_fraction": 0.012939453125,
+      "mean_episode_length": 53.84905660377358,
+      "mean_episode_return": 1079.8107027479991,
+      "mean_step_reward": 20.571877774767927,
+      "omni_car/mean_clearance": 0.7866034975741059,
+      "omni_car/response_progress": 0.019435901935139555,
+      "omni_car/tracking_error": 0.40478638792410493,
+      "omni_car/vx_jerk_cost": 0.0633345463720616,
+      "omni_car/vy_jerk_cost": 0.13345849501456541,
+      "omni_car/vyaw_jerk_cost": 0.02377405725837889,
+      "reference_gate": {
+        "enabled": false,
+        "passed": false
+      },
+      "selection_score": 0.5893226938353564,
+      "vx_tracking_mae": 0.31637853336758326,
+      "vy_tracking_mae": 0.37755220097909614,
+      "vyaw_tracking_mae": 0.5355950536595913
+    }
+  ],
+  "load_run": "logs/remote_large_scene_c22_3000/OmniCarGridAvoidance/2026-06-28_00-28-16_mujoco",
+  "num_envs": 32,
+  "num_steps": 256,
+  "reference": {
+    "collision": null,
+    "source": null,
+    "tracking": null
+  },
+  "seed": 7,
+  "selection_weights": {
+    "collision": 10.0,
+    "jerk": 0.25,
+    "tracking": 1.0
+  }
+}
