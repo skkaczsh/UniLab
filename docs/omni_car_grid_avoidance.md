@@ -66,6 +66,24 @@ uv run train --algo ppo --task omni_car_grid_avoidance --sim mujoco \
   algo.max_iterations=94
 ```
 
+## Remote sync
+
+When GitHub SSH/HTTPS is unreliable from the training host, sync the current
+branch over LAN with a temporary local bundle server:
+
+```bash
+uv run python scripts/sync_remote_bundle.py \
+  --remote zsh@skkac.top \
+  --ssh-port 6010 \
+  --local-host 192.168.0.3 \
+  --origin-url git@github.com:skkaczsh/UniLab.git \
+  --venv-source /home/zsh/develop/worktrees/UniLab-omni-car/.venv
+```
+
+The script updates an existing remote repo/worktree in place by fetching the
+bundle and resetting tracked files to the local HEAD. It does not delete the
+remote worktree, so logs and other untracked training artifacts remain in place.
+
 ## Environment benchmark
 
 The OmniCar task follows UniLab's intended split: CPU-side environment stepping
