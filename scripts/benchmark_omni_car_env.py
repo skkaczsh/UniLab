@@ -11,7 +11,10 @@ import pstats
 import sys
 import time
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import MethodType
+from typing import Any
 
 import numpy as np
 
@@ -49,6 +52,15 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=0,
         help="If > 0, print the top cumulative cProfile rows.",
     )
+    parser.add_argument(
+        "--grid-workers",
+        type=int,
+        default=1,
+        help=(
+            "Use a ThreadPoolExecutor to split occupancy-grid fill across this "
+            "many row chunks. 1 keeps the production serial/vectorized path."
+        ),
+    )
     parser.add_argument("--json", action="store_true", help="Print summary as JSON only.")
     return parser.parse_args(argv)
 
@@ -60,6 +72,34 @@ def _sample_actions(env, rng: np.random.Generator, action_mode: str) -> np.ndarr
         return env._commands.copy().astype(np.float32)
     high = np.asarray(env.action_space.high, dtype=np.float32)
     return rng.uniform(-high, high, size=(env.num_envs, 3)).astype(np.float32)
+
+
+def _install_threaded_grid_fill(env: Any, workers: int) -> ThreadPoolExecutor | None:
+    if workers <= 1:
+        return None
+
+    executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="omni-grid")
+    serial_fill = env._fill_occupancy_grid
+
+    def _threaded_fill(self, env_indices: np.ndarray, grid: np.ndarray) -> None:
+        env_indices_arr = np.asarray(env_indices, dtype=np.int32)
+        grid.fill(0.0)
+        if env_indices_arr.size == 0 or self._cfg.obstacles.count == 0:
+            return
+        row_chunks = [
+            chunk
+            for chunk in np.array_split(np.arange(env_indices_arr.size, dtype=np.int32), workers)
+            if chunk.size > 0
+        ]
+        futures = [
+            executor.submit(serial_fill, env_indices_arr[chunk], grid[chunk])
+            for chunk in row_chunks
+        ]
+        for future in futures:
+            future.result()
+
+    env._fill_occupancy_grid = MethodType(_threaded_fill, env)
+    return executor
 
 
 def run_benchmark(args: argparse.Namespace) -> tuple[dict[str, float | int | str], str | None]:
@@ -75,21 +115,27 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict[str, float | int | str
     )
     env.init_state()
     rng = np.random.default_rng(args.seed + 1)
+    grid_workers = max(1, int(args.grid_workers))
+    grid_executor = _install_threaded_grid_fill(env, grid_workers)
 
-    for _ in range(args.warmup_steps):
-        env.step(_sample_actions(env, rng, args.action_mode))
+    try:
+        for _ in range(args.warmup_steps):
+            env.step(_sample_actions(env, rng, args.action_mode))
 
-    profiler: cProfile.Profile | None = None
-    if args.profile_top > 0:
-        profiler = cProfile.Profile()
-        profiler.enable()
-    start = time.perf_counter()
-    for _ in range(args.steps):
-        env.step(_sample_actions(env, rng, args.action_mode))
-    elapsed = time.perf_counter() - start
-    if profiler is not None:
-        profiler.disable()
-    env.close()
+        profiler: cProfile.Profile | None = None
+        if args.profile_top > 0:
+            profiler = cProfile.Profile()
+            profiler.enable()
+        start = time.perf_counter()
+        for _ in range(args.steps):
+            env.step(_sample_actions(env, rng, args.action_mode))
+        elapsed = time.perf_counter() - start
+        if profiler is not None:
+            profiler.disable()
+    finally:
+        if grid_executor is not None:
+            grid_executor.shutdown(wait=True)
+        env.close()
 
     env_steps = args.num_envs * args.steps
     summary: dict[str, float | int | str] = {
@@ -98,6 +144,8 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict[str, float | int | str
         "warmup_steps": int(args.warmup_steps),
         "obstacles": int(args.obstacles) if args.obstacles is not None else int(env._cfg.obstacles.count),
         "action_mode": str(args.action_mode),
+        "grid_workers": grid_workers,
+        "grid_mode": "threaded" if grid_workers > 1 else "serial",
         "wall_time_s": float(elapsed),
         "per_step_ms": float(elapsed / max(args.steps, 1) * 1000.0),
         "env_steps_per_second": float(env_steps / max(elapsed, 1e-9)),

@@ -38,8 +38,35 @@ def test_benchmark_script_reports_summary() -> None:
     assert summary["steps"] == 4
     assert summary["obstacles"] == 3
     assert summary["action_mode"] == "command"
+    assert summary["grid_workers"] == 1
+    assert summary["grid_mode"] == "serial"
     assert float(summary["wall_time_s"]) >= 0.0
     assert float(summary["per_step_ms"]) >= 0.0
     assert float(summary["env_steps_per_second"]) >= 0.0
     assert profile_text is not None
     assert "omni_car.py" in profile_text
+
+
+def test_benchmark_script_can_use_threaded_grid_fill() -> None:
+    bench = _load_benchmark_module()
+    args = bench._parse_args(
+        [
+            "--num-envs",
+            "4",
+            "--steps",
+            "2",
+            "--warmup-steps",
+            "1",
+            "--obstacles",
+            "3",
+            "--grid-workers",
+            "2",
+        ]
+    )
+
+    summary, profile_text = bench.run_benchmark(args)
+
+    assert summary["grid_workers"] == 2
+    assert summary["grid_mode"] == "threaded"
+    assert float(summary["env_steps_per_second"]) >= 0.0
+    assert profile_text is None

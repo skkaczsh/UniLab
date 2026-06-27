@@ -173,12 +173,21 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._num_envs = int(num_envs)
         self._state: NpEnvState | None = None
         self._obs_history_len = int(max(cfg.obs_history_len, 1))
+        self._grid_dim = cfg.grid.size * cfg.grid.size
+        self._history_block_dim = self._obs_history_len * 3
+        self._history_dim = self._history_block_dim * 3
+        self._obs_dim = self._grid_dim + 3 + 3 + 3 + self._history_dim + 2
+        self._critic_dim = self._obs_dim + 3
         self._rng = np.random.default_rng(cfg.seed)
         self._dtype = get_global_dtype()
+        self._all_env_indices = np.arange(self._num_envs, dtype=np.int32)
         self._pose = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._velocity = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._last_action = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._last_action_delta = np.zeros((self._num_envs, 3), dtype=self._dtype)
+        self._velocity_limit = self._make_velocity_limit()
+        self._accel_limit = self._make_accel_limit()
+        self._accel_delta_limit = self._accel_limit * self._cfg.ctrl_dt
         self._raw_commands = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._commands = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._command_history = np.zeros(
@@ -205,12 +214,11 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._track_cost = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._diff_cost = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._jerk_cost = np.zeros((self._num_envs, 3), dtype=self._dtype)
-        self._obs_buffer = np.zeros(
-            (self._num_envs, self.obs_groups_spec["obs"]), dtype=self._dtype
+        self._grid_buffer = np.zeros(
+            (self._num_envs, cfg.grid.size, cfg.grid.size), dtype=self._dtype
         )
-        self._critic_buffer = np.zeros(
-            (self._num_envs, self.obs_groups_spec["critic"]), dtype=self._dtype
-        )
+        self._obs_buffer = np.zeros((self._num_envs, self._obs_dim), dtype=self._dtype)
+        self._critic_buffer = np.zeros((self._num_envs, self._critic_dim), dtype=self._dtype)
 
         xs = np.arange(cfg.grid.size, dtype=np.float32) + 0.5 - cfg.grid.size / 2.0
         ys = np.arange(cfg.grid.size, dtype=np.float32) + 0.5 - cfg.grid.size / 2.0
@@ -244,11 +252,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
     @property
     def obs_groups_spec(self) -> dict[str, int]:
         # occupancy grid + command + current velocity + last action + history + clearance + collision flag
-        grid_dim = self._cfg.grid.size * self._cfg.grid.size
-        history_dim = self._obs_history_len * 9
         return {
-            "obs": grid_dim + 3 + 3 + 3 + history_dim + 2,
-            "critic": grid_dim + 3 + 3 + 3 + history_dim + 2 + 3,
+            "obs": self._obs_dim,
+            "critic": self._critic_dim,
         }
 
     @property
@@ -322,7 +328,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
 
         self._update_commands()
 
-        self._nearest_clearance = self._compute_clearance(np.arange(self._num_envs, dtype=np.int32))
+        self._nearest_clearance = self._compute_clearance(self._all_env_indices)
         self._collision = self._nearest_clearance <= 0.0
         reward = self._compute_reward(limited)
         log_snapshot = {
@@ -345,7 +351,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
 
         self._append_history()
 
-        obs = self._build_obs(np.arange(self._num_envs, dtype=np.int32))
+        obs = self._build_obs(self._all_env_indices)
         self._state.info["commands"] = self._commands.copy()
         self._state.info["nearest_clearance"] = self._nearest_clearance.copy()
         self._state.info["collision"] = self._collision.copy()
@@ -616,17 +622,17 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             self._obstacle_type[env_id] = obstacle_types
 
     def _apply_physical_limits(self, actions: np.ndarray) -> np.ndarray:
-        limits = self._cfg.physical_limits
-        high = np.asarray(
-            [limits.max_x_speed, limits.max_y_speed, limits.max_yaw_rate], dtype=self._dtype
+        target = np.clip(actions, -self._velocity_limit, self._velocity_limit).astype(self._dtype)
+        delta = np.clip(
+            target - self._velocity,
+            -self._accel_delta_limit,
+            self._accel_delta_limit,
         )
-        accel = np.asarray(
-            [limits.max_x_accel, limits.max_y_accel, limits.max_yaw_accel], dtype=self._dtype
-        )
-        target = np.clip(actions, -high, high).astype(self._dtype)
-        delta_limit = accel * self._cfg.ctrl_dt
-        delta = np.clip(target - self._velocity, -delta_limit, delta_limit)
-        return np.clip(self._velocity + delta, -high, high).astype(self._dtype)
+        return np.clip(
+            self._velocity + delta,
+            -self._velocity_limit,
+            self._velocity_limit,
+        ).astype(self._dtype)
 
     def _integrate(self, action: np.ndarray) -> None:
         yaw = self._pose[:, 2]
@@ -643,53 +649,51 @@ class OmniCarGridAvoidanceEnv(ABEnv):
 
     def _build_obs(self, env_indices: np.ndarray) -> dict[str, np.ndarray]:
         env_indices = np.asarray(env_indices, dtype=np.int32)
-        grid = self._occupancy_grid(env_indices)
+        count = env_indices.size
+        grid_view = self._grid_buffer[:count]
+        self._fill_occupancy_grid(env_indices, grid_view)
+        grid = grid_view.reshape(count, -1)
         command_hist = self._command_history[env_indices].reshape(env_indices.size, -1)
         velocity_hist = self._velocity_history[env_indices].reshape(env_indices.size, -1)
         action_hist = self._action_history[env_indices].reshape(env_indices.size, -1)
-        obs = self._obs_buffer[: env_indices.size]
-        critic = self._critic_buffer[: env_indices.size]
+        obs = self._obs_buffer[:count]
+        critic = self._critic_buffer[:count]
         clearance = self._nearest_clearance[env_indices, None]
         collision = self._collision[env_indices, None].astype(self._dtype)
-        obs[:, :] = np.concatenate(
-            [
-                grid,
-                self._commands[env_indices],
-                self._velocity[env_indices],
-                self._last_action[env_indices],
-                command_hist,
-                velocity_hist,
-                action_hist,
-                clearance,
-                collision,
-            ],
-            axis=1,
-            dtype=self._dtype,
-        )
-        critic[:, :] = np.concatenate(
-            [
-                grid,
-                self._commands[env_indices],
-                self._velocity[env_indices],
-                self._last_action[env_indices],
-                command_hist,
-                velocity_hist,
-                action_hist,
-                clearance,
-                collision,
-                self._pose[env_indices],
-            ],
-            axis=1,
-            dtype=self._dtype,
-        )
+        col = 0
+        obs[:, col : col + self._grid_dim] = grid
+        col += self._grid_dim
+        obs[:, col : col + 3] = self._commands[env_indices]
+        col += 3
+        obs[:, col : col + 3] = self._velocity[env_indices]
+        col += 3
+        obs[:, col : col + 3] = self._last_action[env_indices]
+        col += 3
+        obs[:, col : col + self._history_block_dim] = command_hist
+        col += self._history_block_dim
+        obs[:, col : col + self._history_block_dim] = velocity_hist
+        col += self._history_block_dim
+        obs[:, col : col + self._history_block_dim] = action_hist
+        col += self._history_block_dim
+        obs[:, col : col + 1] = clearance
+        col += 1
+        obs[:, col : col + 1] = collision
+        critic[:, : self._obs_dim] = obs
+        critic[:, self._obs_dim : self._obs_dim + 3] = self._pose[env_indices]
         return {"obs": obs.copy(), "critic": critic.copy()}
 
     def _occupancy_grid(self, env_indices: np.ndarray) -> np.ndarray:
         env_indices = np.asarray(env_indices, dtype=np.int32)
         grid_size = self._cfg.grid.size
         grid = np.zeros((env_indices.size, grid_size, grid_size), dtype=self._dtype)
+        self._fill_occupancy_grid(env_indices, grid)
+        return grid.reshape(env_indices.size, -1)
+
+    def _fill_occupancy_grid(self, env_indices: np.ndarray, grid: np.ndarray) -> None:
+        env_indices = np.asarray(env_indices, dtype=np.int32)
+        grid.fill(0.0)
         if self._cfg.obstacles.count == 0:
-            return grid.reshape(env_indices.size, -1)
+            return
         local_xy_batch = self._world_to_body_obstacles(env_indices)
         pad = self._cfg.grid.cell_size * 0.5
         for row, env_id in enumerate(env_indices):
@@ -734,8 +738,6 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                     np.abs(local_y) <= half_extent_y + pad
                 )
                 np.maximum(grid_view[ix0:ix1, iy0:iy1], hits, out=grid_view[ix0:ix1, iy0:iy1])
-
-        return grid.reshape(env_indices.size, -1)
 
     def _world_to_body_points(self, env_id: int, points_world: np.ndarray) -> np.ndarray:
         delta = points_world - self._pose[env_id, :2]
@@ -813,8 +815,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         projection = np.sum(action[:, :2] * cmd[:, :2], axis=1) / (planar_scale * planar_scale)
         yaw_error = np.abs(action[:, 2] - cmd[:, 2]) / max(self._cfg.command.max_yaw_rate, 1e-6)
         yaw_reward = np.exp(-yaw_error * yaw_error)
-        high = self._velocity_limits()
-        accel_delta = self._accel_limits() * self._cfg.ctrl_dt
+        high = self._velocity_limit
+        accel_delta = self._accel_delta_limit
         prev_error = np.linalg.norm((cmd - self._last_action) / high, axis=1)
         new_error = np.linalg.norm((cmd - action) / high, axis=1)
         safety_gate = np.clip((self._nearest_clearance - 0.05) / 0.45, 0.0, 1.0)
@@ -852,13 +854,13 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         )
         return reward.astype(self._dtype)
 
-    def _velocity_limits(self) -> np.ndarray:
+    def _make_velocity_limit(self) -> np.ndarray:
         limits = self._cfg.physical_limits
         return np.asarray(
             [limits.max_x_speed, limits.max_y_speed, limits.max_yaw_rate], dtype=self._dtype
         )
 
-    def _accel_limits(self) -> np.ndarray:
+    def _make_accel_limit(self) -> np.ndarray:
         limits = self._cfg.physical_limits
         return np.asarray(
             [limits.max_x_accel, limits.max_y_accel, limits.max_yaw_accel], dtype=self._dtype

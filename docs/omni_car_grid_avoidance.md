@@ -92,6 +92,16 @@ the existing `remote_5070_axis_track_3000` best. The evidence is stored in
 scanner output in
 `artifacts/omni_car/remote_tmux_axis_next_checkpoint_scan.json`.
 
+The `remote_tmux_seed2_axis` repeat run also completed cleanly on the remote
+host (`2026-06-27 16:01:24 +08:00` to `16:18:29 +08:00`, commit
+`f1858e5036235125df58c79644569f57721ad89e`). Its final `model_2999.pt` has
+SHA-256 `0927aaa984046427fc13dd4f3e120a99d7cb5c540cfb459c95306c9bf03c7905`
+and did not pass the current best gate: the best scanned checkpoint was
+`2999` with `collision_fraction=0.0351` and
+`omni_car/tracking_error=0.6714` versus the reference `0.0271` / `0.3831`.
+The evidence is stored in
+`artifacts/omni_car/remote_tmux_seed2_axis_checkpoint_scan.json`.
+
 ## Remote sync
 
 When GitHub SSH/HTTPS is unreliable from the training host, sync the current
@@ -118,7 +128,7 @@ The OmniCar task follows UniLab's intended split: CPU-side environment stepping
 and grid construction feed a GPU PPO learner. To measure the CPU side directly:
 
 ```bash
-uv run python scripts/benchmark_omni_car_env.py \
+uv run scripts/benchmark_omni_car_env.py \
   --num-envs 128 \
   --steps 120 \
   --warmup-steps 10 \
@@ -126,19 +136,41 @@ uv run python scripts/benchmark_omni_car_env.py \
   --profile-top 15
 ```
 
-The earlier attempt to parallelize this path with a Python `ThreadPoolExecutor`
-regressed throughput. The bottleneck was not raw arithmetic; it was the amount
-of memory scanned per obstacle plus the overhead of dispatching many small
-Python tasks. The current fast path fixes that in two ways:
+Use `--grid-workers` only as a diagnostic switch. It monkeypatches the benchmark
+process with a persistent Python `ThreadPoolExecutor` and splits occupancy-grid
+row chunks across worker threads:
+
+```bash
+uv run scripts/benchmark_omni_car_env.py \
+  --num-envs 128 \
+  --steps 80 \
+  --warmup-steps 10 \
+  --obstacles 18 \
+  --action-mode zero \
+  --grid-workers 4 \
+  --json
+```
+
+The attempt to parallelize this path with Python threads regresses throughput.
+The bottleneck is not raw arithmetic; it is many small obstacle AABB raster
+tasks plus large occupancy/observation buffer writes. Threading adds chunk
+dispatch and synchronization without changing that memory-access pattern. The
+current fast path fixes that in three ways:
 
 - occupancy grids are rasterized only inside each obstacle's local AABB instead
   of scanning the full `80 x 80` grid for every obstacle
 - clearance is computed in one batched vectorized pass across all envs
+- observation, critic, grid, velocity-limit, and env-index arrays are reused
+  instead of reallocated on every step
 
-With those changes, the local benchmark moved again:
+With those changes, the local serial benchmark moved again:
 
-- `128` envs: roughly `57.3 ms/step` -> `10.6 ms/step`
-- `512` envs: roughly `102.1 ms/step` -> `34.6 ms/step`
+- default `14` obstacles, `128` envs: roughly `57.3 ms/step` -> `8.7 ms/step`
+- default `14` obstacles, `512` envs: roughly `102.1 ms/step` -> `33.9 ms/step`
+- training-like `18` obstacles, `128` envs: `10.4 ms/step` serial,
+  `12.1 ms/step` with `2` grid workers, `13.5 ms/step` with `4` grid workers
+- training-like `18` obstacles, `512` envs: `41.1 ms/step` serial,
+  `46.5 ms/step` with `2` grid workers, `52.8 ms/step` with `4` grid workers
 
 That is a better lever than Python threading for this environment because it
 cuts the CPU work itself instead of parallelizing avoidable work.
@@ -148,7 +180,7 @@ cuts the CPU work itself instead of parallelizing avoidable work.
 Open the native OpenGL viewer with a hand-authored policy:
 
 ```bash
-uv run python scripts/visualize_omni_car.py --policy reflex --steps 600 --seed 7 --obstacles 20
+uv run scripts/visualize_omni_car.py --policy reflex --steps 600 --seed 7 --obstacles 20
 ```
 
 Because the script now has a shebang, this also works after checkout:
