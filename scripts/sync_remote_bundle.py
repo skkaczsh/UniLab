@@ -210,6 +210,46 @@ def _create_bundle_from_repo(plan: SyncPlan, source_repo: Path) -> None:
     )
 
 
+def _clone_bundle_source(plan: SyncPlan, source_repo: Path) -> None:
+    if plan.bundle_source_url is None:
+        raise ValueError("bundle_source_url is required to clone a bundle source")
+    subprocess.run(
+        [
+            "git",
+            "clone",
+            "--quiet",
+            "--bare",
+            "--single-branch",
+            "--branch",
+            plan.branch,
+            plan.bundle_source_url,
+            str(source_repo),
+        ],
+        check=True,
+        env=_bundle_env(plan),
+    )
+
+
+def _fetch_local_head_into_source(plan: SyncPlan, source_repo: Path) -> None:
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(source_repo),
+            "fetch",
+            "--force",
+            str(plan.repo_root),
+            f"HEAD:refs/heads/{plan.branch}",
+        ],
+        check=True,
+    )
+    source_head = _run(["git", "-C", str(source_repo), "rev-parse", plan.branch])
+    if source_head != plan.head:
+        raise RuntimeError(
+            f"Bundle source did not resolve local HEAD: expected {plan.head}, got {source_head}"
+        )
+
+
 def _verify_bundle_clones(plan: SyncPlan) -> None:
     with tempfile.TemporaryDirectory(prefix="unilab-bundle-check-") as tmp:
         checkout = Path(tmp) / "checkout"
@@ -227,20 +267,8 @@ def _create_bundle(plan: SyncPlan) -> None:
     if plan.bundle_source_url:
         with tempfile.TemporaryDirectory(prefix="unilab-bundle-source-") as tmp:
             source_repo = Path(tmp) / "repo"
-            subprocess.run(
-                [
-                    "git",
-                    "clone",
-                    "--quiet",
-                    "--single-branch",
-                    "--branch",
-                    plan.branch,
-                    plan.bundle_source_url,
-                    str(source_repo),
-                ],
-                check=True,
-                env=_bundle_env(plan),
-            )
+            _clone_bundle_source(plan, source_repo)
+            _fetch_local_head_into_source(plan, source_repo)
             _create_bundle_from_repo(plan, source_repo)
     else:
         _create_bundle_from_repo(plan, plan.repo_root)
