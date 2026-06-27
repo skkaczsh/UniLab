@@ -102,3 +102,28 @@ def test_scan_checkpoints_ranks_and_reports_reference_gate() -> None:
     assert result["best_passing_reference_gate"]["checkpoint"] == 200
     assert result["evaluations"][0]["reference_gate"]["passed"] is False
     assert result["evaluations"][1]["reference_gate"]["passed"] is True
+
+
+def test_scan_checkpoints_suppresses_noisy_evaluator_output_by_default(capsys) -> None:
+    module = _load_module()
+
+    def _noisy_evaluator(args: Namespace) -> dict[str, object]:
+        print(f"loading model for checkpoint {args.checkpoint}")
+        return _summary(collision=0.02, tracking=0.30, jerk=0.10)
+
+    module.scan_checkpoints(
+        load_run="/tmp/run",
+        checkpoints=[100],
+        num_envs=4,
+        num_steps=8,
+        seed=7,
+        device="cpu",
+        collision_weight=10.0,
+        tracking_weight=1.0,
+        jerk_weight=0.25,
+        reference_collision=0.03,
+        reference_tracking=0.40,
+        evaluator=_noisy_evaluator,
+    )
+
+    assert capsys.readouterr().out == ""

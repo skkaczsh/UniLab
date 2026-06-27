@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import re
 import sys
@@ -154,6 +156,18 @@ def compact_summary(checkpoint: int, summary: dict[str, Any], score: float) -> d
 Evaluator = Callable[[argparse.Namespace], dict[str, Any]]
 
 
+def _evaluate_checkpoint(
+    evaluator: Evaluator,
+    args: argparse.Namespace,
+    *,
+    verbose: bool,
+) -> dict[str, Any]:
+    if verbose:
+        return evaluator(args)
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        return evaluator(args)
+
+
 def scan_checkpoints(
     *,
     load_run: str,
@@ -168,6 +182,7 @@ def scan_checkpoints(
     reference_collision: float | None,
     reference_tracking: float | None,
     evaluator: Evaluator = evaluate_omni_car_checkpoint.evaluate_checkpoint,
+    verbose: bool = False,
 ) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     for checkpoint in checkpoints:
@@ -180,7 +195,7 @@ def scan_checkpoints(
             device=device,
             json=True,
         )
-        summary = evaluator(args)
+        summary = _evaluate_checkpoint(evaluator, args, verbose=verbose)
         score = candidate_score(
             summary,
             collision_weight=collision_weight,
@@ -252,6 +267,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--reference-collision", type=float, default=None)
     parser.add_argument("--reference-tracking", type=float, default=None)
     parser.add_argument("--output", type=Path, default=None, help="Optional JSON output path.")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Do not suppress evaluator model/debug logs while scanning.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print selected checkpoints and exit.")
     return parser.parse_args(argv)
 
@@ -286,6 +306,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         jerk_weight=float(args.jerk_weight),
         reference_collision=args.reference_collision,
         reference_tracking=args.reference_tracking,
+        verbose=bool(args.verbose),
     )
     text = json.dumps(result, indent=2, sort_keys=True)
     if args.output is not None:

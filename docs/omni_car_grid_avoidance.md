@@ -203,7 +203,9 @@ This reports:
 - logged reward terms for response progress and track / diff / jerk costs
 
 For a new long run, scan candidate checkpoints with the same reference gates
-before deciding whether it replaces the current best:
+before deciding whether it replaces the current best. The scanner suppresses
+evaluator model/debug logs by default so stdout remains valid JSON; add
+`--verbose` when inspecting evaluator startup:
 
 ```bash
 uv run scripts/scan_omni_car_checkpoints.py \
