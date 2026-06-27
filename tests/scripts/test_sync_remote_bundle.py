@@ -44,6 +44,8 @@ def test_remote_script_updates_existing_worktree_without_deleting_it() -> None:
 
     assert "rm -rf" not in remote_script
     assert "rev-parse --is-inside-work-tree" in remote_script
+    assert "ls-files --others --exclude-standard -z" in remote_script
+    assert "rm -f -- /home/zsh/develop/worktrees/UniLab-omni-car-git/" in remote_script
     assert "git clone /home/zsh/develop/repos/UniLab.gitbundle" in remote_script
     assert "git -C /home/zsh/develop/repos/UniLab fetch --force" in remote_script
     assert "refs/remotes/bundle/codex/omni-car-grid-ppo-wt" in remote_script

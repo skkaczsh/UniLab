@@ -431,6 +431,23 @@ def _build_remote_script(plan: SyncPlan) -> str:
         )
     lines.extend(
         [
+            f"if git -C {shlex.quote(plan.remote_worktree_path)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then",
+            "  while IFS= read -r -d '' path; do",
+            (
+                f"    if git -C {shlex.quote(plan.remote_repo_path)} "
+                f"cat-file -e {shlex.quote(plan.head)}:\"$path\" 2>/dev/null; then"
+            ),
+            f"      rm -f -- {shlex.quote(plan.remote_worktree_path)}/\"$path\"",
+            "    fi",
+            (
+                f"  done < <(git -C {shlex.quote(plan.remote_worktree_path)} "
+                "ls-files --others --exclude-standard -z)"
+            ),
+            "fi",
+        ]
+    )
+    lines.extend(
+        [
             f"if ! git -C {shlex.quote(plan.remote_worktree_path)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then",
             (
                 f"  git -C {shlex.quote(plan.remote_repo_path)} worktree add "
