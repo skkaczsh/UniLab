@@ -218,6 +218,19 @@ uv run scripts/benchmark_omni_car_env.py \
   --json
 ```
 
+To profile the current shared large-scene mode instead of the legacy
+per-env-local obstacle mode, pass `--large-scene`:
+
+```bash
+uv run scripts/benchmark_omni_car_env.py \
+  --num-envs 128 \
+  --steps 40 \
+  --warmup-steps 5 \
+  --action-mode zero \
+  --large-scene \
+  --profile-top 18
+```
+
 The attempt to parallelize this path with Python threads regresses throughput.
 The bottleneck is not raw arithmetic; it is many small obstacle AABB raster
 tasks plus large occupancy/observation buffer writes. Threading adds chunk

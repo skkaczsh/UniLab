@@ -41,6 +41,35 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Override obstacle count for the benchmark.",
     )
     parser.add_argument(
+        "--large-scene",
+        action="store_true",
+        help="Benchmark the shared large-scene mode used by the PPO owner config.",
+    )
+    parser.add_argument(
+        "--scene-obstacles",
+        type=int,
+        default=260,
+        help="Static obstacle count used with --large-scene.",
+    )
+    parser.add_argument(
+        "--world-size",
+        type=float,
+        default=36.0,
+        help="World size in meters used with --large-scene.",
+    )
+    parser.add_argument(
+        "--max-local-static-obstacles",
+        type=int,
+        default=72,
+        help="Nearest static obstacles rasterized per agent with --large-scene.",
+    )
+    parser.add_argument(
+        "--max-dynamic-agents",
+        type=int,
+        default=24,
+        help="Nearest dynamic agents rasterized per agent with --large-scene.",
+    )
+    parser.add_argument(
         "--action-mode",
         choices=("zero", "command", "random"),
         default="zero",
@@ -84,7 +113,9 @@ def _install_threaded_grid_fill(env: Any, workers: int) -> ThreadPoolExecutor | 
     def _threaded_fill(self, env_indices: np.ndarray, grid: np.ndarray) -> None:
         env_indices_arr = np.asarray(env_indices, dtype=np.int32)
         grid.fill(0.0)
-        if env_indices_arr.size == 0 or self._cfg.obstacles.count == 0:
+        if env_indices_arr.size == 0:
+            return
+        if not self._large_scene_enabled and self._cfg.obstacles.count == 0:
             return
         row_chunks = [
             chunk
@@ -107,6 +138,27 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict[str, float | int | str
     env_cfg_override: dict[str, object] = {"seed": args.seed}
     if args.obstacles is not None:
         env_cfg_override["obstacles"] = {"count": args.obstacles}
+    if args.large_scene:
+        env_cfg_override["large_scene"] = {
+            "enabled": True,
+            "world_size_m": args.world_size,
+            "static_obstacle_count": args.scene_obstacles,
+            "max_local_static_obstacles": args.max_local_static_obstacles,
+            "max_dynamic_agents": args.max_dynamic_agents,
+            "dense_region_count": 6,
+            "dense_region_fraction": 0.58,
+            "dense_region_radius_min_m": 2.0,
+            "dense_region_radius_max_m": 5.2,
+            "border_wall_segments_per_side": 28,
+            "border_wall_thickness_m": 0.35,
+            "agent_collision_radius_m": 0.34,
+            "agent_spawn_keepout_m": 0.60,
+            "reset_on_timeout": False,
+            "stagnation_warmup_steps": 240,
+            "stagnation_window_steps": 420,
+            "stagnation_min_return_delta": 1.0,
+            "resample_scene_on_full_reset": False,
+        }
     env = registry.make(
         "OmniCarGridAvoidance",
         sim_backend="mujoco",
@@ -143,6 +195,10 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict[str, float | int | str
         "steps": int(args.steps),
         "warmup_steps": int(args.warmup_steps),
         "obstacles": int(args.obstacles) if args.obstacles is not None else int(env._cfg.obstacles.count),
+        "large_scene": bool(args.large_scene),
+        "scene_obstacles": int(env._scene_obstacle_count),
+        "max_local_static_obstacles": int(env._cfg.large_scene.max_local_static_obstacles),
+        "max_dynamic_agents": int(env._cfg.large_scene.max_dynamic_agents),
         "action_mode": str(args.action_mode),
         "grid_workers": grid_workers,
         "grid_mode": "threaded" if grid_workers > 1 else "serial",
