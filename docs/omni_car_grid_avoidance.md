@@ -184,6 +184,19 @@ This reports:
 Latest tuned run on the remote RTX 5070 Ti host:
 
 - run dir:
+  `logs/remote_5070_axis_track_3000/OmniCarGridAvoidance/2026-06-27_14-11-59_mujoco`
+- checkpoint: `model_2999.pt`
+- `collision_fraction`: `0.0268`
+- `mean_episode_return`: `304.3877`
+- `mean_episode_length`: `21.7563`
+- `vx / vy / vyaw tracking_mae`: `0.3766 / 0.3909 / 0.4214`
+- `omni_car/response_progress`: `0.0168`
+- `omni_car/tracking_error`: `0.3840`
+- `omni_car/vx / vy / vyaw jerk_cost`: `0.1322 / 0.1540 / 0.0476`
+
+Previous pre-axis-tracking comparison run:
+
+- run dir:
   `logs/remote_5070_tuned/OmniCarGridAvoidance/2026-06-26_16-15-08_mujoco`
 - checkpoint: `model_259.pt`
 - `collision_fraction`: `0.1273`
