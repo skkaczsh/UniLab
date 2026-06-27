@@ -88,7 +88,9 @@ it is not the selected checkpoint. Its final `model_2999.pt` single-seed eval
 had `collision_fraction=0.0481`, `omni_car/tracking_error=0.5351`, and
 `mean_episode_return=97.0819`; a checkpoint scan found no better tradeoff than
 the existing `remote_5070_axis_track_3000` best. The evidence is stored in
-`artifacts/omni_car/remote_tmux_axis_next_eval.json`.
+`artifacts/omni_car/remote_tmux_axis_next_eval.json`, with the standardized
+scanner output in
+`artifacts/omni_car/remote_tmux_axis_next_checkpoint_scan.json`.
 
 ## Remote sync
 
