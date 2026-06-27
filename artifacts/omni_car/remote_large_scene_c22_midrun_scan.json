@@ -1,0 +1,113 @@
+{
+  "best_by_score": {
+    "checkpoint": 800,
+    "checkpoint_path": "logs/remote_large_scene_c22_3000/OmniCarGridAvoidance/2026-06-28_00-28-16_mujoco/model_800.pt",
+    "collision_fraction": 0.0142822265625,
+    "mean_episode_length": 51.68376068376068,
+    "mean_episode_return": 1018.8979666729132,
+    "mean_step_reward": 20.07721566251257,
+    "omni_car/mean_clearance": 0.8262965977191925,
+    "omni_car/response_progress": 0.02171686310066434,
+    "omni_car/tracking_error": 0.3797008019173518,
+    "omni_car/vx_jerk_cost": 0.07359106195781351,
+    "omni_car/vy_jerk_cost": 0.22115037839523666,
+    "omni_car/vyaw_jerk_cost": 0.023177765404398087,
+    "reference_gate": {
+      "enabled": false,
+      "passed": false
+    },
+    "selection_score": 0.6020028689817138,
+    "vx_tracking_mae": 0.29033743131014944,
+    "vy_tracking_mae": 0.330923757022731,
+    "vyaw_tracking_mae": 0.5177901601465464
+  },
+  "best_passing_reference_gate": null,
+  "checkpoints": [
+    600,
+    800,
+    1000
+  ],
+  "device": "cpu",
+  "evaluations": [
+    {
+      "checkpoint": 600,
+      "checkpoint_path": "logs/remote_large_scene_c22_3000/OmniCarGridAvoidance/2026-06-28_00-28-16_mujoco/model_600.pt",
+      "collision_fraction": 0.014404296875,
+      "mean_episode_length": 51.09322033898305,
+      "mean_episode_return": 989.3354947358938,
+      "mean_step_reward": 19.52459387881254,
+      "omni_car/mean_clearance": 0.7832026807591319,
+      "omni_car/response_progress": 0.02277735964526073,
+      "omni_car/tracking_error": 0.3601532771717757,
+      "omni_car/vx_jerk_cost": 0.09576112143986393,
+      "omni_car/vy_jerk_cost": 0.2702627258966004,
+      "omni_car/vyaw_jerk_cost": 0.025580462430298212,
+      "reference_gate": {
+        "enabled": false,
+        "passed": false
+      },
+      "selection_score": 0.6020973233634663,
+      "vx_tracking_mae": 0.24099527981849178,
+      "vy_tracking_mae": 0.3033259435910196,
+      "vyaw_tracking_mae": 0.522881297622348
+    },
+    {
+      "checkpoint": 800,
+      "checkpoint_path": "logs/remote_large_scene_c22_3000/OmniCarGridAvoidance/2026-06-28_00-28-16_mujoco/model_800.pt",
+      "collision_fraction": 0.0142822265625,
+      "mean_episode_length": 51.68376068376068,
+      "mean_episode_return": 1018.8979666729132,
+      "mean_step_reward": 20.07721566251257,
+      "omni_car/mean_clearance": 0.8262965977191925,
+      "omni_car/response_progress": 0.02171686310066434,
+      "omni_car/tracking_error": 0.3797008019173518,
+      "omni_car/vx_jerk_cost": 0.07359106195781351,
+      "omni_car/vy_jerk_cost": 0.22115037839523666,
+      "omni_car/vyaw_jerk_cost": 0.023177765404398087,
+      "reference_gate": {
+        "enabled": false,
+        "passed": false
+      },
+      "selection_score": 0.6020028689817138,
+      "vx_tracking_mae": 0.29033743131014944,
+      "vy_tracking_mae": 0.330923757022731,
+      "vyaw_tracking_mae": 0.5177901601465464
+    },
+    {
+      "checkpoint": 1000,
+      "checkpoint_path": "logs/remote_large_scene_c22_3000/OmniCarGridAvoidance/2026-06-28_00-28-16_mujoco/model_1000.pt",
+      "collision_fraction": 0.0140380859375,
+      "mean_episode_length": 50.93913043478261,
+      "mean_episode_return": 1016.6674165273814,
+      "mean_step_reward": 20.2310339181181,
+      "omni_car/mean_clearance": 0.8028433765284717,
+      "omni_car/response_progress": 0.01973871747031808,
+      "omni_car/tracking_error": 0.39898927812464535,
+      "omni_car/vx_jerk_cost": 0.06761750612167816,
+      "omni_car/vy_jerk_cost": 0.18560936084850255,
+      "omni_car/vyaw_jerk_cost": 0.023943033775140066,
+      "reference_gate": {
+        "enabled": false,
+        "passed": false
+      },
+      "selection_score": 0.6086626126859755,
+      "vx_tracking_mae": 0.29997374864348103,
+      "vy_tracking_mae": 0.34135965793439027,
+      "vyaw_tracking_mae": 0.5576132474163273
+    }
+  ],
+  "load_run": "logs/remote_large_scene_c22_3000/OmniCarGridAvoidance/2026-06-28_00-28-16_mujoco",
+  "num_envs": 32,
+  "num_steps": 256,
+  "reference": {
+    "collision": null,
+    "source": null,
+    "tracking": null
+  },
+  "seed": 7,
+  "selection_weights": {
+    "collision": 10.0,
+    "jerk": 0.25,
+    "tracking": 1.0
+  }
+}
