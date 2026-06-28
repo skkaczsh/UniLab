@@ -136,20 +136,20 @@ env:
     stagnation_min_return_delta: 1.0
     resample_scene_on_full_reset: false
   reward:
-    intent: 54.0
-    intent_projection: 30.0
+    intent: 80.0
+    intent_projection: 45.0
     yaw_intent: 10.0
-    response: 30.0
+    response: 35.0
     clearance_motion: 80.0
-    clearance_target_motion: 100.0
-    blocked_projection: 260.0
-    blocked_stop: 35.0
+    clearance_target_motion: 130.0
+    blocked_projection: 600.0
+    blocked_stop: 90.0
     idle_stop: 40.0
     yaw_idle_stop: 30.0
     off_axis: 28.0
     reverse: 45.0
-    vx_track: 16.0
-    vy_track: 14.0
+    vx_track: 24.0
+    vy_track: 22.0
     vyaw_track: 20.0
     vx_diff: 6.0
     vy_diff: 6.0
@@ -158,7 +158,7 @@ env:
     vy_jerk: 3.0
     vyaw_jerk: 3.4
     clearance: 6.0
-    collision: -180.0
+    collision: -250.0
   physical_limits:
     max_x_speed: 2.0
     max_y_speed: 1.0
@@ -168,20 +168,20 @@ env:
     max_yaw_accel: 4.5
 
 reward:
-  intent: 54.0
-  intent_projection: 30.0
+  intent: 80.0
+  intent_projection: 45.0
   yaw_intent: 10.0
-  response: 30.0
+  response: 35.0
   clearance_motion: 80.0
-  clearance_target_motion: 100.0
-  blocked_projection: 260.0
-  blocked_stop: 35.0
+  clearance_target_motion: 130.0
+  blocked_projection: 600.0
+  blocked_stop: 90.0
   idle_stop: 40.0
   yaw_idle_stop: 30.0
   off_axis: 28.0
   reverse: 45.0
-  vx_track: 16.0
-  vy_track: 14.0
+  vx_track: 24.0
+  vy_track: 22.0
   vyaw_track: 20.0
   vx_diff: 6.0
   vy_diff: 6.0
@@ -190,4 +190,4 @@ reward:
   vy_jerk: 3.0
   vyaw_jerk: 3.4
   clearance: 6.0
-  collision: -180.0
+  collision: -250.0
