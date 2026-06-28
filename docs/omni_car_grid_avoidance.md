@@ -78,7 +78,7 @@ The default non-zero mode weights are `[0.10, 0.10, 0.10, 0.22, 0.10, 0.10,
 while retaining pure-axis and yaw-coupled cases.
 
 The local obstacle curriculum reserves a controlled slice of resets for
-command-relative geometry: `35%` front blockers, `20%` side-wall cases, and the
+command-relative geometry: `30%` front blockers, `20%` side-wall cases, and the
 rest unconstrained random obstacle fields. Front blockers are intentionally
 mixed across circles, boxes, and wall-like rectangles so the policy sees both
 single-object avoidance and true corridor closure under sustained forward
@@ -175,10 +175,12 @@ Reward shaping emphasizes these signals:
 7. Track commanded yaw intent independently, but only when the operator gives a
    non-zero yaw command so zero-yaw commands do not create a constant reward for
    standing still.
-8. Improve response speed when the command direction is clear.
-9. Penalize per-axis tracking, action diff, and jerk independently for `vx`,
+8. Penalize yaw output when the user did not command yaw, including during
+   planar-only commands.
+9. Improve response speed when the command direction is clear.
+10. Penalize per-axis tracking, action diff, and jerk independently for `vx`,
    `vy`, and `vyaw`.
-10. Preserve clearance and heavily punish collision.
+11. Preserve clearance and heavily punish collision.
 
 The command-direction gate is derived from local obstacle geometry by checking
 whether the commanded centerline is blocked ahead of the body. It intentionally

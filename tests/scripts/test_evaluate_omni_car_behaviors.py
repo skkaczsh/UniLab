@@ -40,6 +40,7 @@ def test_behavior_summary_reports_gate_failures() -> None:
             "reward_blocked_stop": [0.0, 0.0],
             "reward_blocked_motion": [-0.5, -1.5],
             "reward_idle_stop": [-2.0, -4.0],
+            "reward_yaw_idle_stop": [-6.0, -8.0],
         },
     )
 
@@ -47,6 +48,7 @@ def test_behavior_summary_reports_gate_failures() -> None:
     assert summary["planar_speed_mean"] == 0.11
     assert summary["reward_blocked_motion_mean"] == -1.0
     assert summary["reward_idle_stop_mean"] == -3.0
+    assert summary["reward_yaw_idle_stop_mean"] == -7.0
     assert summary["failures"] == ["planar_speed_mean > 0.08"]
 
 
@@ -64,6 +66,7 @@ def test_record_step_uses_step_info_snapshot() -> None:
                 "blocked_stop": np.asarray([1.5], dtype=np.float32),
                 "blocked_motion": np.asarray([-3.0], dtype=np.float32),
                 "idle_stop": np.asarray([-4.0], dtype=np.float32),
+                "yaw_idle_stop": np.asarray([-5.0], dtype=np.float32),
             },
         }
 
@@ -79,6 +82,7 @@ def test_record_step_uses_step_info_snapshot() -> None:
     assert record["reward_blocked_stop"] == [1.5]
     assert record["reward_blocked_motion"] == [-3.0]
     assert record["reward_idle_stop"] == [-4.0]
+    assert record["reward_yaw_idle_stop"] == [-5.0]
 
 
 def test_json_cli_suppresses_behavior_evaluator_noise(monkeypatch, capsys) -> None:

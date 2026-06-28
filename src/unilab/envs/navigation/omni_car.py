@@ -103,6 +103,7 @@ class OmniCarRewardCfg:
     blocked_stop: float = 8.0
     blocked_motion: float = 8.0
     idle_stop: float = 4.0
+    yaw_idle_stop: float = 0.0
     off_axis: float = 5.0
     reverse: float = 8.0
     directional_clearance_margin_m: float = 0.35
@@ -470,6 +471,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 "blocked_stop",
                 "blocked_motion",
                 "idle_stop",
+                "yaw_idle_stop",
                 "off_axis",
                 "reverse",
                 "vx_track",
@@ -2227,6 +2229,12 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             + (np.abs(action[:, 2]) / 0.10) ** 2,
             0.0,
         )
+        yaw_idle_mask = np.abs(cmd[:, 2]) <= self._cfg.command.deadband
+        yaw_idle_cost = np.where(
+            yaw_idle_mask,
+            (np.abs(action[:, 2]) / 0.12) ** 2,
+            0.0,
+        )
         self._tracking_error = new_error.astype(self._dtype)
         self._response_progress = response_progress.astype(self._dtype)
         self._command_clearance = command_clearance.astype(self._dtype)
@@ -2246,6 +2254,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 self._dtype
             ),
             "idle_stop": (-cfg.idle_stop * idle_action_cost).astype(self._dtype),
+            "yaw_idle_stop": (-cfg.yaw_idle_stop * yaw_idle_cost).astype(self._dtype),
             "off_axis": (-cfg.off_axis * off_axis_cost).astype(self._dtype),
             "reverse": (-cfg.reverse * reverse_cost).astype(self._dtype),
             "vx_track": track_penalty[:, 0].astype(self._dtype),
@@ -2271,6 +2280,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             + self._reward_components["blocked_stop"]
             + self._reward_components["blocked_motion"]
             + self._reward_components["idle_stop"]
+            + self._reward_components["yaw_idle_stop"]
             + self._reward_components["off_axis"]
             + self._reward_components["reverse"]
             + self._reward_components["vx_track"]

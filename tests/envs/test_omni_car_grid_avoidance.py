@@ -42,6 +42,7 @@ def test_omni_car_grid_contract() -> None:
     assert "omni_car/tracking_error" in next_state.info["log"]
     assert "omni_car/reward/total" in next_state.info["log"]
     assert "omni_car/response_progress" in next_state.info["log"]
+    assert "omni_car/reward/yaw_idle_stop" in next_state.info["log"]
     assert "omni_car/vx_track_cost" in next_state.info["log"]
     assert "omni_car/vy_track_cost" in next_state.info["log"]
     assert "omni_car/vyaw_track_cost" in next_state.info["log"]
@@ -836,6 +837,53 @@ def test_omni_car_yaw_intent_only_rewards_active_yaw_commands() -> None:
     active_yaw_reward = env._compute_reward(np.asarray([[0.0, 0.0, 1.0]], dtype=np.float32))
     assert active_yaw_reward[0] == pytest.approx(3.0)
     assert env._reward_components["yaw_intent"][0] == pytest.approx(3.0)
+    env.close()
+
+
+def test_omni_car_yaw_idle_stop_penalizes_uncommanded_yaw() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 23,
+            "obstacles": {"count": 0},
+            "reward": {
+                "intent": 0.0,
+                "intent_projection": 0.0,
+                "yaw_intent": 0.0,
+                "response": 0.0,
+                "blocked_stop": 0.0,
+                "blocked_motion": 0.0,
+                "idle_stop": 0.0,
+                "yaw_idle_stop": 5.0,
+                "off_axis": 0.0,
+                "reverse": 0.0,
+                "vx_track": 0.0,
+                "vy_track": 0.0,
+                "vyaw_track": 0.0,
+                "vx_diff": 0.0,
+                "vy_diff": 0.0,
+                "vyaw_diff": 0.0,
+                "vx_jerk": 0.0,
+                "vy_jerk": 0.0,
+                "vyaw_jerk": 0.0,
+                "clearance": 0.0,
+                "collision": 0.0,
+            },
+        },
+    )
+    env.init_state()
+    env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
+
+    no_yaw_command_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.24]], dtype=np.float32))
+    assert no_yaw_command_reward[0] == pytest.approx(-20.0)
+    assert env._reward_components["yaw_idle_stop"][0] == pytest.approx(-20.0)
+
+    env._commands[:] = np.asarray([[1.0, 0.0, 0.5]], dtype=np.float32)
+    yaw_command_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.24]], dtype=np.float32))
+    assert yaw_command_reward[0] == pytest.approx(0.0)
+    assert env._reward_components["yaw_idle_stop"][0] == pytest.approx(0.0)
     env.close()
 
 
