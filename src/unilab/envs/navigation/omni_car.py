@@ -126,6 +126,8 @@ class OmniCarHumanCommandCfg:
     invert_vx: bool = True
     invert_vy: bool = False
     invert_vyaw: bool = False
+    render_enabled: bool = False
+    render_every_steps: int = 1
 
 
 @registry.envcfg("OmniCarGridAvoidance")
@@ -217,6 +219,8 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
             raise ValueError("human_command.smoothing_tau_s must be non-negative")
         if min(human.axis_vx, human.axis_vy, human.axis_vyaw) < 0:
             raise ValueError("human_command axis indices must be non-negative")
+        if human.render_every_steps <= 0:
+            raise ValueError("human_command.render_every_steps must be positive")
 
 
 @registry.env("OmniCarGridAvoidance", sim_backend="mujoco")
@@ -292,6 +296,14 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._human_controller_name = ""
         self._human_pygame: Any | None = None
         self._human_joystick: Any | None = None
+        self._human_live_render_enabled = bool(
+            cfg.human_command.enabled and cfg.human_command.render_enabled
+        )
+        self._human_live_window: Any | None = None
+        self._human_live_glfw: Any | None = None
+        self._human_live_gl: Any | None = None
+        self._human_live_glu: Any | None = None
+        self._human_live_render_step = 0
         if self._human_command_enabled:
             self._ensure_human_command_backend()
         self._command_history = np.zeros(
@@ -678,6 +690,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             terminal_mask[done_ids] = True
             self._state.info["_final_observation"] = terminal_mask
 
+        self._render_human_live_viewer()
         self._state.info["log"] = {
             "omni_car/mean_clearance": float(np.mean(log_snapshot["nearest_clearance"])),
             "omni_car/collision_rate": float(np.mean(log_snapshot["collision"].astype(np.float32))),
@@ -715,8 +728,80 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         }
         return self._state
 
+    def _render_human_live_viewer(self) -> None:
+        if not self._human_live_render_enabled:
+            return
+        self._human_live_render_step += 1
+        if self._human_live_render_step % int(self._cfg.human_command.render_every_steps) != 0:
+            return
+        try:
+            self._ensure_human_live_viewer()
+        except Exception as exc:
+            self._human_live_render_enabled = False
+            print(f"[omni_car] Disabling human live viewer: {exc}")
+            return
+        assert self._human_live_glfw is not None
+        assert self._human_live_window is not None
+        if self._human_live_glfw.window_should_close(self._human_live_window):
+            self._human_live_render_enabled = False
+            self._close_human_live_viewer()
+            return
+        self._draw_opengl_frame(
+            self._human_live_gl,
+            self._human_live_glu,
+            self._human_live_glfw,
+            self._human_live_window,
+            {"cam_tracking_env_idx": self._viewer_focus_env_id()},
+        )
+        self._human_live_glfw.swap_buffers(self._human_live_window)
+        self._human_live_glfw.poll_events()
+
+    def _ensure_human_live_viewer(self) -> None:
+        if self._human_live_window is not None:
+            return
+        import glfw
+        from OpenGL import GL, GLU
+
+        if not glfw.init():
+            raise RuntimeError("Failed to initialize GLFW for OmniCar human live viewer.")
+        glfw.window_hint(glfw.SAMPLES, 4)
+        window = glfw.create_window(1280, 800, "UniLab OmniCar Xbox Training", None, None)
+        if window is None:
+            glfw.terminate()
+            raise RuntimeError("Failed to create GLFW window for OmniCar human live viewer.")
+        glfw.make_context_current(window)
+        glfw.swap_interval(1)
+        GL.glEnable(GL.GL_DEPTH_TEST)
+        GL.glEnable(GL.GL_BLEND)
+        GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
+        GL.glClearColor(0.06, 0.07, 0.08, 1.0)
+        self._human_live_glfw = glfw
+        self._human_live_gl = GL
+        self._human_live_glu = GLU
+        self._human_live_window = window
+        print(
+            "[omni_car] Opened Xbox training viewer. Close the window to hide it; "
+            "training continues."
+        )
+
+    def _close_human_live_viewer(self) -> None:
+        if self._human_live_glfw is None:
+            return
+        if self._human_live_window is not None:
+            self._human_live_glfw.destroy_window(self._human_live_window)
+        self._human_live_glfw.terminate()
+        self._human_live_window = None
+        self._human_live_glfw = None
+        self._human_live_gl = None
+        self._human_live_glu = None
+
+    def _viewer_focus_env_id(self) -> int:
+        if self._human_command_env_id >= 0:
+            return int(self._human_command_env_id)
+        return 0
+
     def close(self) -> None:
-        return None
+        self._close_human_live_viewer()
 
     def set_nan_guard(self, guard: Any) -> None:
         del guard
@@ -810,7 +895,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 num_steps is None or step_count < num_steps
             ):
                 start = time.perf_counter()
-                self._draw_opengl_frame(GL, GLU, glfw, window, camera_kwargs)
+                camera_cfg = dict(camera_kwargs or {})
+                camera_cfg.setdefault("cam_tracking_env_idx", self._viewer_focus_env_id())
+                self._draw_opengl_frame(GL, GLU, glfw, window, camera_cfg)
                 glfw.swap_buffers(window)
                 glfw.poll_events()
                 obs = step(obs)
@@ -1828,18 +1915,20 @@ class OmniCarGridAvoidanceEnv(ABEnv):
 
         kwargs = camera_kwargs or {}
         distance = float(kwargs.get("cam_distance", 5.0) or 5.0)
-        pose = self._pose[0]
+        focus_env_id = int(kwargs.get("cam_tracking_env_idx", self._viewer_focus_env_id()))
+        focus_env_id = int(np.clip(focus_env_id, 0, max(self._num_envs - 1, 0)))
+        pose = self._pose[focus_env_id]
         eye = np.array([pose[0] - distance * 0.55, pose[1] - distance * 0.85, distance * 0.62])
         center = np.array([pose[0], pose[1], 0.0])
         GLU.gluLookAt(*eye, *center, 0.0, 0.0, 1.0)
 
         self._gl_draw_floor(GL)
         self._gl_draw_grid_footprint(GL, pose)
-        self._gl_draw_obstacles(GL)
+        self._gl_draw_obstacles(GL, focus_env_id)
         if self._large_scene_enabled:
-            self._gl_draw_other_cars(GL)
+            self._gl_draw_other_cars(GL, focus_env_id)
         self._gl_draw_car(GL, pose)
-        self._gl_draw_arrows(GL, pose)
+        self._gl_draw_arrows(GL, focus_env_id, pose)
 
     def _gl_draw_floor(self, GL: Any) -> None:
         if self._large_scene_enabled:
@@ -1878,7 +1967,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         GL.glEnd()
         GL.glPopMatrix()
 
-    def _gl_draw_obstacles(self, GL: Any) -> None:
+    def _gl_draw_obstacles(self, GL: Any, env_id: int) -> None:
         if self._large_scene_enabled:
             obstacle_xy = self._scene_obstacle_xy
             obstacle_type_array = self._scene_obstacle_type
@@ -1886,11 +1975,11 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             obstacle_half_extents = self._scene_obstacle_half_extents
             obstacle_yaw = self._scene_obstacle_yaw
         else:
-            obstacle_xy = self._obstacle_xy[0]
-            obstacle_type_array = self._obstacle_type[0]
-            obstacle_radius = self._obstacle_radius[0]
-            obstacle_half_extents = self._obstacle_half_extents[0]
-            obstacle_yaw = self._obstacle_yaw[0]
+            obstacle_xy = self._obstacle_xy[env_id]
+            obstacle_type_array = self._obstacle_type[env_id]
+            obstacle_radius = self._obstacle_radius[env_id]
+            obstacle_half_extents = self._obstacle_half_extents[env_id]
+            obstacle_yaw = self._obstacle_yaw[env_id]
         for obstacle_id, center in enumerate(obstacle_xy):
             obstacle_type = int(obstacle_type_array[obstacle_id])
             if obstacle_type == self._OBSTACLE_CIRCLE:
@@ -1921,8 +2010,10 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 )
                 GL.glPopMatrix()
 
-    def _gl_draw_other_cars(self, GL: Any) -> None:
-        for env_id in range(1, self._num_envs):
+    def _gl_draw_other_cars(self, GL: Any, focus_env_id: int) -> None:
+        for env_id in range(self._num_envs):
+            if env_id == focus_env_id:
+                continue
             pose = self._pose[env_id]
             GL.glPushMatrix()
             GL.glTranslatef(float(pose[0]), float(pose[1]), 0.08)
@@ -1958,10 +2049,10 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         GL.glEnd()
         GL.glPopMatrix()
 
-    def _gl_draw_arrows(self, GL: Any, pose: np.ndarray) -> None:
+    def _gl_draw_arrows(self, GL: Any, env_id: int, pose: np.ndarray) -> None:
         origin = np.array([pose[0], pose[1], 0.34], dtype=np.float64)
-        command = self._body_velocity_to_world(0, self._commands[0, :2])
-        velocity = self._body_velocity_to_world(0, self._velocity[0, :2])
+        command = self._body_velocity_to_world(env_id, self._commands[env_id, :2])
+        velocity = self._body_velocity_to_world(env_id, self._velocity[env_id, :2])
         self._gl_arrow(
             GL,
             origin + np.array([0.0, 0.0, 0.08]),

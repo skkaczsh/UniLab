@@ -240,6 +240,26 @@ def test_omni_car_human_command_axis_mapping_uses_xbox_sticks() -> None:
     env.close()
 
 
+def test_omni_car_human_command_live_viewer_focuses_human_agent() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=3,
+        env_cfg_override={
+            "seed": 61,
+            "human_command": {
+                "enabled": True,
+                "env_index": 2,
+                "backend": "zero",
+                "render_enabled": True,
+            },
+        },
+    )
+    assert env._viewer_focus_env_id() == 2
+    env._human_live_render_enabled = False
+    env.close()
+
+
 def test_omni_car_physical_limits_apply_before_integration() -> None:
     env = registry.make(
         "OmniCarGridAvoidance",

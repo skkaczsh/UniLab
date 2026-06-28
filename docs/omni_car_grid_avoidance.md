@@ -88,8 +88,14 @@ Start a local interactive training run with the connected controller:
 ```bash
 uv run train --algo ppo --task omni_car_grid_avoidance --sim mujoco \
   env.human_command.enabled=true \
-  training.play_render_mode=interactive
+  env.human_command.render_enabled=true \
+  training.no_play=true \
+  training.play_render_mode=none
 ```
+
+The live training viewer is separate from PPO playback. It refreshes during
+rollout collection and tracks the human-command agent directly. Closing the
+viewer window hides visualization but lets training continue.
 
 If the Xbox axis order differs on your machine, inspect it with:
 

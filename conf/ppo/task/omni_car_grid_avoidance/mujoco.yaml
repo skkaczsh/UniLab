@@ -74,6 +74,8 @@ env:
     invert_vx: true
     invert_vy: false
     invert_vyaw: false
+    render_enabled: false
+    render_every_steps: 1
   grid:
     size: 80
     cell_size: 0.05
