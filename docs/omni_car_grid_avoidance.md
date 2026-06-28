@@ -166,9 +166,11 @@ Reward shaping emphasizes these signals:
 
 1. Reward positive output-velocity projection along the commanded planar
    direction.
-2. Penalize near-obstacle motion with a scalar clearance-risk cost, including
-   both the physically executed speed and the raw policy target speed, so pushing
-   into a wall cannot win through residual projection or yaw rewards.
+2. Penalize motion that reduces nearest clearance, plus a one-step prediction of
+   whether the raw policy target would reduce clearance. This makes pushing into
+   a wall expensive without giving the policy an action-level geometry gate, and
+   without charging the same cost for wall-parallel motion that preserves
+   clearance.
 3. Penalize any output velocity during zero-command windows, including both the
    raw policy target and the physically limited executed velocity, so the
    learned optimum is idle when the operator is idle.
@@ -194,10 +196,10 @@ does not earn forward-intent reward.
 The executed action is not clamped by obstacle geometry, and no
 command-direction feasibility switch is used inside the reward. Obstacle
 avoidance is learned through PPO from projection rewards, smoothness penalties,
-clearance-risk costs, collision costs, and curriculum signals. The current
+clearance-closing costs, collision costs, and curriculum signals. The current
 reward balance makes clear-command projection, response, and per-axis tracking
 large enough to compete with smoothness penalties, while making off-axis drift,
-near-wall motion, and collision expensive enough that sliding into walls or
+clearance loss, and collision expensive enough that sliding into walls or
 pushing through blockers is not a profitable local optimum. Entropy is kept low
 enough that zero-command samples can converge to a stationary mean action.
 

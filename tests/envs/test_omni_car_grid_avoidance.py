@@ -659,8 +659,8 @@ def test_omni_car_front_obstacle_rewards_stop_over_forward_push() -> None:
                 "intent_projection": 4.0,
                 "yaw_intent": 0.0,
                 "response": 0.0,
-                "clearance_motion": 8.0,
-                "clearance_target_motion": 10.0,
+                "clearance_motion": 80.0,
+                "clearance_target_motion": 100.0,
                 "idle_stop": 0.0,
                 "off_axis": 0.0,
                 "reverse": 0.0,
@@ -684,12 +684,32 @@ def test_omni_car_front_obstacle_rewards_stop_over_forward_push() -> None:
     env._obstacle_radius[0, 0] = 0.22
     env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
 
-    stop_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
-    push_reward = env._compute_reward(np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32))
+    env_ids = np.asarray([0], dtype=np.int32)
+    prev_pose = env._pose.copy()
+    prev_clearance = env._nearest_clearance.copy()
+    stop_reward = env._compute_reward(
+        np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32),
+        prev_clearance=prev_clearance,
+        prev_pose=prev_pose,
+    )
+
+    push_action = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
+    env._pose[:] = env._predict_pose_from_action(prev_pose, push_action)
+    env._nearest_clearance[:] = env._compute_clearance(env_ids)
+    push_reward = env._compute_reward(
+        push_action,
+        prev_clearance=prev_clearance,
+        prev_pose=prev_pose,
+    )
     push_clearance_motion = float(env._reward_components["clearance_motion"][0])
+
+    env._pose[:] = prev_pose
+    env._nearest_clearance[:] = prev_clearance
     target_push_reward = env._compute_reward(
         np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32),
         policy_action=np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32),
+        prev_clearance=prev_clearance,
+        prev_pose=prev_pose,
     )
     target_push_clearance_motion = float(
         env._reward_components["clearance_target_motion"][0]

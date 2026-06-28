@@ -726,6 +726,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._refresh_human_commands()
         actions, human_idle_hold = self._apply_human_idle_action_hold(actions)
         reward_commands = self._commands.copy()
+        prev_pose = self._pose.copy()
+        prev_clearance = self._nearest_clearance.copy()
         self._state.info["_final_observation"] = np.zeros((self._num_envs,), dtype=bool)
 
         limited = self._apply_physical_limits(actions)
@@ -752,7 +754,13 @@ class OmniCarGridAvoidanceEnv(ABEnv):
 
         self._nearest_clearance = self._compute_clearance(self._all_env_indices)
         self._collision = self._nearest_clearance <= 0.0
-        reward = self._compute_reward(limited, commands=reward_commands, policy_action=policy_action)
+        reward = self._compute_reward(
+            limited,
+            commands=reward_commands,
+            policy_action=policy_action,
+            prev_clearance=prev_clearance,
+            prev_pose=prev_pose,
+        )
         self._update_reward_progress(reward)
         log_snapshot = {
             "commands": reward_commands.copy(),
@@ -2149,11 +2157,43 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         clearance[:] = np.min(signed - safety_radius, axis=1).astype(self._dtype, copy=False)
         return clearance
 
+    def _compute_clearance_at_pose(
+        self, env_indices: np.ndarray, pose: np.ndarray
+    ) -> np.ndarray:
+        old_pose = self._pose[env_indices].copy()
+        old_static_collision = self._static_collision[env_indices].copy()
+        old_agent_collision = self._agent_collision[env_indices].copy()
+        old_border_collision = self._border_collision[env_indices].copy()
+        try:
+            self._pose[env_indices] = pose.astype(self._dtype, copy=False)
+            return self._compute_clearance(env_indices).copy()
+        finally:
+            self._pose[env_indices] = old_pose
+            self._static_collision[env_indices] = old_static_collision
+            self._agent_collision[env_indices] = old_agent_collision
+            self._border_collision[env_indices] = old_border_collision
+
+    def _predict_pose_from_action(self, pose: np.ndarray, action: np.ndarray) -> np.ndarray:
+        predicted = pose.copy()
+        yaw = pose[:, 2]
+        cos_yaw = np.cos(yaw)
+        sin_yaw = np.sin(yaw)
+        vx_body = action[:, 0]
+        vy_body = action[:, 1]
+        predicted[:, 0] += (cos_yaw * vx_body - sin_yaw * vy_body) * self._cfg.ctrl_dt
+        predicted[:, 1] += (sin_yaw * vx_body + cos_yaw * vy_body) * self._cfg.ctrl_dt
+        predicted[:, 2] = self._wrap_angle(
+            predicted[:, 2] + action[:, 2] * self._cfg.ctrl_dt
+        )
+        return predicted.astype(self._dtype, copy=False)
+
     def _compute_reward(
         self,
         action: np.ndarray,
         commands: np.ndarray | None = None,
         policy_action: np.ndarray | None = None,
+        prev_clearance: np.ndarray | None = None,
+        prev_pose: np.ndarray | None = None,
     ) -> np.ndarray:
         cfg = self._cfg.reward
         cmd = self._commands if commands is None else np.asarray(commands, dtype=self._dtype)
@@ -2161,6 +2201,14 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             np.zeros_like(action)
             if policy_action is None
             else np.asarray(policy_action, dtype=self._dtype)
+        )
+        previous_clearance = (
+            self._nearest_clearance
+            if prev_clearance is None
+            else np.asarray(prev_clearance, dtype=self._dtype)
+        )
+        previous_pose = (
+            self._pose if prev_pose is None else np.asarray(prev_pose, dtype=self._dtype)
         )
         planar_norm = np.linalg.norm(cmd[:, :2], axis=1)
         active_planar = planar_norm > self._cfg.command.deadband
@@ -2221,9 +2269,21 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         idle_mask = command_norm <= self._cfg.command.deadband
         target_planar_speed = np.linalg.norm(target_action[:, :2], axis=1)
         target_yaw_speed = np.abs(target_action[:, 2])
-        executed_planar_speed = np.linalg.norm(action[:, :2], axis=1)
-        clearance_motion_cost = clearance_risk * (executed_planar_speed / 0.35) ** 2
-        clearance_target_motion_cost = clearance_risk * (target_planar_speed / 0.45) ** 2
+        closing_speed = np.maximum(
+            (previous_clearance - self._nearest_clearance) / max(self._cfg.ctrl_dt, 1e-6),
+            0.0,
+        )
+        target_pose = self._predict_pose_from_action(previous_pose, target_action)
+        target_clearance = self._compute_clearance_at_pose(self._all_env_indices, target_pose)
+        target_risk = np.exp(-np.maximum(target_clearance, 0.0) / 0.35)
+        target_closing_speed = np.maximum(
+            (previous_clearance - target_clearance) / max(self._cfg.ctrl_dt, 1e-6),
+            0.0,
+        )
+        clearance_motion_cost = clearance_risk * (closing_speed / 0.25) ** 2
+        clearance_target_motion_cost = np.maximum(clearance_risk, target_risk) * (
+            target_closing_speed / 0.25
+        ) ** 2
         idle_action_cost = np.where(
             idle_mask,
             (np.linalg.norm(action[:, :2], axis=1) / 0.10) ** 2

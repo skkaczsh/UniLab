@@ -140,8 +140,8 @@ env:
     intent_projection: 22.0
     yaw_intent: 10.0
     response: 24.0
-    clearance_motion: 24.0
-    clearance_target_motion: 32.0
+    clearance_motion: 80.0
+    clearance_target_motion: 100.0
     idle_stop: 40.0
     yaw_idle_stop: 30.0
     off_axis: 28.0
@@ -170,8 +170,8 @@ reward:
   intent_projection: 22.0
   yaw_intent: 10.0
   response: 24.0
-  clearance_motion: 24.0
-  clearance_target_motion: 32.0
+  clearance_motion: 80.0
+  clearance_target_motion: 100.0
   idle_stop: 40.0
   yaw_idle_stop: 30.0
   off_axis: 28.0
