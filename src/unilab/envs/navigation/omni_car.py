@@ -27,7 +27,7 @@ class OmniCarCommandCfg:
     long_hold_fraction: float = 0.35
     long_hold_min_s: float = 8.0
     long_hold_max_s: float = 30.0
-    zero_fraction: float = 0.15
+    zero_fraction: float = 0.22
     mode_weights: tuple[float, ...] = field(
         default_factory=lambda: (0.10, 0.10, 0.10, 0.22, 0.10, 0.10, 0.28)
     )
@@ -66,6 +66,8 @@ class OmniCarObstacleCfg:
     wall_fraction: float = 0.15
     spawn_radius_m: float = 3.2
     keepout_radius_m: float = 0.75
+    front_blocker_fraction: float = 0.35
+    side_wall_fraction: float = 0.20
 
 
 @dataclass
@@ -199,6 +201,14 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
         )
         if min(fractions) < 0.0 or sum(fractions) <= 0.0:
             raise ValueError("obstacle type fractions must be non-negative with positive sum")
+        if not 0.0 <= self.obstacles.front_blocker_fraction <= 1.0:
+            raise ValueError("obstacles.front_blocker_fraction must be in [0, 1]")
+        if not 0.0 <= self.obstacles.side_wall_fraction <= 1.0:
+            raise ValueError("obstacles.side_wall_fraction must be in [0, 1]")
+        if self.obstacles.front_blocker_fraction + self.obstacles.side_wall_fraction > 1.0:
+            raise ValueError(
+                "obstacles.front_blocker_fraction + obstacles.side_wall_fraction must be <= 1"
+            )
         if self.obs_history_len <= 0:
             raise ValueError("obs_history_len must be a positive integer")
         if self.grid_history_len <= 0:
@@ -1298,30 +1308,49 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             half_extents[wall_mask, 1] = 0.5 * self._rng.uniform(
                 cfg.wall_width_min_m, cfg.wall_width_max_m, size=int(np.count_nonzero(wall_mask))
             )
-            # Bias one obstacle into the commanded path so avoidance matters during short runs.
             cmd = self._commands[env_id]
             planar_norm = float(np.linalg.norm(cmd[:2]))
             if planar_norm > 1e-6:
                 direction = cmd[:2] / planar_norm
                 lateral = np.asarray([-direction[1], direction[0]], dtype=self._dtype)
-                xy[0] = direction * self._rng.uniform(0.9, 1.6) + lateral * self._rng.uniform(
-                    -0.25, 0.25
-                )
-                obstacle_types[0] = self._rng.choice(3, p=type_weights)
-                radii[0] = max(float(radii[0]), 0.22)
-                yaw[0] = float(np.arctan2(direction[1], direction[0])) + self._rng.uniform(
-                    -0.6, 0.6
-                )
-                if obstacle_types[0] == self._OBSTACLE_BOX:
-                    half_extents[0] = [
-                        0.5 * self._rng.uniform(cfg.box_length_min_m, cfg.box_length_max_m),
-                        0.5 * self._rng.uniform(cfg.box_width_min_m, cfg.box_width_max_m),
-                    ]
-                elif obstacle_types[0] == self._OBSTACLE_WALL:
-                    half_extents[0] = [
-                        0.5 * self._rng.uniform(cfg.wall_length_min_m, cfg.wall_length_max_m),
-                        0.5 * self._rng.uniform(cfg.wall_width_min_m, cfg.wall_width_max_m),
-                    ]
+                curriculum_draw = float(self._rng.random())
+                if curriculum_draw < cfg.front_blocker_fraction:
+                    xy[0] = direction * self._rng.uniform(0.55, 0.85) + lateral * self._rng.uniform(
+                        -0.05, 0.05
+                    )
+                    obstacle_types[0] = self._OBSTACLE_CIRCLE
+                    radii[0] = self._rng.uniform(0.22, max(0.23, cfg.radius_max_m))
+                    half_extents[0] = 0.0
+                elif curriculum_draw < cfg.front_blocker_fraction + cfg.side_wall_fraction:
+                    side = float(self._rng.choice(np.asarray([-1.0, 1.0], dtype=self._dtype)))
+                    wall_count = min(cfg.count, 3)
+                    base_distances = np.asarray([0.60, 1.05, 1.50], dtype=self._dtype)
+                    for obstacle_id in range(wall_count):
+                        forward = float(base_distances[obstacle_id])
+                        wall_lateral = self._rng.uniform(0.34, 0.48) * side
+                        xy[obstacle_id] = direction * forward + lateral * wall_lateral
+                        obstacle_types[obstacle_id] = self._OBSTACLE_CIRCLE
+                        radii[obstacle_id] = self._rng.uniform(0.20, 0.24)
+                        half_extents[obstacle_id] = 0.0
+                else:
+                    xy[0] = direction * self._rng.uniform(1.0, 2.0) + lateral * self._rng.uniform(
+                        -0.45, 0.45
+                    )
+                    obstacle_types[0] = self._rng.choice(3, p=type_weights)
+                    radii[0] = max(float(radii[0]), 0.18)
+                    yaw[0] = float(np.arctan2(direction[1], direction[0])) + self._rng.uniform(
+                        -0.6, 0.6
+                    )
+                    if obstacle_types[0] == self._OBSTACLE_BOX:
+                        half_extents[0] = [
+                            0.5 * self._rng.uniform(cfg.box_length_min_m, cfg.box_length_max_m),
+                            0.5 * self._rng.uniform(cfg.box_width_min_m, cfg.box_width_max_m),
+                        ]
+                    elif obstacle_types[0] == self._OBSTACLE_WALL:
+                        half_extents[0] = [
+                            0.5 * self._rng.uniform(cfg.wall_length_min_m, cfg.wall_length_max_m),
+                            0.5 * self._rng.uniform(cfg.wall_width_min_m, cfg.wall_width_max_m),
+                        ]
             self._obstacle_xy[env_id] = xy.astype(self._dtype)
             self._obstacle_radius[env_id] = radii.astype(self._dtype)
             self._obstacle_half_extents[env_id] = half_extents

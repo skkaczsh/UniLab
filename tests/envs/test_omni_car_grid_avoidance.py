@@ -673,6 +673,54 @@ def test_omni_car_side_wall_keeps_forward_intent_gate_open() -> None:
     env.close()
 
 
+def test_omni_car_obstacle_curriculum_samples_front_blockers_and_side_walls() -> None:
+    front_env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 20,
+            "obstacles": {
+                "count": 3,
+                "circle_fraction": 1.0,
+                "box_fraction": 0.0,
+                "wall_fraction": 0.0,
+                "front_blocker_fraction": 1.0,
+                "side_wall_fraction": 0.0,
+            },
+        },
+    )
+    front_env.init_state()
+    front_env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
+    front_env._sample_obstacles(np.asarray([0], dtype=np.int32))
+    front_env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
+    assert front_env._command_safety_gate[0] == pytest.approx(0.0)
+    front_env.close()
+
+    side_env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 21,
+            "obstacles": {
+                "count": 3,
+                "circle_fraction": 1.0,
+                "box_fraction": 0.0,
+                "wall_fraction": 0.0,
+                "front_blocker_fraction": 0.0,
+                "side_wall_fraction": 1.0,
+            },
+        },
+    )
+    side_env.init_state()
+    side_env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
+    side_env._sample_obstacles(np.asarray([0], dtype=np.int32))
+    side_env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
+    assert side_env._command_safety_gate[0] == pytest.approx(1.0)
+    side_env.close()
+
+
 def test_omni_car_zero_command_rewards_idle_action() -> None:
     env = registry.make(
         "OmniCarGridAvoidance",

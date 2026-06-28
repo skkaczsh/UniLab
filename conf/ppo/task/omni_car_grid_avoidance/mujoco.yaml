@@ -62,7 +62,7 @@ env:
     long_hold_fraction: 0.40
     long_hold_min_s: 8.0
     long_hold_max_s: 35.0
-    zero_fraction: 0.18
+    zero_fraction: 0.24
     # Order: vx, vy, vyaw, vx+vy, vx+vyaw, vy+vyaw, vx+vy+vyaw.
     mode_weights: [0.10, 0.10, 0.10, 0.22, 0.10, 0.10, 0.28]
     deadband: 0.10
@@ -111,6 +111,8 @@ env:
     wall_fraction: 0.30
     spawn_radius_m: 4.2
     keepout_radius_m: 0.90
+    front_blocker_fraction: 0.35
+    side_wall_fraction: 0.20
   large_scene:
     enabled: true
     world_size_m: 36.0
@@ -137,7 +139,7 @@ env:
     response: 12.0
     blocked_stop: 10.0
     blocked_motion: 8.0
-    idle_stop: 4.0
+    idle_stop: 8.0
     off_axis: 8.0
     reverse: 10.0
     directional_clearance_margin_m: 0.35
@@ -168,7 +170,7 @@ reward:
   response: 12.0
   blocked_stop: 10.0
   blocked_motion: 8.0
-  idle_stop: 4.0
+  idle_stop: 8.0
   off_axis: 8.0
   reverse: 10.0
   directional_clearance_margin_m: 0.35
