@@ -105,6 +105,8 @@ class OmniCarRewardCfg:
     clearance_motion: float = 8.0
     clearance_target_motion: float = 10.0
     target_collision: float = 0.0
+    target_collision_margin_m: float = 0.25
+    target_collision_speed_mps: float = 0.25
     blocked_projection: float = 0.0
     blocked_stop: float = 0.0
     idle_stop: float = 4.0
@@ -2353,7 +2355,12 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         clearance_target_motion_cost = np.maximum(clearance_risk, target_risk) * (
             target_closing_speed / 0.25
         ) ** 2
-        target_collision_cost = (np.maximum(-target_clearance, 0.0) / 0.10) ** 2
+        target_collision_margin = max(float(cfg.target_collision_margin_m), 0.0)
+        target_collision_speed = max(float(cfg.target_collision_speed_mps), 1e-6)
+        target_collision_cost = (
+            (np.maximum(target_collision_margin - target_clearance, 0.0) / 0.10) ** 2
+            * (target_planar_speed / target_collision_speed) ** 2
+        )
         blocked_projection_cost = np.where(
             active_planar,
             blocked_path_risk * np.maximum(projection, 0.0) ** 2,

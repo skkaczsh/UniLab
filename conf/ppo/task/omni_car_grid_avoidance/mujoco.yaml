@@ -144,6 +144,8 @@ env:
     clearance_motion: 80.0
     clearance_target_motion: 220.0
     target_collision: 220.0
+    target_collision_margin_m: 0.25
+    target_collision_speed_mps: 0.25
     blocked_projection: 1200.0
     blocked_stop: 32.0
     idle_stop: 40.0
@@ -177,6 +179,8 @@ reward:
   clearance_motion: 80.0
   clearance_target_motion: 220.0
   target_collision: 220.0
+  target_collision_margin_m: 0.25
+  target_collision_speed_mps: 0.25
   blocked_projection: 1200.0
   blocked_stop: 32.0
   idle_stop: 40.0
