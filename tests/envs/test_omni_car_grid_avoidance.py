@@ -33,9 +33,9 @@ def test_omni_car_grid_contract() -> None:
     assert next_state.truncated.shape == (4,)
     assert "commands" in next_state.info
     assert "command_clearance" in next_state.info
-    assert "command_safety_gate" in next_state.info
+    assert "clearance_risk" in next_state.info
     assert next_state.info["command_clearance"].shape == (4,)
-    assert next_state.info["command_safety_gate"].shape == (4,)
+    assert next_state.info["clearance_risk"].shape == (4,)
     assert "reward_components" in next_state.info
     assert "total" in next_state.info["reward_components"]
     assert next_state.info["reward_components"]["total"].shape == (4,)
@@ -436,8 +436,8 @@ def test_omni_car_step_rewards_command_seen_by_policy_before_resample() -> None:
                 "intent_projection": 0.0,
                 "yaw_intent": 0.0,
                 "response": 0.0,
-                "blocked_stop": 0.0,
-                "blocked_motion": 0.0,
+                "clearance_motion": 0.0,
+                "clearance_target_motion": 0.0,
                 "idle_stop": 0.0,
                 "yaw_idle_stop": 0.0,
                 "off_axis": 0.0,
@@ -483,8 +483,8 @@ def test_omni_car_response_diff_and_jerk_rewards_are_measured() -> None:
                 "intent_projection": 0.0,
                 "yaw_intent": 0.0,
                 "response": 1.0,
-                "blocked_stop": 0.0,
-                "blocked_motion": 0.0,
+                "clearance_motion": 0.0,
+                "clearance_target_motion": 0.0,
                 "idle_stop": 0.0,
                 "off_axis": 0.0,
                 "reverse": 0.0,
@@ -553,8 +553,8 @@ def test_omni_car_projection_reward_penalizes_off_axis_and_reverse_motion() -> N
                 "intent_projection": 4.0,
                 "yaw_intent": 0.0,
                 "response": 0.0,
-                "blocked_stop": 0.0,
-                "blocked_motion": 0.0,
+                "clearance_motion": 0.0,
+                "clearance_target_motion": 0.0,
                 "idle_stop": 0.0,
                 "off_axis": 6.0,
                 "reverse": 8.0,
@@ -589,7 +589,7 @@ def test_omni_car_projection_reward_penalizes_off_axis_and_reverse_motion() -> N
     env.close()
 
 
-def test_omni_car_axis_tracking_penalty_is_command_direction_gated() -> None:
+def test_omni_car_axis_tracking_penalty_is_not_direction_gated() -> None:
     env = registry.make(
         "OmniCarGridAvoidance",
         sim_backend="mujoco",
@@ -607,8 +607,8 @@ def test_omni_car_axis_tracking_penalty_is_command_direction_gated() -> None:
                 "intent_projection": 0.0,
                 "yaw_intent": 0.0,
                 "response": 0.0,
-                "blocked_stop": 0.0,
-                "blocked_motion": 0.0,
+                "clearance_motion": 0.0,
+                "clearance_target_motion": 0.0,
                 "idle_stop": 0.0,
                 "off_axis": 0.0,
                 "reverse": 0.0,
@@ -633,13 +633,11 @@ def test_omni_car_axis_tracking_penalty_is_command_direction_gated() -> None:
 
     safe_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
     np.testing.assert_allclose(env._track_cost, [[0.25, 1.0, 0.25]], atol=1e-6)
-    assert env._command_safety_gate[0] == pytest.approx(1.0)
     assert safe_reward[0] == pytest.approx(-(0.25 + 2.0 + 0.75))
 
     env._obstacle_xy[0, 0] = np.asarray([0.40, -0.40], dtype=np.float32)
-    blocked_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
-    assert env._command_safety_gate[0] == pytest.approx(0.0)
-    assert blocked_reward[0] == pytest.approx(0.0)
+    front_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
+    assert front_reward[0] == pytest.approx(safe_reward[0])
     env.close()
 
 
@@ -661,8 +659,8 @@ def test_omni_car_front_obstacle_rewards_stop_over_forward_push() -> None:
                 "intent_projection": 4.0,
                 "yaw_intent": 0.0,
                 "response": 0.0,
-                "blocked_stop": 10.0,
-                "blocked_motion": 8.0,
+                "clearance_motion": 8.0,
+                "clearance_target_motion": 10.0,
                 "idle_stop": 0.0,
                 "off_axis": 0.0,
                 "reverse": 0.0,
@@ -687,25 +685,25 @@ def test_omni_car_front_obstacle_rewards_stop_over_forward_push() -> None:
     env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
 
     stop_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
-    stop_blocked_reward = float(env._reward_components["blocked_stop"][0])
     push_reward = env._compute_reward(np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32))
-    push_blocked_motion = float(env._reward_components["blocked_motion"][0])
+    push_clearance_motion = float(env._reward_components["clearance_motion"][0])
     target_push_reward = env._compute_reward(
         np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32),
         policy_action=np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32),
     )
-    target_push_blocked_motion = float(env._reward_components["blocked_motion"][0])
+    target_push_clearance_motion = float(
+        env._reward_components["clearance_target_motion"][0]
+    )
 
-    assert env._command_safety_gate[0] == pytest.approx(0.0)
+    assert env._clearance_risk[0] > 0.9
     assert stop_reward[0] > push_reward[0]
     assert stop_reward[0] > target_push_reward[0]
-    assert stop_blocked_reward > 0.0
-    assert push_blocked_motion < 0.0
-    assert target_push_blocked_motion < 0.0
+    assert push_clearance_motion < 0.0
+    assert target_push_clearance_motion < 0.0
     env.close()
 
 
-def test_omni_car_side_wall_keeps_forward_intent_gate_open() -> None:
+def test_omni_car_side_wall_keeps_forward_projection_reward_available() -> None:
     env = registry.make(
         "OmniCarGridAvoidance",
         sim_backend="mujoco",
@@ -719,12 +717,12 @@ def test_omni_car_side_wall_keeps_forward_intent_gate_open() -> None:
                 "wall_fraction": 0.0,
             },
             "reward": {
-                "intent": 0.0,
-                "intent_projection": 0.0,
+                "intent": 4.0,
+                "intent_projection": 2.0,
                 "yaw_intent": 0.0,
                 "response": 0.0,
-                "blocked_stop": 0.0,
-                "blocked_motion": 0.0,
+                "clearance_motion": 0.0,
+                "clearance_target_motion": 0.0,
                 "idle_stop": 0.0,
                 "off_axis": 0.0,
                 "reverse": 0.0,
@@ -750,9 +748,11 @@ def test_omni_car_side_wall_keeps_forward_intent_gate_open() -> None:
     env._obstacle_radius[0] = 0.22
     env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
 
-    env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
+    reward = env._compute_reward(np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32))
 
-    assert env._command_safety_gate[0] == pytest.approx(1.0)
+    assert env._reward_components["intent"][0] > 0.0
+    assert env._reward_components["intent_projection"][0] > 0.0
+    assert reward[0] > 0.0
     env.close()
 
 
@@ -780,7 +780,7 @@ def test_omni_car_obstacle_curriculum_samples_front_blockers_and_side_walls() ->
     front_env._sample_obstacles(np.asarray([0], dtype=np.int32))
     front_env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
     assert front_env._obstacle_type[0, 0] == front_env._OBSTACLE_WALL
-    assert front_env._command_safety_gate[0] == pytest.approx(0.0)
+    assert front_env._command_clearance[0] < 0.35
     front_env.close()
 
     box_env = registry.make(
@@ -806,7 +806,7 @@ def test_omni_car_obstacle_curriculum_samples_front_blockers_and_side_walls() ->
     box_env._sample_obstacles(np.asarray([0], dtype=np.int32))
     box_env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
     assert box_env._obstacle_type[0, 0] == box_env._OBSTACLE_BOX
-    assert box_env._command_safety_gate[0] == pytest.approx(0.0)
+    assert box_env._command_clearance[0] < 0.35
     box_env.close()
 
     side_env = registry.make(
@@ -829,7 +829,7 @@ def test_omni_car_obstacle_curriculum_samples_front_blockers_and_side_walls() ->
     side_env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
     side_env._sample_obstacles(np.asarray([0], dtype=np.int32))
     side_env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
-    assert side_env._command_safety_gate[0] == pytest.approx(1.0)
+    assert side_env._command_clearance[0] > 0.80
     side_env.close()
 
 
@@ -846,8 +846,8 @@ def test_omni_car_zero_command_rewards_idle_action() -> None:
                 "intent_projection": 0.0,
                 "yaw_intent": 1.0,
                 "response": 0.0,
-                "blocked_stop": 0.0,
-                "blocked_motion": 0.0,
+                "clearance_motion": 0.0,
+                "clearance_target_motion": 0.0,
                 "idle_stop": 4.0,
                 "off_axis": 0.0,
                 "reverse": 0.0,
@@ -889,8 +889,8 @@ def test_omni_car_zero_command_penalizes_raw_policy_target() -> None:
                 "intent_projection": 0.0,
                 "yaw_intent": 0.0,
                 "response": 0.0,
-                "blocked_stop": 0.0,
-                "blocked_motion": 0.0,
+                "clearance_motion": 0.0,
+                "clearance_target_motion": 0.0,
                 "idle_stop": 4.0,
                 "yaw_idle_stop": 2.0,
                 "off_axis": 0.0,
@@ -938,8 +938,8 @@ def test_omni_car_yaw_intent_only_rewards_active_yaw_commands() -> None:
                 "intent_projection": 0.0,
                 "yaw_intent": 3.0,
                 "response": 0.0,
-                "blocked_stop": 0.0,
-                "blocked_motion": 0.0,
+                "clearance_motion": 0.0,
+                "clearance_target_motion": 0.0,
                 "idle_stop": 0.0,
                 "off_axis": 0.0,
                 "reverse": 0.0,
@@ -984,8 +984,8 @@ def test_omni_car_yaw_idle_stop_penalizes_uncommanded_yaw() -> None:
                 "intent_projection": 0.0,
                 "yaw_intent": 0.0,
                 "response": 0.0,
-                "blocked_stop": 0.0,
-                "blocked_motion": 0.0,
+                "clearance_motion": 0.0,
+                "clearance_target_motion": 0.0,
                 "idle_stop": 0.0,
                 "yaw_idle_stop": 5.0,
                 "off_axis": 0.0,
@@ -1255,8 +1255,8 @@ def test_omni_car_large_scene_border_collision_and_stagnation_reset() -> None:
                 "intent_projection": 0.0,
                 "yaw_intent": 0.0,
                 "response": 0.0,
-                "blocked_stop": 0.0,
-                "blocked_motion": 0.0,
+                "clearance_motion": 0.0,
+                "clearance_target_motion": 0.0,
                 "idle_stop": 0.0,
                 "off_axis": 0.0,
                 "reverse": 0.0,

@@ -140,14 +140,12 @@ env:
     intent_projection: 22.0
     yaw_intent: 10.0
     response: 24.0
-    blocked_stop: 24.0
-    blocked_motion: 48.0
+    clearance_motion: 24.0
+    clearance_target_motion: 32.0
     idle_stop: 40.0
     yaw_idle_stop: 30.0
     off_axis: 28.0
     reverse: 45.0
-    directional_clearance_margin_m: 0.35
-    directional_clearance_range_m: 1.0
     vx_track: 9.0
     vy_track: 9.0
     vyaw_track: 20.0
@@ -172,14 +170,12 @@ reward:
   intent_projection: 22.0
   yaw_intent: 10.0
   response: 24.0
-  blocked_stop: 24.0
-  blocked_motion: 48.0
+  clearance_motion: 24.0
+  clearance_target_motion: 32.0
   idle_stop: 40.0
   yaw_idle_stop: 30.0
   off_axis: 28.0
   reverse: 45.0
-  directional_clearance_margin_m: 0.35
-  directional_clearance_range_m: 1.0
   vx_track: 9.0
   vy_track: 9.0
   vyaw_track: 20.0

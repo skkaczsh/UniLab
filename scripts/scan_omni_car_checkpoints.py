@@ -166,7 +166,7 @@ def compact_summary(checkpoint: int, summary: dict[str, Any], score: float) -> d
         "omni_car/tracking_error",
         "omni_car/response_progress",
         "omni_car/command_clearance",
-        "omni_car/command_safety_gate",
+        "omni_car/clearance_risk",
         "omni_car/mean_clearance",
         "vx_tracking_mae",
         "vy_tracking_mae",
@@ -174,8 +174,8 @@ def compact_summary(checkpoint: int, summary: dict[str, Any], score: float) -> d
         "omni_car/vx_jerk_cost",
         "omni_car/vy_jerk_cost",
         "omni_car/vyaw_jerk_cost",
-        "omni_car/reward/blocked_stop",
-        "omni_car/reward/blocked_motion",
+        "omni_car/reward/clearance_motion",
+        "omni_car/reward/clearance_target_motion",
         "omni_car/reward/idle_stop",
         "omni_car/reward/off_axis",
         "omni_car/reward/reverse",
@@ -216,8 +216,11 @@ def compact_behavior_summary(summary: dict[str, Any]) -> dict[str, Any]:
                 "projection_mean": item.get("projection_mean"),
                 "off_axis_abs_mean": item.get("off_axis_abs_mean"),
                 "collision_fraction": item.get("collision_fraction"),
-                "command_safety_gate_mean": item.get("command_safety_gate_mean"),
-                "reward_blocked_motion_mean": item.get("reward_blocked_motion_mean"),
+                "clearance_risk_mean": item.get("clearance_risk_mean"),
+                "reward_clearance_motion_mean": item.get("reward_clearance_motion_mean"),
+                "reward_clearance_target_motion_mean": item.get(
+                    "reward_clearance_target_motion_mean"
+                ),
                 "reward_idle_stop_mean": item.get("reward_idle_stop_mean"),
             }
             for item in summary.get("scenarios", [])

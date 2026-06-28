@@ -166,46 +166,40 @@ Reward shaping emphasizes these signals:
 
 1. Reward positive output-velocity projection along the commanded planar
    direction.
-2. Suppress planar intent and tracking rewards when the command direction is
-   blocked in the local occupancy grid, then reward stopping instead.
-3. Penalize forward motion into a blocked command corridor, including the raw
-   policy target's projection into the blocked direction, so pushing into a wall
-   cannot win through residual projection or yaw rewards.
-4. Penalize any output velocity during zero-command windows, including both the
+2. Penalize near-obstacle motion with a scalar clearance-risk cost, including
+   both the physically executed speed and the raw policy target speed, so pushing
+   into a wall cannot win through residual projection or yaw rewards.
+3. Penalize any output velocity during zero-command windows, including both the
    raw policy target and the physically limited executed velocity, so the
    learned optimum is idle when the operator is idle.
-5. Penalize velocity far from the commanded planar direction with an explicit
+4. Penalize velocity far from the commanded planar direction with an explicit
    off-axis term.
-6. Penalize reverse motion against the commanded planar direction.
-7. Track commanded yaw intent independently, but only when the operator gives a
+5. Penalize reverse motion against the commanded planar direction.
+6. Track commanded yaw intent independently, but only when the operator gives a
    non-zero yaw command so zero-yaw commands do not create a constant reward for
    standing still.
-8. Penalize yaw output when the user did not command yaw, including during
+7. Penalize yaw output when the user did not command yaw, including during
    planar-only commands.
-9. Improve response speed when the command direction is clear.
-10. Penalize per-axis tracking, action diff, and jerk independently for `vx`,
+8. Improve response speed whenever the executed action reduces command-tracking
+   error.
+9. Penalize per-axis tracking, action diff, and jerk independently for `vx`,
    `vy`, and `vyaw`.
-11. Preserve clearance and heavily punish collision.
+10. Preserve clearance and heavily punish collision.
 
-The command-direction feasibility scalar is a reward-shaping signal derived
-from local obstacle geometry by checking whether the commanded centerline is
-blocked ahead of the body. It is not an action gate. It intentionally does not
-close merely because a side obstacle is close; side-wall avoidance is left to
-clearance/collision terms so the policy can learn to preserve forward intent
-while sliding away from the wall.
 The actor does not receive privileged nearest-clearance or collision flags;
 those remain critic/logging signals only. The reward can still use privileged
 training information, but the positive planar intent term is now tied to the
 actual projection onto the user command, so pure side slip or reverse output
 does not earn forward-intent reward.
-The executed action is not clamped by command-direction geometry; obstacle
-avoidance is learned through PPO from the reward and curriculum signals. The
-current reward balance makes clear-command projection, response, and per-axis
-tracking large enough to compete with smoothness penalties, while making
-off-axis drift, blocked forward motion, and collision expensive enough that
-sliding into walls or pushing through blockers is not a profitable local
-optimum. Entropy is kept low enough that zero-command samples can converge to a
-stationary mean action.
+The executed action is not clamped by obstacle geometry, and no
+command-direction feasibility switch is used inside the reward. Obstacle
+avoidance is learned through PPO from projection rewards, smoothness penalties,
+clearance-risk costs, collision costs, and curriculum signals. The current
+reward balance makes clear-command projection, response, and per-axis tracking
+large enough to compete with smoothness penalties, while making off-axis drift,
+near-wall motion, and collision expensive enough that sliding into walls or
+pushing through blockers is not a profitable local optimum. Entropy is kept low
+enough that zero-command samples can converge to a stationary mean action.
 
 Recent diagnostics showed that a clear-scene PPO pretrain learns command
 following before the dense obstacle mix does. The recommended training path is
@@ -231,7 +225,7 @@ uv run scripts/evaluate_omni_car_behaviors.py \
 The behavior probe forces controlled scenarios for zero input, clear forward
 and diagonal following, front-blocked push, and a near-wall forward command.
 It reports planar speed, yaw drift, command projection, off-axis motion,
-collision fraction, and command-safety gate. A checkpoint should pass this
+collision fraction, clearance risk, and reward components. A checkpoint should pass this
 probe before being treated as a candidate for manual Xbox fine-tuning.
 
 ## Training

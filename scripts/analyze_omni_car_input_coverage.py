@@ -154,7 +154,7 @@ def _rollout_action(env: Any, mode: str) -> np.ndarray:
 def rollout_coverage(env: Any, *, num_steps: int, action_mode: str) -> dict[str, Any]:
     env.init_state()
     commands: list[np.ndarray] = []
-    gates: list[np.ndarray] = []
+    risks: list[np.ndarray] = []
     clearances: list[np.ndarray] = []
     executed: list[np.ndarray] = []
     collisions: list[np.ndarray] = []
@@ -162,13 +162,13 @@ def rollout_coverage(env: Any, *, num_steps: int, action_mode: str) -> dict[str,
         action = _rollout_action(env, action_mode)
         state = env.step(action)
         commands.append(state.info["commands"].copy())
-        gates.append(env._command_safety_gate.copy())
+        risks.append(env._clearance_risk.copy())
         clearances.append(env._command_clearance.copy())
         executed.append(state.info["executed_action"].copy())
         collisions.append(state.info["collision"].astype(np.float32).copy())
 
     command_arr = np.concatenate(commands, axis=0)
-    gate_arr = np.concatenate(gates, axis=0)
+    risk_arr = np.concatenate(risks, axis=0)
     clearance_arr = np.concatenate(clearances, axis=0)
     executed_arr = np.concatenate(executed, axis=0)
     collision_arr = np.concatenate(collisions, axis=0)
@@ -181,16 +181,16 @@ def rollout_coverage(env: Any, *, num_steps: int, action_mode: str) -> dict[str,
         "command": summarize_commands(
             command_arr, limits=env._velocity_limit, deadband=env._cfg.command.deadband
         ),
-        "command_safety_gate_mean": float(np.mean(gate_arr)),
-        "command_safety_gate_band_fraction": {
-            "blocked_0_02": _hist_fraction(gate_arr, [0.0, 0.2])[0],
-            "partial_02_08": _hist_fraction(gate_arr, [0.2, 0.8])[0],
-            "clear_08_1": _hist_fraction(gate_arr, [0.8, 1.000001])[0],
+        "clearance_risk_mean": float(np.mean(risk_arr)),
+        "clearance_risk_band_fraction": {
+            "low_0_02": _hist_fraction(risk_arr, [0.0, 0.2])[0],
+            "medium_02_08": _hist_fraction(risk_arr, [0.2, 0.8])[0],
+            "high_08_1": _hist_fraction(risk_arr, [0.8, 1.000001])[0],
         },
         "command_clearance_mean": float(np.mean(clearance_arr)),
-        "blocked_planar_fraction": float(np.mean(planar_active & (gate_arr < 0.2))),
-        "partial_blocked_planar_fraction": float(
-            np.mean(planar_active & (gate_arr >= 0.2) & (gate_arr < 0.8))
+        "high_risk_planar_fraction": float(np.mean(planar_active & (risk_arr > 0.8))),
+        "medium_risk_planar_fraction": float(
+            np.mean(planar_active & (risk_arr >= 0.2) & (risk_arr <= 0.8))
         ),
         "zero_with_motion_fraction": float(np.mean(zero & moving)),
         "collision_fraction": float(np.mean(collision_arr)),

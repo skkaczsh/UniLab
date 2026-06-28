@@ -177,7 +177,7 @@ def _apply_scenario(env: Any, wrapped_env: Any, scenario: BehaviorScenario) -> A
     info["nearest_clearance"] = env._nearest_clearance.copy()
     info["collision"] = env._collision.copy()
     info["command_clearance"] = env._command_clearance.copy()
-    info["command_safety_gate"] = env._command_safety_gate.copy()
+    info["clearance_risk"] = env._clearance_risk.copy()
     if env.state is not None:
         env._state = env.state.replace(obs=obs, info=info)
     return wrapped_env._obs_to_tensordict(obs, info)
@@ -190,10 +190,10 @@ def _empty_record() -> dict[str, list[float]]:
         "projection": [],
         "off_axis_abs": [],
         "collision": [],
-        "command_safety_gate": [],
+        "clearance_risk": [],
         "reward_total": [],
-        "reward_blocked_stop": [],
-        "reward_blocked_motion": [],
+        "reward_clearance_motion": [],
+        "reward_clearance_target_motion": [],
         "reward_idle_stop": [],
         "reward_yaw_idle_stop": [],
     }
@@ -215,16 +215,16 @@ def _record_step(record: dict[str, list[float]], env: Any, step_info: dict[str, 
     record["projection"].extend(projection.tolist())
     record["off_axis_abs"].extend(off_axis.tolist())
     record["collision"].extend(np.asarray(step_info["collision"], dtype=np.float32).tolist())
-    record["command_safety_gate"].extend(
-        np.asarray(step_info["command_safety_gate"], dtype=np.float64).tolist()
+    record["clearance_risk"].extend(
+        np.asarray(step_info["clearance_risk"], dtype=np.float64).tolist()
     )
     reward_components = step_info["reward_components"]
     record["reward_total"].extend(np.asarray(reward_components["total"]).tolist())
-    record["reward_blocked_stop"].extend(
-        np.asarray(reward_components["blocked_stop"]).tolist()
+    record["reward_clearance_motion"].extend(
+        np.asarray(reward_components["clearance_motion"]).tolist()
     )
-    record["reward_blocked_motion"].extend(
-        np.asarray(reward_components["blocked_motion"]).tolist()
+    record["reward_clearance_target_motion"].extend(
+        np.asarray(reward_components["clearance_target_motion"]).tolist()
     )
     record["reward_idle_stop"].extend(np.asarray(reward_components["idle_stop"]).tolist())
     yaw_idle_stop = reward_components.get("yaw_idle_stop")
@@ -247,10 +247,12 @@ def _summarize_record(
         "projection_mean": _mean(record["projection"]),
         "off_axis_abs_mean": _mean(record["off_axis_abs"]),
         "collision_fraction": _mean(record["collision"]),
-        "command_safety_gate_mean": _mean(record["command_safety_gate"]),
+        "clearance_risk_mean": _mean(record["clearance_risk"]),
         "reward_total_mean": _mean(record["reward_total"]),
-        "reward_blocked_stop_mean": _mean(record["reward_blocked_stop"]),
-        "reward_blocked_motion_mean": _mean(record["reward_blocked_motion"]),
+        "reward_clearance_motion_mean": _mean(record["reward_clearance_motion"]),
+        "reward_clearance_target_motion_mean": _mean(
+            record["reward_clearance_target_motion"]
+        ),
         "reward_idle_stop_mean": _mean(record["reward_idle_stop"]),
         "reward_yaw_idle_stop_mean": _mean(record["reward_yaw_idle_stop"]),
     }
@@ -315,8 +317,9 @@ def _format_summary(summary: dict[str, Any]) -> str:
             f"proj={item['projection_mean']:.4f} "
             f"off_axis={item['off_axis_abs_mean']:.4f} "
             f"collision={item['collision_fraction']:.4f} "
-            f"gate={item['command_safety_gate_mean']:.4f} "
-            f"r_blocked_motion={item['reward_blocked_motion_mean']:.4f} "
+            f"risk={item['clearance_risk_mean']:.4f} "
+            f"r_clear_motion={item['reward_clearance_motion_mean']:.4f} "
+            f"r_clear_target={item['reward_clearance_target_motion_mean']:.4f} "
             f"r_idle={item['reward_idle_stop_mean']:.4f} "
             f"r_yaw_idle={item['reward_yaw_idle_stop_mean']:.4f}"
         )
