@@ -168,8 +168,9 @@ Reward shaping emphasizes these signals:
    direction.
 2. Suppress planar intent and tracking rewards when the command direction is
    blocked in the local occupancy grid, then reward stopping instead.
-3. Penalize forward motion into a blocked command corridor so pushing into a
-   wall cannot win through residual projection or yaw rewards.
+3. Penalize forward motion into a blocked command corridor, including the raw
+   policy target's projection into the blocked direction, so pushing into a wall
+   cannot win through residual projection or yaw rewards.
 4. Penalize any output velocity during zero-command windows, including both the
    raw policy target and the physically limited executed velocity, so the
    learned optimum is idle when the operator is idle.

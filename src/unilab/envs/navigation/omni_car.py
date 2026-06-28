@@ -2236,8 +2236,15 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             -(planar_speed / 0.20) * (planar_speed / 0.20)
         )
         blocked_forward_speed = np.where(active_planar, np.maximum(along_speed, 0.0), 0.0)
+        target_along_speed = np.sum(target_action[:, :2] * command_dir, axis=1)
+        blocked_target_forward_speed = np.where(
+            active_planar, np.maximum(target_along_speed, 0.0), 0.0
+        )
         blocked_motion_cost = (1.0 - command_gate) * (
             blocked_forward_speed / 0.25
+        ) ** 2
+        blocked_target_motion_cost = (1.0 - command_gate) * (
+            blocked_target_forward_speed / 0.35
         ) ** 2
         command_norm = np.linalg.norm(cmd, axis=1)
         idle_mask = command_norm <= self._cfg.command.deadband
@@ -2280,9 +2287,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "yaw_intent": (cfg.yaw_intent * yaw_reward).astype(self._dtype),
             "response": (cfg.response * response_progress).astype(self._dtype),
             "blocked_stop": (cfg.blocked_stop * blocked_stop_reward).astype(self._dtype),
-            "blocked_motion": (-cfg.blocked_motion * blocked_motion_cost).astype(
-                self._dtype
-            ),
+            "blocked_motion": (
+                -cfg.blocked_motion * (blocked_motion_cost + blocked_target_motion_cost)
+            ).astype(self._dtype),
             "idle_stop": (-cfg.idle_stop * (idle_action_cost + idle_target_cost)).astype(
                 self._dtype
             ),

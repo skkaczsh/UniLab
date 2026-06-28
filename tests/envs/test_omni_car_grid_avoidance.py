@@ -690,11 +690,18 @@ def test_omni_car_front_obstacle_rewards_stop_over_forward_push() -> None:
     stop_blocked_reward = float(env._reward_components["blocked_stop"][0])
     push_reward = env._compute_reward(np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32))
     push_blocked_motion = float(env._reward_components["blocked_motion"][0])
+    target_push_reward = env._compute_reward(
+        np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32),
+        policy_action=np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32),
+    )
+    target_push_blocked_motion = float(env._reward_components["blocked_motion"][0])
 
     assert env._command_safety_gate[0] == pytest.approx(0.0)
     assert stop_reward[0] > push_reward[0]
+    assert stop_reward[0] > target_push_reward[0]
     assert stop_blocked_reward > 0.0
     assert push_blocked_motion < 0.0
+    assert target_push_blocked_motion < 0.0
     env.close()
 
 
