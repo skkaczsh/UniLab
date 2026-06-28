@@ -194,6 +194,7 @@ def _empty_record() -> dict[str, list[float]]:
         "reward_total": [],
         "reward_clearance_motion": [],
         "reward_clearance_target_motion": [],
+        "reward_blocked_projection": [],
         "reward_idle_stop": [],
         "reward_yaw_idle_stop": [],
     }
@@ -226,6 +227,10 @@ def _record_step(record: dict[str, list[float]], env: Any, step_info: dict[str, 
     record["reward_clearance_target_motion"].extend(
         np.asarray(reward_components["clearance_target_motion"]).tolist()
     )
+    blocked_projection = reward_components.get("blocked_projection")
+    if blocked_projection is None:
+        blocked_projection = np.zeros_like(reward_components["idle_stop"])
+    record["reward_blocked_projection"].extend(np.asarray(blocked_projection).tolist())
     record["reward_idle_stop"].extend(np.asarray(reward_components["idle_stop"]).tolist())
     yaw_idle_stop = reward_components.get("yaw_idle_stop")
     if yaw_idle_stop is None:
@@ -253,6 +258,7 @@ def _summarize_record(
         "reward_clearance_target_motion_mean": _mean(
             record["reward_clearance_target_motion"]
         ),
+        "reward_blocked_projection_mean": _mean(record.get("reward_blocked_projection", [])),
         "reward_idle_stop_mean": _mean(record["reward_idle_stop"]),
         "reward_yaw_idle_stop_mean": _mean(record["reward_yaw_idle_stop"]),
     }
@@ -320,6 +326,7 @@ def _format_summary(summary: dict[str, Any]) -> str:
             f"risk={item['clearance_risk_mean']:.4f} "
             f"r_clear_motion={item['reward_clearance_motion_mean']:.4f} "
             f"r_clear_target={item['reward_clearance_target_motion_mean']:.4f} "
+            f"r_blocked_proj={item['reward_blocked_projection_mean']:.4f} "
             f"r_idle={item['reward_idle_stop_mean']:.4f} "
             f"r_yaw_idle={item['reward_yaw_idle_stop_mean']:.4f}"
         )

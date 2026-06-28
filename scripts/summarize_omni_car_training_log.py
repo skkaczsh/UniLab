@@ -21,6 +21,7 @@ DEFAULT_BEST_KEYS = (
     "omni_car/mean_clearance",
     "omni_car/clearance_risk",
     "omni_car/reward/clearance_motion",
+    "omni_car/reward/blocked_projection",
     "omni_car/reward/off_axis",
     "omni_car/reward/reverse",
     "Mean reward",

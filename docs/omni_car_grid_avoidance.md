@@ -81,7 +81,7 @@ sampled command norm is within `zero_snap_norm`, the smoothed command snaps to
 zero and the observation history can contain sustained all-zero commands.
 
 The local obstacle curriculum reserves a controlled slice of resets for
-command-relative geometry: `33%` front blockers, `25%` side-wall cases, and the
+command-relative geometry: `45%` front blockers, `20%` side-wall cases, and the
 rest unconstrained random obstacle fields. Front blockers are intentionally
 mixed across circles, boxes, and wall-like rectangles so the policy sees both
 single-object avoidance and true corridor closure under sustained forward
@@ -171,22 +171,26 @@ Reward shaping emphasizes these signals:
    a wall expensive without giving the policy an action-level geometry gate, and
    without charging the same cost for wall-parallel motion that preserves
    clearance.
-3. Penalize any output velocity during zero-command windows, including both the
+3. Penalize positive projection along the commanded direction when the swept
+   command corridor is blocked. This is a continuous reward cost, not a hard
+   action gate; side-wall forward motion remains learnable when the corridor
+   ahead is open.
+4. Penalize any output velocity during zero-command windows, including both the
    raw policy target and the physically limited executed velocity, so the
    learned optimum is idle when the operator is idle.
-4. Penalize velocity far from the commanded planar direction with an explicit
+5. Penalize velocity far from the commanded planar direction with an explicit
    off-axis term.
-5. Penalize reverse motion against the commanded planar direction.
-6. Track commanded yaw intent independently, but only when the operator gives a
+6. Penalize reverse motion against the commanded planar direction.
+7. Track commanded yaw intent independently, but only when the operator gives a
    non-zero yaw command so zero-yaw commands do not create a constant reward for
    standing still.
-7. Penalize yaw output when the user did not command yaw, including during
+8. Penalize yaw output when the user did not command yaw, including during
    planar-only commands.
-8. Improve response speed whenever the executed action reduces command-tracking
+9. Improve response speed whenever the executed action reduces command-tracking
    error.
-9. Penalize per-axis tracking, action diff, and jerk independently for `vx`,
+10. Penalize per-axis tracking, action diff, and jerk independently for `vx`,
    `vy`, and `vyaw`.
-10. Preserve clearance and heavily punish collision.
+11. Preserve clearance and heavily punish collision.
 
 The actor does not receive privileged nearest-clearance or collision flags;
 those remain critic/logging signals only. The reward can still use privileged
@@ -194,9 +198,10 @@ training information, but the positive planar intent term is now tied to the
 actual projection onto the user command, so pure side slip or reverse output
 does not earn forward-intent reward.
 The executed action is not clamped by obstacle geometry, and no
-command-direction feasibility switch is used inside the reward. Obstacle
+hard command-direction feasibility switch is used inside the reward. Obstacle
 avoidance is learned through PPO from projection rewards, smoothness penalties,
-clearance-closing costs, collision costs, and curriculum signals. The current
+clearance-closing costs, blocked-corridor projection costs, collision costs,
+and curriculum signals. The current
 reward balance makes clear-command projection, response, and per-axis tracking
 large enough to compete with smoothness penalties, while making off-axis drift,
 clearance loss, and collision expensive enough that sliding into walls or

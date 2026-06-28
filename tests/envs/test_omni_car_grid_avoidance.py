@@ -723,6 +723,73 @@ def test_omni_car_front_obstacle_rewards_stop_over_forward_push() -> None:
     env.close()
 
 
+def test_omni_car_blocked_projection_penalizes_only_blocked_forward_push() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 42,
+            "obstacles": {
+                "count": 3,
+                "circle_fraction": 1.0,
+                "box_fraction": 0.0,
+                "wall_fraction": 0.0,
+            },
+            "reward": {
+                "intent": 0.0,
+                "intent_projection": 0.0,
+                "yaw_intent": 0.0,
+                "response": 0.0,
+                "clearance_motion": 0.0,
+                "clearance_target_motion": 0.0,
+                "blocked_projection": 20.0,
+                "idle_stop": 0.0,
+                "yaw_idle_stop": 0.0,
+                "off_axis": 0.0,
+                "reverse": 0.0,
+                "vx_track": 0.0,
+                "vy_track": 0.0,
+                "vyaw_track": 0.0,
+                "vx_diff": 0.0,
+                "vy_diff": 0.0,
+                "vyaw_diff": 0.0,
+                "vx_jerk": 0.0,
+                "vy_jerk": 0.0,
+                "vyaw_jerk": 0.0,
+                "clearance": 0.0,
+                "collision": 0.0,
+            },
+        },
+    )
+    env.init_state()
+    env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
+    env._obstacle_xy[0] = np.asarray(
+        [[0.55, 0.0], [10.0, 10.0], [10.0, 10.0]], dtype=np.float32
+    )
+    env._obstacle_radius[0] = 0.22
+    env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
+
+    stop_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
+    stop_penalty = float(env._reward_components["blocked_projection"][0])
+    push_reward = env._compute_reward(np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32))
+    push_penalty = float(env._reward_components["blocked_projection"][0])
+
+    env._obstacle_xy[0] = np.asarray(
+        [[0.60, -0.34], [1.05, -0.34], [1.50, -0.34]], dtype=np.float32
+    )
+    env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
+    side_reward = env._compute_reward(np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32))
+    side_penalty = float(env._reward_components["blocked_projection"][0])
+
+    assert stop_penalty == pytest.approx(0.0)
+    assert push_penalty < -1.0
+    assert push_reward[0] < stop_reward[0]
+    assert side_penalty == pytest.approx(0.0, abs=0.5)
+    assert side_reward[0] > push_reward[0]
+    env.close()
+
+
 def test_omni_car_side_wall_keeps_forward_projection_reward_available() -> None:
     env = registry.make(
         "OmniCarGridAvoidance",

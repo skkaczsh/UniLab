@@ -64,7 +64,7 @@ env:
     long_hold_max_s: 35.0
     zero_fraction: 0.30
     # Order: vx, vy, vyaw, vx+vy, vx+vyaw, vy+vyaw, vx+vy+vyaw.
-    mode_weights: [0.10, 0.10, 0.10, 0.22, 0.10, 0.10, 0.28]
+    mode_weights: [0.14, 0.10, 0.08, 0.28, 0.10, 0.08, 0.22]
     deadband: 0.10
     smoothing_tau_s: 0.55
     zero_snap_norm: 0.10
@@ -112,8 +112,8 @@ env:
     wall_fraction: 0.30
     spawn_radius_m: 4.2
     keepout_radius_m: 0.90
-    front_blocker_fraction: 0.33
-    side_wall_fraction: 0.25
+    front_blocker_fraction: 0.45
+    side_wall_fraction: 0.20
     front_blocker_box_fraction: 0.30
     front_blocker_wall_fraction: 0.45
   large_scene:
@@ -136,18 +136,19 @@ env:
     stagnation_min_return_delta: 1.0
     resample_scene_on_full_reset: false
   reward:
-    intent: 48.0
-    intent_projection: 22.0
+    intent: 54.0
+    intent_projection: 30.0
     yaw_intent: 10.0
-    response: 24.0
+    response: 30.0
     clearance_motion: 80.0
     clearance_target_motion: 100.0
+    blocked_projection: 130.0
     idle_stop: 40.0
     yaw_idle_stop: 30.0
     off_axis: 28.0
     reverse: 45.0
-    vx_track: 9.0
-    vy_track: 9.0
+    vx_track: 16.0
+    vy_track: 14.0
     vyaw_track: 20.0
     vx_diff: 6.0
     vy_diff: 6.0
@@ -166,18 +167,19 @@ env:
     max_yaw_accel: 4.5
 
 reward:
-  intent: 48.0
-  intent_projection: 22.0
+  intent: 54.0
+  intent_projection: 30.0
   yaw_intent: 10.0
-  response: 24.0
+  response: 30.0
   clearance_motion: 80.0
   clearance_target_motion: 100.0
+  blocked_projection: 130.0
   idle_stop: 40.0
   yaw_idle_stop: 30.0
   off_axis: 28.0
   reverse: 45.0
-  vx_track: 9.0
-  vy_track: 9.0
+  vx_track: 16.0
+  vy_track: 14.0
   vyaw_track: 20.0
   vx_diff: 6.0
   vy_diff: 6.0

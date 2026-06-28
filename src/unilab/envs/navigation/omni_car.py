@@ -103,6 +103,7 @@ class OmniCarRewardCfg:
     response: float = 7.0
     clearance_motion: float = 8.0
     clearance_target_motion: float = 10.0
+    blocked_projection: float = 0.0
     idle_stop: float = 4.0
     yaw_idle_stop: float = 0.0
     off_axis: float = 5.0
@@ -464,6 +465,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 "response",
                 "clearance_motion",
                 "clearance_target_motion",
+                "blocked_projection",
                 "idle_stop",
                 "yaw_idle_stop",
                 "off_axis",
@@ -2284,6 +2286,12 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         clearance_target_motion_cost = np.maximum(clearance_risk, target_risk) * (
             target_closing_speed / 0.25
         ) ** 2
+        blocked_path_risk = np.exp(-np.maximum(command_clearance, 0.0) / 0.20)
+        blocked_projection_cost = np.where(
+            active_planar,
+            blocked_path_risk * np.maximum(projection, 0.0) ** 2,
+            0.0,
+        )
         idle_action_cost = np.where(
             idle_mask,
             (np.linalg.norm(action[:, :2], axis=1) / 0.10) ** 2
@@ -2326,6 +2334,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "clearance_target_motion": (
                 -cfg.clearance_target_motion * clearance_target_motion_cost
             ).astype(self._dtype),
+            "blocked_projection": (
+                -cfg.blocked_projection * blocked_projection_cost
+            ).astype(self._dtype),
             "idle_stop": (-cfg.idle_stop * (idle_action_cost + idle_target_cost)).astype(
                 self._dtype
             ),
@@ -2356,6 +2367,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             + self._reward_components["response"]
             + self._reward_components["clearance_motion"]
             + self._reward_components["clearance_target_motion"]
+            + self._reward_components["blocked_projection"]
             + self._reward_components["idle_stop"]
             + self._reward_components["yaw_idle_stop"]
             + self._reward_components["off_axis"]
@@ -2620,6 +2632,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "response",
             "clearance_motion",
             "clearance_target_motion",
+            "blocked_projection",
             "idle_stop",
             "off_axis",
             "reverse",
