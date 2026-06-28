@@ -151,6 +151,95 @@ def test_omni_car_balanced_command_sampler_covers_modes_and_limits() -> None:
     env.close()
 
 
+def test_omni_car_human_command_overrides_selected_agent() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=4,
+        env_cfg_override={
+            "seed": 53,
+            "human_command": {
+                "enabled": True,
+                "env_index": "random",
+                "replay_fanout": 1,
+                "backend": "zero",
+                "smoothing_tau_s": 0.0,
+            },
+        },
+    )
+    assert env._human_command_env_ids.shape == (2,)
+    assert 0 <= env._human_command_env_id < env.num_envs
+
+    command = np.asarray([1.2, -0.4, 0.5], dtype=np.float32)
+    env._read_human_command = lambda: command.astype(env._dtype)
+    state = env.init_state()
+
+    expected_command_rows = np.broadcast_to(command, (env._human_command_env_ids.size, 3))
+    np.testing.assert_allclose(
+        env._raw_commands[env._human_command_env_ids], expected_command_rows
+    )
+    np.testing.assert_allclose(
+        env._commands[env._human_command_env_ids], expected_command_rows
+    )
+    for env_id in env._human_command_env_ids:
+        np.testing.assert_allclose(env._command_history[env_id], np.broadcast_to(command, (24, 3)))
+
+    next_command = np.asarray([-0.8, 0.3, -1.1], dtype=np.float32)
+    env._read_human_command = lambda: next_command.astype(env._dtype)
+    state = env.step(np.zeros((4, 3), dtype=np.float32))
+
+    expected_next_command_rows = np.broadcast_to(
+        next_command, (env._human_command_env_ids.size, 3)
+    )
+    np.testing.assert_allclose(
+        env._raw_commands[env._human_command_env_ids], expected_next_command_rows
+    )
+    np.testing.assert_allclose(
+        env._commands[env._human_command_env_ids], expected_next_command_rows
+    )
+    assert state.info["human_command_enabled"] is True
+    assert state.info["human_command_env_id"] == env._human_command_env_id
+    np.testing.assert_array_equal(state.info["human_command_env_ids"], env._human_command_env_ids)
+    np.testing.assert_allclose(state.info["human_command"], next_command)
+    assert state.info["log"]["omni_car/human_command_norm"] == pytest.approx(
+        float(np.linalg.norm(next_command))
+    )
+    env.close()
+
+
+def test_omni_car_human_command_axis_mapping_uses_xbox_sticks() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 59,
+            "human_command": {
+                "enabled": True,
+                "backend": "zero",
+                "deadzone": 0.10,
+                "axis_vx": 1,
+                "axis_vy": 0,
+                "axis_vyaw": 2,
+                "invert_vx": True,
+                "invert_vy": False,
+                "invert_vyaw": False,
+            },
+        },
+    )
+    axes = np.asarray([0.55, -0.55, 0.55], dtype=np.float32)
+    command = env._map_human_axes_to_command(axes)
+    expected_axis = (0.55 - 0.10) / (1.0 - 0.10)
+    np.testing.assert_allclose(
+        command,
+        [2.0 * expected_axis, 1.0 * expected_axis, 2.0 * expected_axis],
+    )
+
+    deadzone_command = env._map_human_axes_to_command(np.asarray([0.05, -0.05, 0.05]))
+    np.testing.assert_array_equal(deadzone_command, np.zeros((3,), dtype=env._dtype))
+    env.close()
+
+
 def test_omni_car_physical_limits_apply_before_integration() -> None:
     env = registry.make(
         "OmniCarGridAvoidance",

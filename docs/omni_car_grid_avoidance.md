@@ -69,6 +69,47 @@ coverage over pure longitudinal, pure lateral, pure yaw, planar, yaw-coupled,
 and full omnidirectional commands instead of relying on independent uniform
 axis sampling.
 
+## Xbox human-command mode
+
+Set `env.human_command.enabled=true` to replace the sampled user command for one
+randomly selected vectorized agent with live Xbox input. This does not bypass
+the policy: the controller only writes the desired command `[vx, vy, vyaw]`;
+the actor still outputs the safe executed action.
+
+Default mapping:
+
+- Left stick vertical -> `vx` in `[-2.0, 2.0]`, inverted so pushing forward is
+  positive `vx`.
+- Left stick horizontal -> `vy` in `[-1.0, 1.0]`.
+- Right stick horizontal -> `vyaw` in `[-2.0, 2.0]`.
+
+Start a local interactive training run with the connected controller:
+
+```bash
+uv run train --algo ppo --task omni_car_grid_avoidance --sim mujoco \
+  env.human_command.enabled=true \
+  training.play_render_mode=interactive
+```
+
+If the Xbox axis order differs on your machine, inspect it with:
+
+```bash
+uv run python scripts/check_xbox_controller.py
+```
+
+Then override the axis id, for example:
+
+```bash
+uv run train --algo ppo --task omni_car_grid_avoidance --sim mujoco \
+  env.human_command.enabled=true \
+  env.human_command.axis_vyaw=3
+```
+
+`env.human_command.replay_fanout=N` can copy the same human command stream into
+`N` extra randomly selected agents. Keep it at `0` for a pure one-agent manual
+signal, or raise it when you want the same human command waveform sampled
+against more obstacle layouts.
+
 Reward shaping emphasizes four things:
 
 1. Track commanded planar and yaw intent.

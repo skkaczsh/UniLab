@@ -110,6 +110,24 @@ class OmniCarPhysicalLimitCfg:
     max_yaw_accel: float = 4.0
 
 
+@dataclass
+class OmniCarHumanCommandCfg:
+    enabled: bool = False
+    env_index: int | str = "random"
+    replay_fanout: int = 0
+    backend: str = "pygame"
+    joystick_index: int = 0
+    require_joystick: bool = True
+    deadzone: float = 0.08
+    smoothing_tau_s: float = 0.10
+    axis_vx: int = 1
+    axis_vy: int = 0
+    axis_vyaw: int = 2
+    invert_vx: bool = True
+    invert_vy: bool = False
+    invert_vyaw: bool = False
+
+
 @registry.envcfg("OmniCarGridAvoidance")
 @dataclass
 class OmniCarGridAvoidanceCfg(EnvCfg):
@@ -127,6 +145,7 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
     large_scene: OmniCarLargeSceneCfg = field(default_factory=OmniCarLargeSceneCfg)
     reward: OmniCarRewardCfg = field(default_factory=OmniCarRewardCfg)
     physical_limits: OmniCarPhysicalLimitCfg = field(default_factory=OmniCarPhysicalLimitCfg)
+    human_command: OmniCarHumanCommandCfg = field(default_factory=OmniCarHumanCommandCfg)
     reward_config: dict[str, Any] | None = None
     seed: int | None = None
 
@@ -189,6 +208,15 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
             raise ValueError("physical velocity limits must be positive")
         if min(limits.max_x_accel, limits.max_y_accel, limits.max_yaw_accel) <= 0.0:
             raise ValueError("physical acceleration limits must be positive")
+        human = self.human_command
+        if human.replay_fanout < 0:
+            raise ValueError("human_command.replay_fanout must be non-negative")
+        if not 0.0 <= human.deadzone < 1.0:
+            raise ValueError("human_command.deadzone must be in [0, 1)")
+        if human.smoothing_tau_s < 0.0:
+            raise ValueError("human_command.smoothing_tau_s must be non-negative")
+        if min(human.axis_vx, human.axis_vy, human.axis_vyaw) < 0:
+            raise ValueError("human_command axis indices must be non-negative")
 
 
 @registry.env("OmniCarGridAvoidance", sim_backend="mujoco")
@@ -256,6 +284,16 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._accel_delta_limit = self._accel_limit * self._cfg.ctrl_dt
         self._raw_commands = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._commands = np.zeros((self._num_envs, 3), dtype=self._dtype)
+        self._human_command_enabled = bool(cfg.human_command.enabled)
+        self._human_command_env_id = self._select_human_command_env_id()
+        self._human_command_env_ids = self._select_human_command_env_ids()
+        self._human_command = np.zeros((3,), dtype=self._dtype)
+        self._human_command_connected = False
+        self._human_controller_name = ""
+        self._human_pygame: Any | None = None
+        self._human_joystick: Any | None = None
+        if self._human_command_enabled:
+            self._ensure_human_command_backend()
         self._command_history = np.zeros(
             (self._num_envs, self._obs_history_len, 3), dtype=self._dtype
         )
@@ -372,6 +410,121 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         )
         return gym.spaces.Box(-high, high, dtype=np.float32)
 
+    def _select_human_command_env_id(self) -> int:
+        if not self._human_command_enabled:
+            return -1
+        requested = self._cfg.human_command.env_index
+        if isinstance(requested, str):
+            if requested != "random":
+                raise ValueError("human_command.env_index must be an integer or 'random'")
+            return int(self._rng.integers(0, self._num_envs))
+        env_id = int(requested)
+        if not 0 <= env_id < self._num_envs:
+            raise ValueError(
+                f"human_command.env_index must be in [0, {self._num_envs}), got {env_id}"
+            )
+        return env_id
+
+    def _select_human_command_env_ids(self) -> np.ndarray:
+        if self._human_command_env_id < 0:
+            return np.zeros((0,), dtype=np.int32)
+        ids = [self._human_command_env_id]
+        fanout = min(int(self._cfg.human_command.replay_fanout), max(self._num_envs - 1, 0))
+        if fanout > 0:
+            candidates = np.setdiff1d(self._all_env_indices, np.asarray(ids, dtype=np.int32))
+            replay_ids = self._rng.choice(candidates, size=fanout, replace=False)
+            ids.extend(int(env_id) for env_id in replay_ids)
+        return np.asarray(ids, dtype=np.int32)
+
+    def _ensure_human_command_backend(self) -> None:
+        backend = self._cfg.human_command.backend
+        if backend == "zero":
+            self._human_command_connected = True
+            self._human_controller_name = "zero"
+            return
+        if backend != "pygame":
+            raise ValueError(f"Unsupported human_command.backend: {backend}")
+        if self._human_joystick is not None:
+            return
+        try:
+            import pygame
+        except ImportError as exc:  # pragma: no cover - exercised when optional dep missing
+            raise RuntimeError(
+                "human_command.backend=pygame requires pygame. Install project dependencies "
+                "with `uv sync` or disable env.human_command.enabled."
+            ) from exc
+        pygame.init()
+        pygame.joystick.init()
+        joystick_count = pygame.joystick.get_count()
+        if joystick_count == 0:
+            self._human_command_connected = False
+            if self._cfg.human_command.require_joystick:
+                raise RuntimeError("human_command is enabled but pygame found no joystick")
+            return
+        joystick_index = int(self._cfg.human_command.joystick_index)
+        if not 0 <= joystick_index < joystick_count:
+            raise RuntimeError(
+                f"human_command.joystick_index={joystick_index} but pygame found "
+                f"{joystick_count} joystick(s)"
+            )
+        joystick = pygame.joystick.Joystick(joystick_index)
+        joystick.init()
+        self._human_pygame = pygame
+        self._human_joystick = joystick
+        self._human_command_connected = True
+        self._human_controller_name = joystick.get_name()
+
+    def _read_human_command(self) -> np.ndarray:
+        backend = self._cfg.human_command.backend
+        if backend == "zero":
+            return np.zeros((3,), dtype=self._dtype)
+        self._ensure_human_command_backend()
+        if self._human_joystick is None:
+            return np.zeros((3,), dtype=self._dtype)
+        self._human_pygame.event.pump()
+        joystick = self._human_joystick
+        max_axis = max(
+            self._cfg.human_command.axis_vx,
+            self._cfg.human_command.axis_vy,
+            self._cfg.human_command.axis_vyaw,
+        )
+        if joystick.get_numaxes() <= max_axis:
+            raise RuntimeError(
+                f"Joystick '{self._human_controller_name}' exposes {joystick.get_numaxes()} "
+                f"axes, but human_command needs axis {max_axis}"
+            )
+        axes = np.asarray([joystick.get_axis(axis_id) for axis_id in range(max_axis + 1)])
+        return self._map_human_axes_to_command(axes)
+
+    def _map_human_axes_to_command(self, axes: np.ndarray) -> np.ndarray:
+        human = self._cfg.human_command
+
+        def shaped(axis_id: int, invert: bool) -> float:
+            value = float(axes[axis_id])
+            if invert:
+                value = -value
+            magnitude = abs(value)
+            if magnitude < human.deadzone:
+                return 0.0
+            scaled = (magnitude - human.deadzone) / (1.0 - human.deadzone)
+            return math.copysign(scaled, value)
+
+        normalized = np.asarray(
+            [
+                shaped(human.axis_vx, human.invert_vx),
+                shaped(human.axis_vy, human.invert_vy),
+                shaped(human.axis_vyaw, human.invert_vyaw),
+            ],
+            dtype=self._dtype,
+        )
+        return (normalized * self._velocity_limit).astype(self._dtype)
+
+    def _refresh_human_commands(self) -> None:
+        if not self._human_command_enabled or self._human_command_env_ids.size == 0:
+            return
+        self._human_command = self._read_human_command()
+        self._raw_commands[self._human_command_env_ids] = self._human_command
+
     def init_state(self) -> NpEnvState:
         obs, info = self.reset(np.arange(self._num_envs, dtype=np.int32))
         reward = np.zeros((self._num_envs,), dtype=self._dtype)
@@ -400,6 +553,10 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         sampled_commands = self._sample_commands(env_indices.size)
         self._raw_commands[env_indices] = sampled_commands
         self._commands[env_indices] = sampled_commands.copy()
+        self._refresh_human_commands()
+        human_reset = np.intersect1d(env_indices, self._human_command_env_ids, assume_unique=False)
+        if human_reset.size > 0:
+            self._commands[human_reset] = self._raw_commands[human_reset]
         self._seed_history(env_indices)
         if not self._large_scene_enabled:
             self._sample_obstacles(env_indices)
@@ -445,6 +602,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 int(np.count_nonzero(resample_mask))
             )
 
+        self._refresh_human_commands()
         self._update_commands()
 
         self._nearest_clearance = self._compute_clearance(self._all_env_indices)
@@ -464,6 +622,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "track_cost": self._track_cost.copy(),
             "diff_cost": self._diff_cost.copy(),
             "jerk_cost": self._jerk_cost.copy(),
+            "human_command": self._human_command.copy(),
+            "human_command_env_id": self._human_command_env_id,
+            "human_command_agent_count": self._human_command_env_ids.size,
         }
         terminated = self._collision.copy()
         self._truncated.fill(False)
@@ -485,6 +646,12 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._state.info["agent_collision"] = self._agent_collision.copy()
         self._state.info["border_collision"] = self._border_collision.copy()
         self._state.info["stagnated"] = self._stagnated.copy()
+        self._state.info["human_command_enabled"] = self._human_command_enabled
+        self._state.info["human_command_env_id"] = self._human_command_env_id
+        self._state.info["human_command_env_ids"] = self._human_command_env_ids.copy()
+        self._state.info["human_command"] = self._human_command.copy()
+        self._state.info["human_command_connected"] = self._human_command_connected
+        self._state.info["human_controller_name"] = self._human_controller_name
         final_observation = None
         if np.any(done):
             final_observation = {key: value.copy() for key, value in obs.items()}
@@ -540,6 +707,11 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "omni_car/vx_jerk_cost": float(np.mean(log_snapshot["jerk_cost"][:, 0])),
             "omni_car/vy_jerk_cost": float(np.mean(log_snapshot["jerk_cost"][:, 1])),
             "omni_car/vyaw_jerk_cost": float(np.mean(log_snapshot["jerk_cost"][:, 2])),
+            "omni_car/human_command_env_id": float(log_snapshot["human_command_env_id"]),
+            "omni_car/human_command_agent_count": float(
+                log_snapshot["human_command_agent_count"]
+            ),
+            "omni_car/human_command_norm": float(np.linalg.norm(log_snapshot["human_command"])),
         }
         return self._state
 
@@ -694,12 +866,29 @@ class OmniCarGridAvoidanceEnv(ABEnv):
     def _update_commands(self) -> None:
         if self._cfg.command.smoothing_tau_s <= 0.0:
             self._commands = self._raw_commands.copy()
+            self._update_human_smoothed_commands()
             return
 
         alpha = float(self._cfg.ctrl_dt / (self._cfg.command.smoothing_tau_s + self._cfg.ctrl_dt))
         self._commands = ((1.0 - alpha) * self._commands + alpha * self._raw_commands).astype(
             self._dtype
         )
+        self._update_human_smoothed_commands()
+
+    def _update_human_smoothed_commands(self) -> None:
+        if not self._human_command_enabled or self._human_command_env_ids.size == 0:
+            return
+        tau = float(self._cfg.human_command.smoothing_tau_s)
+        if tau <= 0.0:
+            self._commands[self._human_command_env_ids] = self._raw_commands[
+                self._human_command_env_ids
+            ]
+            return
+        alpha = float(self._cfg.ctrl_dt / (tau + self._cfg.ctrl_dt))
+        ids = self._human_command_env_ids
+        self._commands[ids] = (
+            (1.0 - alpha) * self._commands[ids] + alpha * self._raw_commands[ids]
+        ).astype(self._dtype)
 
     def _append_history(self) -> None:
         if self._obs_history_len == 1:
@@ -1585,6 +1774,12 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "agent_collision": self._agent_collision[env_indices].copy(),
             "border_collision": self._border_collision[env_indices].copy(),
             "stagnated": self._stagnated[env_indices].copy(),
+            "human_command_enabled": self._human_command_enabled,
+            "human_command_env_id": self._human_command_env_id,
+            "human_command_env_ids": self._human_command_env_ids.copy(),
+            "human_command": self._human_command.copy(),
+            "human_command_connected": self._human_command_connected,
+            "human_controller_name": self._human_controller_name,
         }
 
     @staticmethod

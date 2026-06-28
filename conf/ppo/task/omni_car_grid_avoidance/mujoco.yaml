@@ -59,6 +59,21 @@ env:
     resample_interval_s: 2.5
     deadband: 0.10
     smoothing_tau_s: 0.55
+  human_command:
+    enabled: false
+    env_index: random
+    replay_fanout: 0
+    backend: pygame
+    joystick_index: 0
+    require_joystick: true
+    deadzone: 0.08
+    smoothing_tau_s: 0.10
+    axis_vx: 1
+    axis_vy: 0
+    axis_vyaw: 2
+    invert_vx: true
+    invert_vy: false
+    invert_vyaw: false
   grid:
     size: 80
     cell_size: 0.05
