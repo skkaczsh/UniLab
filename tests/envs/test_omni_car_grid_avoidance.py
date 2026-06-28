@@ -744,6 +744,7 @@ def test_omni_car_blocked_projection_penalizes_only_blocked_forward_push() -> No
                 "clearance_motion": 0.0,
                 "clearance_target_motion": 0.0,
                 "blocked_projection": 20.0,
+                "blocked_stop": 20.0,
                 "idle_stop": 0.0,
                 "yaw_idle_stop": 0.0,
                 "off_axis": 0.0,
@@ -772,8 +773,10 @@ def test_omni_car_blocked_projection_penalizes_only_blocked_forward_push() -> No
 
     stop_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
     stop_penalty = float(env._reward_components["blocked_projection"][0])
+    stop_bonus = float(env._reward_components["blocked_stop"][0])
     push_reward = env._compute_reward(np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32))
     push_penalty = float(env._reward_components["blocked_projection"][0])
+    push_bonus = float(env._reward_components["blocked_stop"][0])
 
     env._obstacle_xy[0] = np.asarray(
         [[0.60, -0.34], [1.05, -0.34], [1.50, -0.34]], dtype=np.float32
@@ -781,11 +784,15 @@ def test_omni_car_blocked_projection_penalizes_only_blocked_forward_push() -> No
     env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
     side_reward = env._compute_reward(np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32))
     side_penalty = float(env._reward_components["blocked_projection"][0])
+    side_bonus = float(env._reward_components["blocked_stop"][0])
 
     assert stop_penalty == pytest.approx(0.0)
+    assert stop_bonus > 10.0
     assert push_penalty < -1.0
+    assert push_bonus == pytest.approx(0.0, abs=0.1)
     assert push_reward[0] < stop_reward[0]
     assert side_penalty == pytest.approx(0.0, abs=0.5)
+    assert side_bonus == pytest.approx(0.0, abs=0.5)
     assert side_reward[0] > push_reward[0]
     env.close()
 

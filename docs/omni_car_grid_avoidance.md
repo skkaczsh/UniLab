@@ -175,22 +175,26 @@ Reward shaping emphasizes these signals:
    command corridor is blocked. This is a continuous reward cost, not a hard
    action gate; side-wall forward motion remains learnable when the corridor
    ahead is open.
-4. Penalize any output velocity during zero-command windows, including both the
+4. Reward low positive forward projection when the commanded corridor is
+   blocked. This gives PPO direct credit for stopping or reducing forward push
+   before collision, while still leaving wall-parallel sliding to be learned
+   from clearance and off-axis tradeoffs.
+5. Penalize any output velocity during zero-command windows, including both the
    raw policy target and the physically limited executed velocity, so the
    learned optimum is idle when the operator is idle.
-5. Penalize velocity far from the commanded planar direction with an explicit
+6. Penalize velocity far from the commanded planar direction with an explicit
    off-axis term.
-6. Penalize reverse motion against the commanded planar direction.
-7. Track commanded yaw intent independently, but only when the operator gives a
+7. Penalize reverse motion against the commanded planar direction.
+8. Track commanded yaw intent independently, but only when the operator gives a
    non-zero yaw command so zero-yaw commands do not create a constant reward for
    standing still.
-8. Penalize yaw output when the user did not command yaw, including during
+9. Penalize yaw output when the user did not command yaw, including during
    planar-only commands.
-9. Improve response speed whenever the executed action reduces command-tracking
+10. Improve response speed whenever the executed action reduces command-tracking
    error.
-10. Penalize per-axis tracking, action diff, and jerk independently for `vx`,
+11. Penalize per-axis tracking, action diff, and jerk independently for `vx`,
    `vy`, and `vyaw`.
-11. Preserve clearance and heavily punish collision.
+12. Preserve clearance and heavily punish collision.
 
 The actor does not receive privileged nearest-clearance or collision flags;
 those remain critic/logging signals only. The reward can still use privileged
@@ -200,8 +204,8 @@ does not earn forward-intent reward.
 The executed action is not clamped by obstacle geometry, and no
 hard command-direction feasibility switch is used inside the reward. Obstacle
 avoidance is learned through PPO from projection rewards, smoothness penalties,
-clearance-closing costs, blocked-corridor projection costs, collision costs,
-and curriculum signals. The current
+clearance-closing costs, blocked-corridor projection costs and stop rewards,
+collision costs, and curriculum signals. The current
 reward balance makes clear-command projection, response, and per-axis tracking
 large enough to compete with smoothness penalties, while making off-axis drift,
 clearance loss, and collision expensive enough that sliding into walls or

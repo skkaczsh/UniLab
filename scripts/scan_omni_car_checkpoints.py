@@ -177,6 +177,7 @@ def compact_summary(checkpoint: int, summary: dict[str, Any], score: float) -> d
         "omni_car/reward/clearance_motion",
         "omni_car/reward/clearance_target_motion",
         "omni_car/reward/blocked_projection",
+        "omni_car/reward/blocked_stop",
         "omni_car/reward/idle_stop",
         "omni_car/reward/off_axis",
         "omni_car/reward/reverse",
