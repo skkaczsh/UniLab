@@ -395,6 +395,54 @@ def test_omni_car_physical_limits_apply_before_integration() -> None:
     env.close()
 
 
+def test_omni_car_step_rewards_command_seen_by_policy_before_resample() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 12,
+            "command": {"smoothing_tau_s": 0.0},
+            "obstacles": {"count": 0},
+            "reward": {
+                "intent": 1.0,
+                "intent_projection": 0.0,
+                "yaw_intent": 0.0,
+                "response": 0.0,
+                "blocked_stop": 0.0,
+                "blocked_motion": 0.0,
+                "idle_stop": 0.0,
+                "yaw_idle_stop": 0.0,
+                "off_axis": 0.0,
+                "reverse": 0.0,
+                "vx_track": 0.0,
+                "vy_track": 0.0,
+                "vyaw_track": 0.0,
+                "vx_diff": 0.0,
+                "vy_diff": 0.0,
+                "vyaw_diff": 0.0,
+                "vx_jerk": 0.0,
+                "vy_jerk": 0.0,
+                "vyaw_jerk": 0.0,
+                "clearance": 0.0,
+                "collision": 0.0,
+            },
+        },
+    )
+    env.init_state()
+    env._commands[:] = np.asarray([[0.5, 0.0, 0.0]], dtype=np.float32)
+    env._raw_commands[:] = env._commands
+    env._command_steps_remaining[:] = 1
+    env._sample_commands = lambda count: np.zeros((count, 3), dtype=env._dtype)
+
+    state = env.step(np.asarray([[0.5, 0.0, 0.0]], dtype=np.float32))
+
+    assert state.reward[0] > 0.0
+    assert state.info["reward_components"]["intent"][0] > 0.0
+    np.testing.assert_allclose(env._commands, np.zeros((1, 3), dtype=env._dtype))
+    env.close()
+
+
 def test_omni_car_response_diff_and_jerk_rewards_are_measured() -> None:
     env = registry.make(
         "OmniCarGridAvoidance",

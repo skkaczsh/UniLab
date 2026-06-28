@@ -731,6 +731,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         policy_action = actions.copy()
         self._refresh_human_commands()
         actions, human_idle_hold = self._apply_human_idle_action_hold(actions)
+        reward_commands = self._commands.copy()
         self._state.info["_final_observation"] = np.zeros((self._num_envs,), dtype=bool)
 
         limited = self._apply_physical_limits(actions)
@@ -757,10 +758,10 @@ class OmniCarGridAvoidanceEnv(ABEnv):
 
         self._nearest_clearance = self._compute_clearance(self._all_env_indices)
         self._collision = self._nearest_clearance <= 0.0
-        reward = self._compute_reward(limited)
+        reward = self._compute_reward(limited, commands=reward_commands)
         self._update_reward_progress(reward)
         log_snapshot = {
-            "commands": self._commands.copy(),
+            "commands": reward_commands.copy(),
             "nearest_clearance": self._nearest_clearance.copy(),
             "collision": self._collision.copy(),
             "static_collision": self._static_collision.copy(),
@@ -2150,9 +2151,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         clearance[:] = np.min(signed - safety_radius, axis=1).astype(self._dtype, copy=False)
         return clearance
 
-    def _compute_reward(self, action: np.ndarray) -> np.ndarray:
+    def _compute_reward(self, action: np.ndarray, commands: np.ndarray | None = None) -> np.ndarray:
         cfg = self._cfg.reward
-        cmd = self._commands
+        cmd = self._commands if commands is None else np.asarray(commands, dtype=self._dtype)
         planar_norm = np.linalg.norm(cmd[:, :2], axis=1)
         active_planar = planar_norm > self._cfg.command.deadband
         safe_planar_norm = np.maximum(planar_norm, 1e-6)
