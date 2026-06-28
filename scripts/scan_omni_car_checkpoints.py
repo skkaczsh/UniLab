@@ -223,6 +223,7 @@ def compact_behavior_summary(summary: dict[str, Any]) -> dict[str, Any]:
                 "reward_clearance_target_motion_mean": item.get(
                     "reward_clearance_target_motion_mean"
                 ),
+                "reward_target_collision_mean": item.get("reward_target_collision_mean"),
                 "reward_idle_stop_mean": item.get("reward_idle_stop_mean"),
             }
             for item in summary.get("scenarios", [])

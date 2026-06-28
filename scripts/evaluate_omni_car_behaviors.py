@@ -194,6 +194,7 @@ def _empty_record() -> dict[str, list[float]]:
         "reward_total": [],
         "reward_clearance_motion": [],
         "reward_clearance_target_motion": [],
+        "reward_target_collision": [],
         "reward_blocked_projection": [],
         "reward_blocked_stop": [],
         "reward_idle_stop": [],
@@ -228,6 +229,10 @@ def _record_step(record: dict[str, list[float]], env: Any, step_info: dict[str, 
     record["reward_clearance_target_motion"].extend(
         np.asarray(reward_components["clearance_target_motion"]).tolist()
     )
+    target_collision = reward_components.get("target_collision")
+    if target_collision is None:
+        target_collision = np.zeros_like(reward_components["idle_stop"])
+    record["reward_target_collision"].extend(np.asarray(target_collision).tolist())
     blocked_projection = reward_components.get("blocked_projection")
     if blocked_projection is None:
         blocked_projection = np.zeros_like(reward_components["idle_stop"])
@@ -263,6 +268,7 @@ def _summarize_record(
         "reward_clearance_target_motion_mean": _mean(
             record["reward_clearance_target_motion"]
         ),
+        "reward_target_collision_mean": _mean(record.get("reward_target_collision", [])),
         "reward_blocked_projection_mean": _mean(record.get("reward_blocked_projection", [])),
         "reward_blocked_stop_mean": _mean(record.get("reward_blocked_stop", [])),
         "reward_idle_stop_mean": _mean(record["reward_idle_stop"]),
@@ -332,6 +338,7 @@ def _format_summary(summary: dict[str, Any]) -> str:
             f"risk={item['clearance_risk_mean']:.4f} "
             f"r_clear_motion={item['reward_clearance_motion_mean']:.4f} "
             f"r_clear_target={item['reward_clearance_target_motion_mean']:.4f} "
+            f"r_target_collision={item['reward_target_collision_mean']:.4f} "
             f"r_blocked_proj={item['reward_blocked_projection_mean']:.4f} "
             f"r_blocked_stop={item['reward_blocked_stop_mean']:.4f} "
             f"r_idle={item['reward_idle_stop_mean']:.4f} "
