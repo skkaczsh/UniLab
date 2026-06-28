@@ -78,7 +78,7 @@ The default non-zero mode weights are `[0.10, 0.10, 0.10, 0.22, 0.10, 0.10,
 while retaining pure-axis and yaw-coupled cases.
 
 The local obstacle curriculum reserves a controlled slice of resets for
-command-relative geometry: `33%` front blockers, `22%` side-wall cases, and the
+command-relative geometry: `33%` front blockers, `25%` side-wall cases, and the
 rest unconstrained random obstacle fields. Front blockers are intentionally
 mixed across circles, boxes, and wall-like rectangles so the policy sees both
 single-object avoidance and true corridor closure under sustained forward
@@ -194,9 +194,10 @@ actual projection onto the user command, so pure side slip or reverse output
 does not earn forward-intent reward.
 The executed action is not clamped by a command-direction geometry gate; obstacle
 avoidance is learned through PPO from the reward and curriculum signals.
-The current reward balance keeps collision and blocked-motion expensive, but
-also raises projection, reverse-motion, and axis-tracking terms so the safe
-policy does not collapse into backing away under clear user intent.
+The current reward balance keeps collision and blocked-motion expensive, raises
+projection/reverse/axis-tracking terms so the policy does not back away under
+clear intent, and uses a stronger idle-stop term to keep zero-input behavior
+stationary.
 
 The current tuning pass intentionally shifted some burden from reward penalties
 back into the physical envelope: acceleration caps were loosened so the policy
