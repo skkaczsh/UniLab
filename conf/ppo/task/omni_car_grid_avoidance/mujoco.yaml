@@ -44,7 +44,7 @@ algo:
     num_mini_batches: 4
     learning_rate: 5.0e-4
     desired_kl: 0.02
-    entropy_coef: 0.01
+    entropy_coef: 0.004
 
 env:
   max_episode_seconds: 300.0
@@ -141,8 +141,8 @@ env:
     response: 24.0
     blocked_stop: 24.0
     blocked_motion: 48.0
-    idle_stop: 24.0
-    yaw_idle_stop: 16.0
+    idle_stop: 40.0
+    yaw_idle_stop: 30.0
     off_axis: 28.0
     reverse: 45.0
     directional_clearance_margin_m: 0.35
@@ -173,8 +173,8 @@ reward:
   response: 24.0
   blocked_stop: 24.0
   blocked_motion: 48.0
-  idle_stop: 24.0
-  yaw_idle_stop: 16.0
+  idle_stop: 40.0
+  yaw_idle_stop: 30.0
   off_axis: 28.0
   reverse: 45.0
   directional_clearance_margin_m: 0.35

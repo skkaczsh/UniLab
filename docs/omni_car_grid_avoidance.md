@@ -199,8 +199,14 @@ current reward balance makes clear-command projection, response, and per-axis
 tracking large enough to compete with smoothness penalties, while making
 off-axis drift, blocked forward motion, and collision expensive enough that
 sliding into walls or pushing through blockers is not a profitable local
-optimum. Entropy is kept slightly higher during PPO training to avoid early
-collapse into slow, biased motion.
+optimum. Entropy is kept low enough that zero-command samples can converge to a
+stationary mean action.
+
+Recent diagnostics showed that a clear-scene PPO pretrain learns command
+following before the dense obstacle mix does. The recommended training path is
+therefore staged: learn clear command-follow first, then fine-tune with the
+front-blocker and side-wall curriculum. This is still an RL curriculum; no
+geometry-level action gate is inserted.
 
 The `CNN + GRU` observation contract is intentionally incompatible with older
 `CNN + MLP` checkpoints. Historical checkpoint manifests remain useful for
