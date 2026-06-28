@@ -589,7 +589,7 @@ def test_omni_car_projection_reward_penalizes_off_axis_and_reverse_motion() -> N
     env.close()
 
 
-def test_omni_car_axis_tracking_penalty_is_not_direction_gated() -> None:
+def test_omni_car_axis_tracking_penalty_scales_when_command_path_blocked() -> None:
     env = registry.make(
         "OmniCarGridAvoidance",
         sim_backend="mujoco",
@@ -633,11 +633,15 @@ def test_omni_car_axis_tracking_penalty_is_not_direction_gated() -> None:
 
     safe_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
     np.testing.assert_allclose(env._track_cost, [[0.25, 1.0, 0.25]], atol=1e-6)
-    assert safe_reward[0] == pytest.approx(-(0.25 + 2.0 + 0.75))
+    assert safe_reward[0] == pytest.approx(-(0.25 + 2.0 + 0.75), abs=1e-3)
+    assert env._reward_components["vyaw_track"][0] == pytest.approx(-0.75)
 
     env._obstacle_xy[0, 0] = np.asarray([0.40, -0.40], dtype=np.float32)
     front_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
-    assert front_reward[0] == pytest.approx(safe_reward[0])
+    assert front_reward[0] > safe_reward[0]
+    assert env._reward_components["vx_track"][0] > -0.25
+    assert env._reward_components["vy_track"][0] > -2.0
+    assert env._reward_components["vyaw_track"][0] == pytest.approx(-0.75)
     env.close()
 
 

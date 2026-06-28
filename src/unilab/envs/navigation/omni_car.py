@@ -2277,6 +2277,10 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         command_dir[active_planar] = cmd[active_planar, :2] / safe_planar_norm[
             active_planar, None
         ]
+        command_clearance = self._compute_command_direction_clearance(cmd)
+        blocked_path_risk = np.exp(-np.maximum(command_clearance, 0.0) / 0.20)
+        command_free_scale = np.ones((self._num_envs,), dtype=self._dtype)
+        command_free_scale[active_planar] = 1.0 - blocked_path_risk[active_planar]
         along_speed = np.sum(action[:, :2] * command_dir, axis=1)
         projection = np.zeros((self._num_envs,), dtype=self._dtype)
         projection[active_planar] = along_speed[active_planar] / safe_planar_norm[active_planar]
@@ -2286,8 +2290,10 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         ) / safe_planar_norm[active_planar]
         projection_reward = np.clip(projection, 0.0, 1.0)
         intent_reward = np.zeros((self._num_envs,), dtype=self._dtype)
-        intent_reward[active_planar] = projection_reward[active_planar] * np.exp(
-            -projected_error[active_planar] * projected_error[active_planar]
+        intent_reward[active_planar] = (
+            command_free_scale[active_planar]
+            * projection_reward[active_planar]
+            * np.exp(-projected_error[active_planar] * projected_error[active_planar])
         )
         active_yaw = np.abs(cmd[:, 2]) > self._cfg.command.deadband
         yaw_error = np.abs(action[:, 2] - cmd[:, 2]) / max(self._cfg.command.max_yaw_rate, 1e-6)
@@ -2297,8 +2303,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         accel_delta = self._accel_delta_limit
         prev_error = np.linalg.norm((cmd - self._last_action) / high, axis=1)
         new_error = np.linalg.norm((cmd - action) / high, axis=1)
-        command_clearance = self._compute_command_direction_clearance(cmd)
-        response_progress = np.maximum(prev_error - new_error, 0.0)
+        response_progress = command_free_scale * np.maximum(prev_error - new_error, 0.0)
         action_delta = action - self._last_action
         action_jerk = action_delta - self._last_action_delta
         track_cost = ((action - cmd) / high) ** 2
@@ -2314,7 +2319,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             [cfg.vx_jerk, cfg.vy_jerk, cfg.vyaw_jerk], dtype=self._dtype
         )
         clearance_risk = np.exp(-np.maximum(self._nearest_clearance, 0.0) / 0.35)
-        track_penalty = -track_cost * track_weights
+        track_scale = np.ones_like(track_cost)
+        track_scale[:, :2] = command_free_scale[:, None]
+        track_penalty = -track_cost * track_weights * track_scale
         diff_penalty = -diff_cost * diff_weights
         jerk_penalty = -jerk_cost * jerk_weights
         planar_speed = np.linalg.norm(action[:, :2] / high[:2], axis=1)
@@ -2344,7 +2351,6 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         clearance_target_motion_cost = np.maximum(clearance_risk, target_risk) * (
             target_closing_speed / 0.25
         ) ** 2
-        blocked_path_risk = np.exp(-np.maximum(command_clearance, 0.0) / 0.20)
         blocked_projection_cost = np.where(
             active_planar,
             blocked_path_risk * np.maximum(projection, 0.0) ** 2,
@@ -2386,9 +2392,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._jerk_cost = jerk_cost.astype(self._dtype)
         self._reward_components = {
             "intent": (cfg.intent * intent_reward).astype(self._dtype),
-            "intent_projection": (cfg.intent_projection * projection_reward).astype(
-                self._dtype
-            ),
+            "intent_projection": (
+                cfg.intent_projection * command_free_scale * projection_reward
+            ).astype(self._dtype),
             "yaw_intent": (cfg.yaw_intent * yaw_reward).astype(self._dtype),
             "response": (cfg.response * response_progress).astype(self._dtype),
             "clearance_motion": (-cfg.clearance_motion * clearance_motion_cost).astype(
