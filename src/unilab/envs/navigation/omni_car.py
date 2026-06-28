@@ -776,6 +776,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._state.info["agent_collision"] = self._agent_collision.copy()
         self._state.info["border_collision"] = self._border_collision.copy()
         self._state.info["stagnated"] = self._stagnated.copy()
+        self._state.info["command_clearance"] = log_snapshot["command_clearance"].copy()
+        self._state.info["command_safety_gate"] = log_snapshot["command_safety_gate"].copy()
         self._state.info["human_command_enabled"] = self._human_command_enabled
         self._state.info["human_command_env_id"] = self._human_command_env_id
         self._state.info["human_command_env_ids"] = self._human_command_env_ids.copy()
@@ -2217,6 +2219,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "agent_collision": self._agent_collision[env_indices].copy(),
             "border_collision": self._border_collision[env_indices].copy(),
             "stagnated": self._stagnated[env_indices].copy(),
+            "command_clearance": self._command_clearance[env_indices].copy(),
+            "command_safety_gate": self._command_safety_gate[env_indices].copy(),
             "human_command_enabled": self._human_command_enabled,
             "human_command_env_id": self._human_command_env_id,
             "human_command_env_ids": self._human_command_env_ids.copy(),

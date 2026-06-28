@@ -32,6 +32,10 @@ def test_omni_car_grid_contract() -> None:
     assert next_state.terminated.shape == (4,)
     assert next_state.truncated.shape == (4,)
     assert "commands" in next_state.info
+    assert "command_clearance" in next_state.info
+    assert "command_safety_gate" in next_state.info
+    assert next_state.info["command_clearance"].shape == (4,)
+    assert next_state.info["command_safety_gate"].shape == (4,)
     assert "reward_components" in next_state.info
     assert "total" in next_state.info["reward_components"]
     assert next_state.info["reward_components"]["total"].shape == (4,)

@@ -60,8 +60,8 @@ SCENARIOS: tuple[BehaviorScenario, ...] = (
     BehaviorScenario(
         name="front_blocked_stop",
         command=(1.0, 0.0, 0.0),
-        obstacle_xy=((0.52, 0.0),),
-        obstacle_radius=(0.24,),
+        obstacle_xy=((0.70, 0.0),),
+        obstacle_radius=(0.22,),
         max_projection=0.20,
         max_planar_speed=0.35,
     ),
@@ -176,6 +176,8 @@ def _apply_scenario(env: Any, wrapped_env: Any, scenario: BehaviorScenario) -> A
     info["commands"] = env._commands.copy()
     info["nearest_clearance"] = env._nearest_clearance.copy()
     info["collision"] = env._collision.copy()
+    info["command_clearance"] = env._command_clearance.copy()
+    info["command_safety_gate"] = env._command_safety_gate.copy()
     if env.state is not None:
         env._state = env.state.replace(obs=obs, info=info)
     return wrapped_env._obs_to_tensordict(obs, info)
@@ -194,13 +196,14 @@ def _empty_record() -> dict[str, list[float]]:
     }
 
 
-def _record_step(record: dict[str, list[float]], env: Any, action: np.ndarray) -> None:
-    cmd = env._commands
+def _record_step(record: dict[str, list[float]], env: Any, step_info: dict[str, Any]) -> None:
+    cmd = np.asarray(step_info["commands"], dtype=np.float64)
+    action = np.asarray(step_info["executed_action"], dtype=np.float64)
     command_norm = np.linalg.norm(cmd[:, :2], axis=1)
     active = command_norm > env._cfg.command.deadband
     direction = np.zeros_like(cmd[:, :2])
     direction[active] = cmd[active, :2] / np.maximum(command_norm[active, None], 1e-6)
-    projection = np.zeros((env.num_envs,), dtype=np.float64)
+    projection = np.zeros((cmd.shape[0],), dtype=np.float64)
     projection[active] = np.sum(action[active, :2] * direction[active], axis=1)
     off_axis = np.abs(action[:, 0] * direction[:, 1] - action[:, 1] * direction[:, 0])
 
@@ -208,10 +211,15 @@ def _record_step(record: dict[str, list[float]], env: Any, action: np.ndarray) -
     record["yaw_abs"].extend(np.abs(action[:, 2]).tolist())
     record["projection"].extend(projection.tolist())
     record["off_axis_abs"].extend(off_axis.tolist())
-    record["collision"].extend(env._collision.astype(np.float32).tolist())
-    record["command_safety_gate"].extend(env._command_safety_gate.tolist())
-    record["reward_total"].extend(env._reward_components["total"].tolist())
-    record["reward_blocked_stop"].extend(env._reward_components["blocked_stop"].tolist())
+    record["collision"].extend(np.asarray(step_info["collision"], dtype=np.float32).tolist())
+    record["command_safety_gate"].extend(
+        np.asarray(step_info["command_safety_gate"], dtype=np.float64).tolist()
+    )
+    reward_components = step_info["reward_components"]
+    record["reward_total"].extend(np.asarray(reward_components["total"]).tolist())
+    record["reward_blocked_stop"].extend(
+        np.asarray(reward_components["blocked_stop"]).tolist()
+    )
 
 
 def _mean(values: Sequence[float]) -> float:
@@ -260,7 +268,9 @@ def evaluate_behaviors(args: argparse.Namespace) -> dict[str, Any]:
                 for _ in range(int(args.num_steps)):
                     actions = policy(obs)
                     obs, _rewards, dones, _infos = wrapped_env.step(actions)
-                    _record_step(record, env, env._last_action.copy())
+                    if env.state is None:
+                        raise RuntimeError("Environment state is unavailable after step.")
+                    _record_step(record, env, env.state.info)
                     if bool(torch.any(dones).item()):
                         obs = _apply_scenario(env, wrapped_env, scenario)
                 scenario_summaries.append(_summarize_record(scenario, record))

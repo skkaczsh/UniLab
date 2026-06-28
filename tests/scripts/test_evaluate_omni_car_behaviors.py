@@ -4,6 +4,9 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
 
 
 def _load_module():
@@ -41,6 +44,33 @@ def test_behavior_summary_reports_gate_failures() -> None:
     assert summary["passed"] is False
     assert summary["planar_speed_mean"] == 0.11
     assert summary["failures"] == ["planar_speed_mean > 0.08"]
+
+
+def test_record_step_uses_step_info_snapshot() -> None:
+    module = _load_module()
+    env = SimpleNamespace(_cfg=SimpleNamespace(command=SimpleNamespace(deadband=0.1)))
+    record = module._empty_record()
+    step_info = {
+        "commands": np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32),
+        "executed_action": np.asarray([[0.25, 0.50, 0.10]], dtype=np.float32),
+        "collision": np.asarray([True]),
+        "command_safety_gate": np.asarray([0.25], dtype=np.float32),
+        "reward_components": {
+            "total": np.asarray([-2.0], dtype=np.float32),
+            "blocked_stop": np.asarray([1.5], dtype=np.float32),
+        },
+    }
+
+    module._record_step(record, env, step_info)
+
+    assert record["planar_speed"] == [np.hypot(0.25, 0.50)]
+    assert record["yaw_abs"] == [0.10000000149011612]
+    assert record["projection"] == [0.25]
+    assert record["off_axis_abs"] == [0.5]
+    assert record["collision"] == [1.0]
+    assert record["command_safety_gate"] == [0.25]
+    assert record["reward_total"] == [-2.0]
+    assert record["reward_blocked_stop"] == [1.5]
 
 
 def test_json_cli_suppresses_behavior_evaluator_noise(monkeypatch, capsys) -> None:
