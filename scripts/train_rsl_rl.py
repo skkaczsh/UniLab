@@ -412,7 +412,7 @@ def main(cfg: DictConfig) -> None:
                 resume_path, _ = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
                 if resume_path:
                     print(f"Resuming from {resume_path}")
-                    runner.load(str(resume_path))
+                    runner.load(str(resume_path), map_location=device)
 
             train_start_wall = time.time()
             runner.learn(num_learning_iterations=max_iterations, init_at_random_ep_len=True)

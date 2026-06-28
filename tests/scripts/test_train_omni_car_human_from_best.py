@@ -51,6 +51,7 @@ def test_human_resume_script_builds_low_latency_resume_command(tmp_path, monkeyp
     assert "algo.algorithm.num_mini_batches=1" in command
     assert "env.human_command.enabled=true" in command
     assert "env.human_command.render_enabled=true" in command
+    assert "env.human_command.axis_vyaw=3" in command
     assert "training.play_render_mode=none" in command
     assert "env.human_command.axis_vyaw=3" in command
 

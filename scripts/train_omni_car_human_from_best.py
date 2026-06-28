@@ -41,6 +41,9 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--mini-batches", type=int, default=1)
     parser.add_argument("--replay-fanout", type=int, default=0)
     parser.add_argument("--joystick-index", type=int, default=0)
+    parser.add_argument("--axis-vx", type=int, default=1)
+    parser.add_argument("--axis-vy", type=int, default=0)
+    parser.add_argument("--axis-vyaw", type=int, default=3)
     parser.add_argument("--render-every-steps", type=int, default=1)
     parser.add_argument("--device", default=None)
     parser.add_argument("--dry-run", action="store_true", help="Print the command without running it.")
@@ -88,6 +91,9 @@ def build_resume_command(args: argparse.Namespace) -> list[str]:
         "env.human_command.enabled=true",
         "env.human_command.backend=pygame",
         f"env.human_command.joystick_index={int(args.joystick_index)}",
+        f"env.human_command.axis_vx={int(args.axis_vx)}",
+        f"env.human_command.axis_vy={int(args.axis_vy)}",
+        f"env.human_command.axis_vyaw={int(args.axis_vyaw)}",
         f"env.human_command.replay_fanout={int(args.replay_fanout)}",
         "env.human_command.render_enabled=true",
         f"env.human_command.render_every_steps={int(args.render_every_steps)}",

@@ -122,7 +122,7 @@ class OmniCarHumanCommandCfg:
     smoothing_tau_s: float = 0.10
     axis_vx: int = 1
     axis_vy: int = 0
-    axis_vyaw: int = 2
+    axis_vyaw: int = 3
     invert_vx: bool = True
     invert_vy: bool = False
     invert_vyaw: bool = False
@@ -303,6 +303,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._human_live_glfw: Any | None = None
         self._human_live_gl: Any | None = None
         self._human_live_glu: Any | None = None
+        self._human_live_glut: Any | None = None
         self._human_live_render_step = 0
         if self._human_command_enabled:
             self._ensure_human_command_backend()
@@ -356,6 +357,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._track_cost = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._diff_cost = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._jerk_cost = np.zeros((self._num_envs, 3), dtype=self._dtype)
+        self._reward_components = self._make_zero_reward_components()
         self._grid_buffer = np.zeros(
             (self._num_envs, cfg.grid.size, cfg.grid.size), dtype=self._dtype
         )
@@ -387,6 +389,29 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             if not hasattr(self._cfg.reward, key):
                 raise ValueError(f"Unknown OmniCar reward field: {key}")
             setattr(self._cfg.reward, key, float(value))
+
+    def _make_zero_reward_components(self) -> dict[str, np.ndarray]:
+        return {
+            name: np.zeros((self._num_envs,), dtype=self._dtype)
+            for name in (
+                "intent",
+                "intent_projection",
+                "yaw_intent",
+                "response",
+                "vx_track",
+                "vy_track",
+                "vyaw_track",
+                "vx_diff",
+                "vy_diff",
+                "vyaw_diff",
+                "vx_jerk",
+                "vy_jerk",
+                "vyaw_jerk",
+                "clearance",
+                "collision",
+                "total",
+            )
+        }
 
     @property
     def num_envs(self) -> int:
@@ -585,6 +610,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._track_cost[env_indices] = 0.0
         self._diff_cost[env_indices] = 0.0
         self._jerk_cost[env_indices] = 0.0
+        for component in self._reward_components.values():
+            component[env_indices] = 0.0
         self._nearest_clearance[env_indices] = self._compute_clearance(env_indices)
         self._grid_history_initialized[env_indices] = False
         info = self._info(env_indices)
@@ -598,6 +625,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         actions = np.asarray(actions, dtype=self._dtype)
         if actions.shape != (self._num_envs, 3):
             raise ValueError(f"Expected action shape {(self._num_envs, 3)}, got {actions.shape}")
+        policy_action = actions.copy()
         self._state.info["_final_observation"] = np.zeros((self._num_envs,), dtype=bool)
 
         limited = self._apply_physical_limits(actions)
@@ -634,6 +662,12 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "track_cost": self._track_cost.copy(),
             "diff_cost": self._diff_cost.copy(),
             "jerk_cost": self._jerk_cost.copy(),
+            "reward": reward.copy(),
+            "reward_components": {
+                name: values.copy() for name, values in self._reward_components.items()
+            },
+            "policy_action": policy_action.copy(),
+            "executed_action": limited.copy(),
             "human_command": self._human_command.copy(),
             "human_command_env_id": self._human_command_env_id,
             "human_command_agent_count": self._human_command_env_ids.size,
@@ -664,6 +698,11 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._state.info["human_command"] = self._human_command.copy()
         self._state.info["human_command_connected"] = self._human_command_connected
         self._state.info["human_controller_name"] = self._human_controller_name
+        self._state.info["policy_action"] = policy_action.copy()
+        self._state.info["executed_action"] = limited.copy()
+        self._state.info["reward_components"] = {
+            name: values.copy() for name, values in log_snapshot["reward_components"].items()
+        }
         final_observation = None
         if np.any(done):
             final_observation = {key: value.copy() for key, value in obs.items()}
@@ -726,6 +765,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             ),
             "omni_car/human_command_norm": float(np.linalg.norm(log_snapshot["human_command"])),
         }
+        for name, values in log_snapshot["reward_components"].items():
+            self._state.info["log"][f"omni_car/reward/{name}"] = float(np.mean(values))
         return self._state
 
     def _render_human_live_viewer(self) -> None:
@@ -775,6 +816,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         GL.glEnable(GL.GL_BLEND)
         GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
         GL.glClearColor(0.06, 0.07, 0.08, 1.0)
+        self._human_live_glut = self._init_glut_text()
         self._human_live_glfw = glfw
         self._human_live_gl = GL
         self._human_live_glu = GLU
@@ -794,6 +836,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._human_live_glfw = None
         self._human_live_gl = None
         self._human_live_glu = None
+        self._human_live_glut = None
 
     def _viewer_focus_env_id(self) -> int:
         if self._human_command_env_id >= 0:
@@ -889,6 +932,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             GL.glEnable(GL.GL_BLEND)
             GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
             GL.glClearColor(0.06, 0.07, 0.08, 1.0)
+            self._human_live_glut = self._init_glut_text()
 
             step_count = 0
             while not glfw.window_should_close(window) and (
@@ -908,6 +952,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         finally:
             if window is not None:
                 glfw.destroy_window(window)
+            self._human_live_glut = None
             glfw.terminate()
 
     def _sample_commands(self, count: int) -> np.ndarray:
@@ -1790,22 +1835,52 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             [cfg.vx_jerk, cfg.vy_jerk, cfg.vyaw_jerk], dtype=self._dtype
         )
         clearance_penalty = np.exp(-np.maximum(self._nearest_clearance, 0.0) / 0.35)
+        track_penalty = -safety_gate[:, None] * track_cost * track_weights
+        diff_penalty = -diff_cost * diff_weights
+        jerk_penalty = -jerk_cost * jerk_weights
         self._tracking_error = new_error.astype(self._dtype)
         self._response_progress = response_progress.astype(self._dtype)
         self._track_cost = track_cost.astype(self._dtype)
         self._diff_cost = diff_cost.astype(self._dtype)
         self._jerk_cost = jerk_cost.astype(self._dtype)
+        self._reward_components = {
+            "intent": (cfg.intent * intent_reward).astype(self._dtype),
+            "intent_projection": (cfg.intent_projection * projection).astype(self._dtype),
+            "yaw_intent": (cfg.yaw_intent * yaw_reward).astype(self._dtype),
+            "response": (cfg.response * response_progress).astype(self._dtype),
+            "vx_track": track_penalty[:, 0].astype(self._dtype),
+            "vy_track": track_penalty[:, 1].astype(self._dtype),
+            "vyaw_track": track_penalty[:, 2].astype(self._dtype),
+            "vx_diff": diff_penalty[:, 0].astype(self._dtype),
+            "vy_diff": diff_penalty[:, 1].astype(self._dtype),
+            "vyaw_diff": diff_penalty[:, 2].astype(self._dtype),
+            "vx_jerk": jerk_penalty[:, 0].astype(self._dtype),
+            "vy_jerk": jerk_penalty[:, 1].astype(self._dtype),
+            "vyaw_jerk": jerk_penalty[:, 2].astype(self._dtype),
+            "clearance": (-cfg.clearance * clearance_penalty).astype(self._dtype),
+            "collision": (cfg.collision * self._collision.astype(self._dtype)).astype(
+                self._dtype
+            ),
+            "total": np.zeros((self._num_envs,), dtype=self._dtype),
+        }
         reward = (
-            cfg.intent * intent_reward
-            + cfg.intent_projection * projection
-            + cfg.yaw_intent * yaw_reward
-            + cfg.response * response_progress
-            - safety_gate * np.sum(track_cost * track_weights, axis=1)
-            - np.sum(diff_cost * diff_weights, axis=1)
-            - np.sum(jerk_cost * jerk_weights, axis=1)
-            - cfg.clearance * clearance_penalty
-            + cfg.collision * self._collision.astype(self._dtype)
+            self._reward_components["intent"]
+            + self._reward_components["intent_projection"]
+            + self._reward_components["yaw_intent"]
+            + self._reward_components["response"]
+            + self._reward_components["vx_track"]
+            + self._reward_components["vy_track"]
+            + self._reward_components["vyaw_track"]
+            + self._reward_components["vx_diff"]
+            + self._reward_components["vy_diff"]
+            + self._reward_components["vyaw_diff"]
+            + self._reward_components["vx_jerk"]
+            + self._reward_components["vy_jerk"]
+            + self._reward_components["vyaw_jerk"]
+            + self._reward_components["clearance"]
+            + self._reward_components["collision"]
         )
+        self._reward_components["total"] = reward.astype(self._dtype)
         return reward.astype(self._dtype)
 
     def _update_reward_progress(self, reward: np.ndarray) -> None:
@@ -1867,6 +1942,12 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "human_command": self._human_command.copy(),
             "human_command_connected": self._human_command_connected,
             "human_controller_name": self._human_controller_name,
+            "policy_action": self._last_action[env_indices].copy(),
+            "executed_action": self._velocity[env_indices].copy(),
+            "reward_components": {
+                name: values[env_indices].copy()
+                for name, values in self._reward_components.items()
+            },
         }
 
     @staticmethod
@@ -1929,6 +2010,131 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             self._gl_draw_other_cars(GL, focus_env_id)
         self._gl_draw_car(GL, pose)
         self._gl_draw_arrows(GL, focus_env_id, pose)
+        self._gl_draw_hud(GL, self._human_live_glut, width, height, focus_env_id)
+        self._update_debug_window_title(glfw, window, focus_env_id)
+
+    @staticmethod
+    def _init_glut_text() -> Any | None:
+        try:
+            from OpenGL import GLUT
+
+            GLUT.glutInit()
+            return GLUT
+        except Exception:
+            return None
+
+    def _update_debug_window_title(self, glfw: Any, window: Any, env_id: int) -> None:
+        raw = self._raw_commands[env_id]
+        action = self._last_action[env_id]
+        total = float(self._reward_components.get("total", np.zeros(1, dtype=self._dtype))[env_id])
+        title = (
+            "UniLab OmniCar Xbox Training | "
+            f"raw=({raw[0]:+.2f},{raw[1]:+.2f},{raw[2]:+.2f}) "
+            f"act=({action[0]:+.2f},{action[1]:+.2f},{action[2]:+.2f}) "
+            f"reward={total:+.2f}"
+        )
+        try:
+            glfw.set_window_title(window, title)
+        except Exception:
+            pass
+
+    def _gl_draw_hud(
+        self,
+        GL: Any,
+        GLUT: Any | None,
+        width: int,
+        height: int,
+        env_id: int,
+    ) -> None:
+        if GLUT is None:
+            return
+
+        lines = self._hud_lines(env_id)
+        GL.glMatrixMode(GL.GL_PROJECTION)
+        GL.glPushMatrix()
+        GL.glLoadIdentity()
+        GL.glOrtho(0.0, float(width), 0.0, float(height), -1.0, 1.0)
+        GL.glMatrixMode(GL.GL_MODELVIEW)
+        GL.glPushMatrix()
+        GL.glLoadIdentity()
+        GL.glDisable(GL.GL_DEPTH_TEST)
+
+        panel_width = min(float(width) - 24.0, 560.0)
+        panel_height = 24.0 + 17.0 * len(lines)
+        GL.glColor4f(0.02, 0.025, 0.03, 0.78)
+        GL.glBegin(GL.GL_QUADS)
+        GL.glVertex2f(12.0, float(height) - 12.0)
+        GL.glVertex2f(12.0 + panel_width, float(height) - 12.0)
+        GL.glVertex2f(12.0 + panel_width, float(height) - 12.0 - panel_height)
+        GL.glVertex2f(12.0, float(height) - 12.0 - panel_height)
+        GL.glEnd()
+
+        font = GLUT.GLUT_BITMAP_9_BY_15
+        y = float(height) - 34.0
+        for line in lines:
+            if line.startswith("+"):
+                GL.glColor4f(0.45, 1.0, 0.55, 1.0)
+            elif line.startswith("-"):
+                GL.glColor4f(1.0, 0.46, 0.38, 1.0)
+            else:
+                GL.glColor4f(0.92, 0.94, 0.96, 1.0)
+            GL.glRasterPos2f(24.0, y)
+            for char in line[:74]:
+                GLUT.glutBitmapCharacter(font, ord(char))
+            y -= 17.0
+
+        GL.glEnable(GL.GL_DEPTH_TEST)
+        GL.glMatrixMode(GL.GL_MODELVIEW)
+        GL.glPopMatrix()
+        GL.glMatrixMode(GL.GL_PROJECTION)
+        GL.glPopMatrix()
+        GL.glMatrixMode(GL.GL_MODELVIEW)
+
+    def _hud_lines(self, env_id: int) -> list[str]:
+        raw = self._raw_commands[env_id]
+        cmd = self._commands[env_id]
+        policy = self._state.info.get("policy_action", self._last_action)[env_id]
+        executed = self._state.info.get("executed_action", self._velocity)[env_id]
+        velocity = self._velocity[env_id]
+        components = self._reward_components
+
+        def vec(label: str, value: np.ndarray) -> str:
+            return f"{label:>8s} vx={value[0]:+5.2f} vy={value[1]:+5.2f} yaw={value[2]:+5.2f}"
+
+        lines = [
+            f"env={env_id} step={int(self._state.info['steps'][env_id])} "
+            f"clearance={float(self._nearest_clearance[env_id]):+.2f} "
+            f"collision={int(bool(self._collision[env_id]))}",
+            vec("raw", raw),
+            vec("cmd", cmd),
+            vec("policy", policy),
+            vec("exec", executed),
+            vec("vel", velocity),
+            f"reward total={float(components['total'][env_id]):+.3f}",
+        ]
+        reward_order = (
+            "intent",
+            "intent_projection",
+            "yaw_intent",
+            "response",
+            "vx_track",
+            "vy_track",
+            "vyaw_track",
+            "vx_diff",
+            "vy_diff",
+            "vyaw_diff",
+            "vx_jerk",
+            "vy_jerk",
+            "vyaw_jerk",
+            "clearance",
+            "collision",
+        )
+        for offset in range(0, len(reward_order), 3):
+            names = reward_order[offset : offset + 3]
+            lines.append(
+                " ".join(f"{name}={float(components[name][env_id]):+.2f}" for name in names)
+            )
+        return lines
 
     def _gl_draw_floor(self, GL: Any) -> None:
         if self._large_scene_enabled:
