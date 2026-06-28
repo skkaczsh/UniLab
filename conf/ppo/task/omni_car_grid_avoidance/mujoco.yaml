@@ -111,8 +111,8 @@ env:
     wall_fraction: 0.30
     spawn_radius_m: 4.2
     keepout_radius_m: 0.90
-    front_blocker_fraction: 0.35
-    side_wall_fraction: 0.25
+    front_blocker_fraction: 0.33
+    side_wall_fraction: 0.22
     front_blocker_box_fraction: 0.30
     front_blocker_wall_fraction: 0.45
   large_scene:
@@ -135,20 +135,20 @@ env:
     stagnation_min_return_delta: 1.0
     resample_scene_on_full_reset: false
   reward:
-    intent: 16.0
-    intent_projection: 5.5
+    intent: 22.0
+    intent_projection: 8.0
     yaw_intent: 7.0
-    response: 12.0
-    blocked_stop: 14.0
-    blocked_motion: 16.0
-    idle_stop: 8.0
+    response: 14.0
+    blocked_stop: 12.0
+    blocked_motion: 12.0
+    idle_stop: 12.0
     yaw_idle_stop: 10.0
-    off_axis: 8.0
-    reverse: 10.0
+    off_axis: 10.0
+    reverse: 24.0
     directional_clearance_margin_m: 0.35
     directional_clearance_range_m: 1.0
-    vx_track: 2.0
-    vy_track: 2.0
+    vx_track: 4.0
+    vy_track: 4.0
     vyaw_track: 14.0
     vx_diff: 6.0
     vy_diff: 6.0
@@ -156,8 +156,8 @@ env:
     vx_jerk: 3.0
     vy_jerk: 3.0
     vyaw_jerk: 3.4
-    clearance: 3.5
-    collision: -48.0
+    clearance: 2.8
+    collision: -36.0
   physical_limits:
     max_x_speed: 2.0
     max_y_speed: 1.0
@@ -167,20 +167,20 @@ env:
     max_yaw_accel: 4.5
 
 reward:
-  intent: 16.0
-  intent_projection: 5.5
+  intent: 22.0
+  intent_projection: 8.0
   yaw_intent: 7.0
-  response: 12.0
-  blocked_stop: 14.0
-  blocked_motion: 16.0
-  idle_stop: 8.0
+  response: 14.0
+  blocked_stop: 12.0
+  blocked_motion: 12.0
+  idle_stop: 12.0
   yaw_idle_stop: 10.0
-  off_axis: 8.0
-  reverse: 10.0
+  off_axis: 10.0
+  reverse: 24.0
   directional_clearance_margin_m: 0.35
   directional_clearance_range_m: 1.0
-  vx_track: 2.0
-  vy_track: 2.0
+  vx_track: 4.0
+  vy_track: 4.0
   vyaw_track: 14.0
   vx_diff: 6.0
   vy_diff: 6.0
@@ -188,5 +188,5 @@ reward:
   vx_jerk: 3.0
   vy_jerk: 3.0
   vyaw_jerk: 3.4
-  clearance: 3.5
-  collision: -48.0
+  clearance: 2.8
+  collision: -36.0
