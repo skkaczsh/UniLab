@@ -57,6 +57,12 @@ env:
     max_y_speed: 1.0
     max_yaw_rate: 2.0
     resample_interval_s: 2.5
+    hold_min_s: 2.0
+    hold_max_s: 8.0
+    long_hold_fraction: 0.40
+    long_hold_min_s: 8.0
+    long_hold_max_s: 35.0
+    zero_fraction: 0.18
     deadband: 0.10
     smoothing_tau_s: 0.55
   human_command:
@@ -66,11 +72,14 @@ env:
     backend: pygame
     joystick_index: 0
     require_joystick: true
-    deadzone: 0.08
+    deadzone: 0.15
+    zero_snap_norm: 0.10
     smoothing_tau_s: 0.10
+    idle_action_hold: true
+    idle_action_hold_norm: 0.12
     axis_vx: 1
     axis_vy: 0
-    axis_vyaw: 2
+    axis_vyaw: 3
     invert_vx: true
     invert_vy: false
     invert_vyaw: false
@@ -124,6 +133,11 @@ env:
     intent_projection: 5.5
     yaw_intent: 9.0
     response: 12.0
+    blocked_stop: 10.0
+    off_axis: 8.0
+    reverse: 10.0
+    directional_clearance_margin_m: 0.35
+    directional_clearance_range_m: 1.0
     vx_track: 2.0
     vy_track: 2.0
     vyaw_track: 9.0
@@ -148,6 +162,11 @@ reward:
   intent_projection: 5.5
   yaw_intent: 9.0
   response: 12.0
+  blocked_stop: 10.0
+  off_axis: 8.0
+  reverse: 10.0
+  directional_clearance_margin_m: 0.35
+  directional_clearance_range_m: 1.0
   vx_track: 2.0
   vy_track: 2.0
   vyaw_track: 9.0

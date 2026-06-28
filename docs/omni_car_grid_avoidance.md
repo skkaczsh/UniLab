@@ -51,7 +51,8 @@ Current defaults in this branch:
 - Trainer episode horizon statistic: `300 s`
 - Grid history: `10` frames
 - Observation history: `24` frames
-- Command resample interval: `2.5 s`
+- Command hold curriculum: short holds from `2-8 s`, long holds from `8-35 s`
+  for `40%` of samples, plus `18%` explicit zero-input samples
 - Command smoothing time constant: `0.55 s`
 - PPO rollout: `128` envs, `32` steps per env
 - Policy architecture: `OmniCarGridCNNGRUModel` (`CNN per grid frame + GRU over
@@ -64,10 +65,13 @@ Current defaults in this branch:
 - Physical acceleration caps: `3.5 / 3.5 / 4.5` for `vx / vy / vyaw`
 
 The command sampler balances the active-axis combinations across `vx`, `vy`,
-and `vyaw` and samples low, medium, and high amplitude bands. This gives PPO
-coverage over pure longitudinal, pure lateral, pure yaw, planar, yaw-coupled,
-and full omnidirectional commands instead of relying on independent uniform
-axis sampling.
+and `vyaw` and samples low, medium, and high amplitude bands. Planar commands
+with both `vx` and `vy` active are sampled by direction in normalized velocity
+space, then scaled by the physical `2.0 m/s` longitudinal and `1.0 m/s`
+lateral limits. This gives PPO coverage over pure longitudinal, pure lateral,
+pure yaw, planar, yaw-coupled, and full omnidirectional commands instead of
+relying on independent uniform axis sampling. Each vectorized agent owns an
+independent hold timer, so commands do not all change on the same global step.
 
 ## Xbox human-command mode
 
@@ -128,13 +132,28 @@ training viewer, and defaults to a light local profile: `8` envs, `8` rollout
 steps, `1` learning epoch, and `1` minibatch. Override those flags when you want
 more throughput and can tolerate longer viewer stalls.
 
-Reward shaping emphasizes four things:
+Reward shaping emphasizes these signals:
 
-1. Track commanded planar and yaw intent.
-2. Improve response speed when clearance allows.
-3. Penalize per-axis safe-space tracking error independently for `vx`, `vy`, `vyaw`.
-4. Penalize per-axis action diff and jerk independently for `vx`, `vy`, `vyaw`.
-5. Preserve clearance and heavily punish collision.
+1. Reward positive output-velocity projection along the commanded planar
+   direction.
+2. Suppress planar intent and tracking rewards when the command direction is
+   blocked in the local occupancy grid, then reward stopping instead.
+3. Penalize velocity far from the commanded planar direction with an explicit
+   off-axis term.
+4. Penalize reverse motion against the commanded planar direction.
+5. Track commanded yaw intent independently.
+6. Improve response speed when the command direction is clear.
+7. Penalize per-axis tracking, action diff, and jerk independently for `vx`,
+   `vy`, and `vyaw`.
+8. Preserve clearance and heavily punish collision.
+
+The command-direction gate is derived from the deployable occupancy grid by
+checking a car-width corridor in front of the body along the current command.
+The actor does not receive privileged nearest-clearance or collision flags;
+those remain critic/logging signals only. The reward can still use privileged
+training information, but the positive planar intent term is now tied to the
+actual projection onto the user command, so pure side slip or reverse output
+does not earn forward-intent reward.
 
 The current tuning pass intentionally shifted some burden from reward penalties
 back into the physical envelope: acceleration caps were loosened so the policy

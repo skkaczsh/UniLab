@@ -19,6 +19,10 @@ DEFAULT_BEST_KEYS = (
     "omni_car/static_collision_rate",
     "omni_car/agent_collision_rate",
     "omni_car/mean_clearance",
+    "omni_car/command_safety_gate",
+    "omni_car/reward/blocked_stop",
+    "omni_car/reward/off_axis",
+    "omni_car/reward/reverse",
     "Mean reward",
     "Mean episode length",
 )

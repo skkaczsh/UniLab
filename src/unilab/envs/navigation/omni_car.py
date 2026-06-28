@@ -22,6 +22,12 @@ class OmniCarCommandCfg:
     max_y_speed: float = 1.0
     max_yaw_rate: float = 2.0
     resample_interval_s: float = 2.0
+    hold_min_s: float = 2.0
+    hold_max_s: float = 8.0
+    long_hold_fraction: float = 0.35
+    long_hold_min_s: float = 8.0
+    long_hold_max_s: float = 30.0
+    zero_fraction: float = 0.15
     deadband: float = 0.15
     smoothing_tau_s: float = 0.40
 
@@ -87,6 +93,11 @@ class OmniCarRewardCfg:
     intent_projection: float = 5.0
     yaw_intent: float = 4.2
     response: float = 7.0
+    blocked_stop: float = 8.0
+    off_axis: float = 5.0
+    reverse: float = 8.0
+    directional_clearance_margin_m: float = 0.35
+    directional_clearance_range_m: float = 1.00
     vx_track: float = 0.0
     vy_track: float = 0.0
     vyaw_track: float = 0.0
@@ -213,6 +224,22 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
             raise ValueError("physical velocity limits must be positive")
         if min(limits.max_x_accel, limits.max_y_accel, limits.max_yaw_accel) <= 0.0:
             raise ValueError("physical acceleration limits must be positive")
+        command = self.command
+        if min(command.hold_min_s, command.hold_max_s, command.long_hold_min_s) <= 0.0:
+            raise ValueError("command hold durations must be positive")
+        if command.hold_max_s < command.hold_min_s:
+            raise ValueError("command.hold_max_s must be >= hold_min_s")
+        if command.long_hold_max_s < command.long_hold_min_s:
+            raise ValueError("command.long_hold_max_s must be >= long_hold_min_s")
+        if not 0.0 <= command.long_hold_fraction <= 1.0:
+            raise ValueError("command.long_hold_fraction must be in [0, 1]")
+        if not 0.0 <= command.zero_fraction <= 1.0:
+            raise ValueError("command.zero_fraction must be in [0, 1]")
+        reward = self.reward
+        if reward.directional_clearance_range_m <= 0.0:
+            raise ValueError("reward.directional_clearance_range_m must be positive")
+        if reward.directional_clearance_margin_m < 0.0:
+            raise ValueError("reward.directional_clearance_margin_m must be non-negative")
         human = self.human_command
         if human.replay_fanout < 0:
             raise ValueError("human_command.replay_fanout must be non-negative")
@@ -295,6 +322,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._accel_delta_limit = self._accel_limit * self._cfg.ctrl_dt
         self._raw_commands = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._commands = np.zeros((self._num_envs, 3), dtype=self._dtype)
+        self._command_steps_remaining = np.zeros((self._num_envs,), dtype=np.int32)
         self._human_command_enabled = bool(cfg.human_command.enabled)
         self._human_command_env_id = self._select_human_command_env_id()
         self._human_command_env_ids = self._select_human_command_env_ids()
@@ -361,6 +389,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._truncated = np.zeros((self._num_envs,), dtype=bool)
         self._tracking_error = np.zeros((self._num_envs,), dtype=self._dtype)
         self._response_progress = np.zeros((self._num_envs,), dtype=self._dtype)
+        self._command_clearance = np.zeros((self._num_envs,), dtype=self._dtype)
+        self._command_safety_gate = np.ones((self._num_envs,), dtype=self._dtype)
         self._track_cost = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._diff_cost = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._jerk_cost = np.zeros((self._num_envs, 3), dtype=self._dtype)
@@ -405,6 +435,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 "intent_projection",
                 "yaw_intent",
                 "response",
+                "blocked_stop",
+                "off_axis",
+                "reverse",
                 "vx_track",
                 "vy_track",
                 "vyaw_track",
@@ -619,6 +652,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         sampled_commands = self._sample_commands(env_indices.size)
         self._raw_commands[env_indices] = sampled_commands
         self._commands[env_indices] = sampled_commands.copy()
+        self._command_steps_remaining[env_indices] = self._sample_command_hold_steps(
+            env_indices.size
+        )
         self._refresh_human_commands()
         human_reset = np.intersect1d(env_indices, self._human_command_env_ids, assume_unique=False)
         if human_reset.size > 0:
@@ -636,6 +672,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._steps_since_reward_improvement[env_indices] = 0
         self._tracking_error[env_indices] = 0.0
         self._response_progress[env_indices] = 0.0
+        self._command_clearance[env_indices] = self._grid_extent
+        self._command_safety_gate[env_indices] = 1.0
         self._track_cost[env_indices] = 0.0
         self._diff_cost[env_indices] = 0.0
         self._jerk_cost[env_indices] = 0.0
@@ -664,12 +702,17 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._integrate(limited)
         self._state.info["steps"] += 1
 
-        resample_steps = max(
-            1, int(round(self._cfg.command.resample_interval_s / self._cfg.ctrl_dt))
+        np.maximum(
+            self._command_steps_remaining - 1,
+            0,
+            out=self._command_steps_remaining,
         )
-        resample_mask = self._state.info["steps"] % resample_steps == 0
+        resample_mask = self._command_steps_remaining <= 0
         if np.any(resample_mask):
             self._raw_commands[resample_mask] = self._sample_commands(
+                int(np.count_nonzero(resample_mask))
+            )
+            self._command_steps_remaining[resample_mask] = self._sample_command_hold_steps(
                 int(np.count_nonzero(resample_mask))
             )
 
@@ -690,6 +733,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "stagnated": self._stagnated.copy(),
             "tracking_error": self._tracking_error.copy(),
             "response_progress": self._response_progress.copy(),
+            "command_clearance": self._command_clearance.copy(),
+            "command_safety_gate": self._command_safety_gate.copy(),
             "track_cost": self._track_cost.copy(),
             "diff_cost": self._diff_cost.copy(),
             "jerk_cost": self._jerk_cost.copy(),
@@ -783,6 +828,10 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             ),
             "omni_car/tracking_error": float(np.mean(log_snapshot["tracking_error"])),
             "omni_car/response_progress": float(np.mean(log_snapshot["response_progress"])),
+            "omni_car/command_clearance": float(np.mean(log_snapshot["command_clearance"])),
+            "omni_car/command_safety_gate": float(
+                np.mean(log_snapshot["command_safety_gate"])
+            ),
             "omni_car/vx_track_cost": float(np.mean(log_snapshot["track_cost"][:, 0])),
             "omni_car/vy_track_cost": float(np.mean(log_snapshot["track_cost"][:, 1])),
             "omni_car/vyaw_track_cost": float(np.mean(log_snapshot["track_cost"][:, 2])),
@@ -812,6 +861,12 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 "omni_car/focus_env_id": float(focus_id),
                 "omni_car/focus_command_norm": float(
                     np.linalg.norm(log_snapshot["commands"][focus_id])
+                ),
+                "omni_car/focus_command_clearance": float(
+                    log_snapshot["command_clearance"][focus_id]
+                ),
+                "omni_car/focus_command_safety_gate": float(
+                    log_snapshot["command_safety_gate"][focus_id]
                 ),
                 "omni_car/focus_policy_action_norm": float(
                     np.linalg.norm(log_snapshot["policy_action"][focus_id])
@@ -1026,24 +1081,74 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             return np.zeros((0, 3), dtype=self._dtype)
         cmd = self._cfg.command
         limits = np.asarray([cmd.max_x_speed, cmd.max_y_speed, cmd.max_yaw_rate], dtype=self._dtype)
+        zero_mask = self._rng.random(count) < float(cmd.zero_fraction)
+        if count >= 8 and float(cmd.zero_fraction) > 0.0 and not np.any(zero_mask):
+            zero_mask[int(self._rng.integers(0, count))] = True
+
+        sampled = np.zeros((count, 3), dtype=self._dtype)
+        nonzero_ids = np.flatnonzero(~zero_mask)
+        nonzero_count = int(nonzero_ids.size)
+        if nonzero_count == 0:
+            return sampled
+
         mode_count = self._COMMAND_MODE_MASKS.shape[0]
         band_count = len(self._COMMAND_AMPLITUDE_BANDS)
-        mode_ids = (np.arange(count) + int(self._rng.integers(mode_count))) % mode_count
-        band_ids = (np.arange(count) + int(self._rng.integers(band_count))) % band_count
+        mode_ids = (np.arange(nonzero_count) + int(self._rng.integers(mode_count))) % mode_count
+        band_ids = (np.arange(nonzero_count) + int(self._rng.integers(band_count))) % band_count
         self._rng.shuffle(mode_ids)
         self._rng.shuffle(band_ids)
 
-        sampled = np.zeros((count, 3), dtype=self._dtype)
-        for row, (mode_id, band_id) in enumerate(zip(mode_ids, band_ids, strict=True)):
+        for row, mode_id, band_id in zip(nonzero_ids, mode_ids, band_ids, strict=True):
             active = self._COMMAND_MODE_MASKS[mode_id]
             low, high = self._COMMAND_AMPLITUDE_BANDS[band_id]
-            magnitude = self._rng.uniform(low, high, size=3).astype(self._dtype) * limits
-            signs = self._rng.choice(np.asarray([-1.0, 1.0], dtype=self._dtype), size=3)
-            sampled[row, active] = magnitude[active] * signs[active]
+
+            if active[0] and active[1]:
+                angle = float(self._rng.uniform(-np.pi, np.pi))
+                magnitude = float(self._rng.uniform(low, high))
+                sampled[row, 0] = magnitude * math.cos(angle) * limits[0]
+                sampled[row, 1] = magnitude * math.sin(angle) * limits[1]
+            elif active[0]:
+                sampled[row, 0] = (
+                    self._rng.uniform(low, high)
+                    * self._rng.choice(np.asarray([-1.0, 1.0], dtype=self._dtype))
+                    * limits[0]
+                )
+            elif active[1]:
+                sampled[row, 1] = (
+                    self._rng.uniform(low, high)
+                    * self._rng.choice(np.asarray([-1.0, 1.0], dtype=self._dtype))
+                    * limits[1]
+                )
+
+            if active[2]:
+                sampled[row, 2] = (
+                    self._rng.uniform(low, high)
+                    * self._rng.choice(np.asarray([-1.0, 1.0], dtype=self._dtype))
+                    * limits[2]
+                )
 
         small = np.linalg.norm(sampled[:, :2], axis=1) < cmd.deadband
         sampled[small, :2] = 0.0
         return sampled
+
+    def _sample_command_hold_steps(self, count: int) -> np.ndarray:
+        if count == 0:
+            return np.zeros((0,), dtype=np.int32)
+        cmd = self._cfg.command
+        long_mask = self._rng.random(count) < float(cmd.long_hold_fraction)
+        durations = self._rng.uniform(cmd.hold_min_s, cmd.hold_max_s, size=count)
+        if np.any(long_mask):
+            durations[long_mask] = self._rng.uniform(
+                cmd.long_hold_min_s,
+                cmd.long_hold_max_s,
+                size=int(np.count_nonzero(long_mask)),
+            )
+        if count >= 8 and float(cmd.long_hold_fraction) > 0.0 and not np.any(long_mask):
+            durations[int(self._rng.integers(0, count))] = self._rng.uniform(
+                cmd.long_hold_min_s,
+                cmd.long_hold_max_s,
+            )
+        return np.maximum(1, np.round(durations / self._cfg.ctrl_dt)).astype(np.int32)
 
     def _seed_history(self, env_indices: np.ndarray) -> None:
         if env_indices.size == 0:
@@ -1632,6 +1737,34 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 hits = delta_x * delta_x + delta_y * delta_y <= agent_radius * agent_radius
                 np.maximum(grid_view[ix0:ix1, iy0:iy1], hits, out=grid_view[ix0:ix1, iy0:iy1])
 
+    def _compute_command_direction_clearance(self, commands: np.ndarray) -> np.ndarray:
+        commands = np.asarray(commands, dtype=self._dtype)
+        clearance = np.full((self._num_envs,), self._grid_extent, dtype=self._dtype)
+        planar_norm = np.linalg.norm(commands[:, :2], axis=1)
+        active_ids = np.flatnonzero(planar_norm > self._cfg.command.deadband).astype(np.int32)
+        if active_ids.size == 0:
+            return clearance
+
+        grid = self._occupancy_grid(active_ids).reshape(
+            active_ids.size, self._cfg.grid.size * self._cfg.grid.size
+        )
+        half_width = 0.5 * float(self._cfg.body.width_m) + float(self._cfg.grid.safety_margin_m)
+        half_length = 0.5 * float(self._cfg.body.length_m)
+        corridor_half_width = half_width + self._grid_cell_size
+
+        for row, env_id in enumerate(active_ids):
+            occupied_ids = np.flatnonzero(grid[row] > 0.5)
+            if occupied_ids.size == 0:
+                continue
+            direction = commands[env_id, :2] / planar_norm[env_id]
+            points = self._grid_points[occupied_ids]
+            forward = points @ direction
+            lateral = np.abs(points[:, 0] * direction[1] - points[:, 1] * direction[0])
+            in_corridor = (forward > half_length) & (lateral <= corridor_half_width)
+            if np.any(in_corridor):
+                clearance[env_id] = np.min(forward[in_corridor] - half_length)
+        return clearance.astype(self._dtype, copy=False)
+
     def _select_local_obstacles(
         self, local_xy: np.ndarray, *, max_count: int, extra_extent: float
     ) -> np.ndarray:
@@ -1880,18 +2013,39 @@ class OmniCarGridAvoidanceEnv(ABEnv):
     def _compute_reward(self, action: np.ndarray) -> np.ndarray:
         cfg = self._cfg.reward
         cmd = self._commands
-        planar_scale = np.maximum(np.linalg.norm(cmd[:, :2], axis=1), 0.25)
-        planar_error = np.linalg.norm(action[:, :2] - cmd[:, :2], axis=1) / planar_scale
-        intent_reward = np.exp(-planar_error * planar_error)
-        projection = np.sum(action[:, :2] * cmd[:, :2], axis=1) / (planar_scale * planar_scale)
+        planar_norm = np.linalg.norm(cmd[:, :2], axis=1)
+        active_planar = planar_norm > self._cfg.command.deadband
+        safe_planar_norm = np.maximum(planar_norm, 1e-6)
+        command_dir = np.zeros_like(cmd[:, :2])
+        command_dir[active_planar] = cmd[active_planar, :2] / safe_planar_norm[
+            active_planar, None
+        ]
+        along_speed = np.sum(action[:, :2] * command_dir, axis=1)
+        projection = np.zeros((self._num_envs,), dtype=self._dtype)
+        projection[active_planar] = along_speed[active_planar] / safe_planar_norm[active_planar]
+        projected_error = np.zeros((self._num_envs,), dtype=self._dtype)
+        projected_error[active_planar] = (
+            along_speed[active_planar] - planar_norm[active_planar]
+        ) / safe_planar_norm[active_planar]
+        projection_reward = np.clip(projection, 0.0, 1.0)
+        intent_reward = np.zeros((self._num_envs,), dtype=self._dtype)
+        intent_reward[active_planar] = projection_reward[active_planar] * np.exp(
+            -projected_error[active_planar] * projected_error[active_planar]
+        )
         yaw_error = np.abs(action[:, 2] - cmd[:, 2]) / max(self._cfg.command.max_yaw_rate, 1e-6)
         yaw_reward = np.exp(-yaw_error * yaw_error)
         high = self._velocity_limit
         accel_delta = self._accel_delta_limit
         prev_error = np.linalg.norm((cmd - self._last_action) / high, axis=1)
         new_error = np.linalg.norm((cmd - action) / high, axis=1)
-        safety_gate = np.clip((self._nearest_clearance - 0.05) / 0.45, 0.0, 1.0)
-        response_progress = safety_gate * np.maximum(prev_error - new_error, 0.0)
+        command_clearance = self._compute_command_direction_clearance(cmd)
+        command_gate = np.clip(
+            (command_clearance - cfg.directional_clearance_margin_m)
+            / cfg.directional_clearance_range_m,
+            0.0,
+            1.0,
+        )
+        response_progress = command_gate * np.maximum(prev_error - new_error, 0.0)
         action_delta = action - self._last_action
         action_jerk = action_delta - self._last_action_delta
         track_cost = ((action - cmd) / high) ** 2
@@ -1907,19 +2061,37 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             [cfg.vx_jerk, cfg.vy_jerk, cfg.vyaw_jerk], dtype=self._dtype
         )
         clearance_penalty = np.exp(-np.maximum(self._nearest_clearance, 0.0) / 0.35)
-        track_penalty = -safety_gate[:, None] * track_cost * track_weights
+        track_penalty = -command_gate[:, None] * track_cost * track_weights
         diff_penalty = -diff_cost * diff_weights
         jerk_penalty = -jerk_cost * jerk_weights
+        planar_speed = np.linalg.norm(action[:, :2] / high[:2], axis=1)
+        lateral_speed = np.abs(action[:, 0] * command_dir[:, 1] - action[:, 1] * command_dir[:, 0])
+        off_axis_cost = np.where(
+            active_planar,
+            (lateral_speed / max(float(self._cfg.physical_limits.max_y_speed), 1e-6)) ** 2,
+            planar_speed * planar_speed,
+        )
+        reverse_cost = np.maximum(-projection, 0.0) ** 2
+        blocked_stop_reward = (1.0 - command_gate) * np.exp(
+            -(planar_speed / 0.20) * (planar_speed / 0.20)
+        )
         self._tracking_error = new_error.astype(self._dtype)
         self._response_progress = response_progress.astype(self._dtype)
+        self._command_clearance = command_clearance.astype(self._dtype)
+        self._command_safety_gate = command_gate.astype(self._dtype)
         self._track_cost = track_cost.astype(self._dtype)
         self._diff_cost = diff_cost.astype(self._dtype)
         self._jerk_cost = jerk_cost.astype(self._dtype)
         self._reward_components = {
-            "intent": (cfg.intent * intent_reward).astype(self._dtype),
-            "intent_projection": (cfg.intent_projection * projection).astype(self._dtype),
+            "intent": (command_gate * cfg.intent * intent_reward).astype(self._dtype),
+            "intent_projection": (
+                command_gate * cfg.intent_projection * projection_reward
+            ).astype(self._dtype),
             "yaw_intent": (cfg.yaw_intent * yaw_reward).astype(self._dtype),
             "response": (cfg.response * response_progress).astype(self._dtype),
+            "blocked_stop": (cfg.blocked_stop * blocked_stop_reward).astype(self._dtype),
+            "off_axis": (-cfg.off_axis * off_axis_cost).astype(self._dtype),
+            "reverse": (-cfg.reverse * reverse_cost).astype(self._dtype),
             "vx_track": track_penalty[:, 0].astype(self._dtype),
             "vy_track": track_penalty[:, 1].astype(self._dtype),
             "vyaw_track": track_penalty[:, 2].astype(self._dtype),
@@ -1940,6 +2112,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             + self._reward_components["intent_projection"]
             + self._reward_components["yaw_intent"]
             + self._reward_components["response"]
+            + self._reward_components["blocked_stop"]
+            + self._reward_components["off_axis"]
+            + self._reward_components["reverse"]
             + self._reward_components["vx_track"]
             + self._reward_components["vy_track"]
             + self._reward_components["vyaw_track"]
@@ -2180,6 +2355,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         lines = [
             f"env={env_id} step={int(self._state.info['steps'][env_id])} "
             f"clearance={float(self._nearest_clearance[env_id]):+.2f} "
+            f"cmd_clear={float(self._command_clearance[env_id]):+.2f} "
+            f"cmd_gate={float(self._command_safety_gate[env_id]):.2f} "
             f"collision={int(bool(self._collision[env_id]))} "
             f"idle_hold={int(bool(idle_hold[env_id]))}",
             vec("raw", raw),
@@ -2194,6 +2371,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "intent_projection",
             "yaw_intent",
             "response",
+            "blocked_stop",
+            "off_axis",
+            "reverse",
             "vx_track",
             "vy_track",
             "vyaw_track",

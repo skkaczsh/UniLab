@@ -194,6 +194,8 @@ def _format_summary(summary: dict[str, float | int | list[float] | None]) -> str
         "vyaw_tracking_rmse",
         "omni_car/tracking_error",
         "omni_car/response_progress",
+        "omni_car/command_clearance",
+        "omni_car/command_safety_gate",
         "omni_car/vx_track_cost",
         "omni_car/vy_track_cost",
         "omni_car/vyaw_track_cost",
@@ -206,6 +208,12 @@ def _format_summary(summary: dict[str, float | int | list[float] | None]) -> str
         "omni_car/collision_rate",
         "omni_car/mean_clearance",
         "omni_car/command_norm",
+        "omni_car/reward/intent",
+        "omni_car/reward/intent_projection",
+        "omni_car/reward/blocked_stop",
+        "omni_car/reward/off_axis",
+        "omni_car/reward/reverse",
+        "omni_car/reward/total",
     ]
     lines = []
     for key in ordered_keys:

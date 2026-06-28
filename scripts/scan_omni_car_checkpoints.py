@@ -164,6 +164,8 @@ def compact_summary(checkpoint: int, summary: dict[str, Any], score: float) -> d
         "mean_step_reward",
         "omni_car/tracking_error",
         "omni_car/response_progress",
+        "omni_car/command_clearance",
+        "omni_car/command_safety_gate",
         "omni_car/mean_clearance",
         "vx_tracking_mae",
         "vy_tracking_mae",
@@ -171,6 +173,10 @@ def compact_summary(checkpoint: int, summary: dict[str, Any], score: float) -> d
         "omni_car/vx_jerk_cost",
         "omni_car/vy_jerk_cost",
         "omni_car/vyaw_jerk_cost",
+        "omni_car/reward/blocked_stop",
+        "omni_car/reward/off_axis",
+        "omni_car/reward/reverse",
+        "omni_car/reward/total",
     ]
     row: dict[str, Any] = {"checkpoint": int(checkpoint), "selection_score": float(score)}
     for key in keys:

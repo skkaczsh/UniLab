@@ -107,7 +107,12 @@ def test_omni_car_grid_history_excludes_privileged_actor_inputs() -> None:
         "OmniCarGridAvoidance",
         sim_backend="mujoco",
         num_envs=1,
-        env_cfg_override={"seed": 43, "grid_history_len": 3, "obstacles": {"count": 1}},
+        env_cfg_override={
+            "seed": 43,
+            "grid_history_len": 3,
+            "command": {"zero_fraction": 0.0},
+            "obstacles": {"count": 1},
+        },
     )
     state = env.init_state()
     grid_stack_dim = env._grid_history_len * env._grid_dim
@@ -123,7 +128,14 @@ def test_omni_car_grid_history_excludes_privileged_actor_inputs() -> None:
     for frame_id in range(1, env._grid_history_len):
         np.testing.assert_array_equal(env._grid_history[0, frame_id], first_frame)
 
-    env._obstacle_xy[0, 0] += np.asarray([0.50, 0.0], dtype=np.float32)
+    env._obstacle_xy[0, 0] = np.asarray([0.50, 0.0], dtype=np.float32)
+    env._obstacle_radius[0, 0] = 0.22
+    env._obstacle_type[0, 0] = env._OBSTACLE_CIRCLE
+    env._grid_history_initialized[0] = False
+    env._build_obs(np.asarray([0], dtype=np.int32))
+    first_frame = env._grid_history[0, 0].copy()
+
+    env._obstacle_xy[0, 0] = np.asarray([1.25, 0.0], dtype=np.float32)
     state = env.step(np.zeros((1, 3), dtype=np.float32))
     assert state.obs["critic"][0, -5] == pytest.approx(env._nearest_clearance[0])
     assert state.obs["critic"][0, -4] == pytest.approx(float(env._collision[0]))
@@ -140,10 +152,12 @@ def test_omni_car_balanced_command_sampler_covers_modes_and_limits() -> None:
     )
     samples = env._sample_commands(700)
     active = np.abs(samples) > env._cfg.command.deadband
+    zero_rows = np.linalg.norm(samples, axis=1) == 0.0
 
     np.testing.assert_array_less(np.abs(samples[:, 0]), 2.0 + 1e-6)
     np.testing.assert_array_less(np.abs(samples[:, 1]), 1.0 + 1e-6)
     np.testing.assert_array_less(np.abs(samples[:, 2]), 2.0 + 1e-6)
+    assert np.mean(zero_rows) == pytest.approx(env._cfg.command.zero_fraction, abs=0.06)
     for mode in env._COMMAND_MODE_MASKS:
         assert np.any(np.all(active == mode, axis=1))
 
@@ -152,6 +166,30 @@ def test_omni_car_balanced_command_sampler_covers_modes_and_limits() -> None:
     assert np.any((0.15 <= nonzero) & (nonzero < 0.35))
     assert np.any((0.35 <= nonzero) & (nonzero < 0.65))
     assert np.any(nonzero >= 0.65)
+    env.close()
+
+
+def test_omni_car_command_hold_sampler_includes_long_segments() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 49,
+            "ctrl_dt": 0.05,
+            "command": {
+                "hold_min_s": 1.0,
+                "hold_max_s": 2.0,
+                "long_hold_fraction": 0.5,
+                "long_hold_min_s": 10.0,
+                "long_hold_max_s": 12.0,
+            },
+        },
+    )
+    hold_steps = env._sample_command_hold_steps(200)
+
+    assert np.any(hold_steps >= int(round(10.0 / env._cfg.ctrl_dt)))
+    assert np.any(hold_steps <= int(round(2.0 / env._cfg.ctrl_dt)))
     env.close()
 
 
@@ -340,6 +378,9 @@ def test_omni_car_response_diff_and_jerk_rewards_are_measured() -> None:
                 "intent_projection": 0.0,
                 "yaw_intent": 0.0,
                 "response": 1.0,
+                "blocked_stop": 0.0,
+                "off_axis": 0.0,
+                "reverse": 0.0,
                 "vx_track": 0.0,
                 "vy_track": 0.0,
                 "vyaw_track": 0.0,
@@ -392,19 +433,72 @@ def test_omni_car_response_diff_and_jerk_rewards_are_measured() -> None:
     env.close()
 
 
-def test_omni_car_axis_tracking_penalty_is_clearance_gated() -> None:
+def test_omni_car_projection_reward_penalizes_off_axis_and_reverse_motion() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 16,
+            "obstacles": {"count": 0},
+            "reward": {
+                "intent": 4.0,
+                "intent_projection": 4.0,
+                "yaw_intent": 0.0,
+                "response": 0.0,
+                "blocked_stop": 0.0,
+                "off_axis": 6.0,
+                "reverse": 8.0,
+                "vx_track": 0.0,
+                "vy_track": 0.0,
+                "vyaw_track": 0.0,
+                "vx_diff": 0.0,
+                "vy_diff": 0.0,
+                "vyaw_diff": 0.0,
+                "vx_jerk": 0.0,
+                "vy_jerk": 0.0,
+                "vyaw_jerk": 0.0,
+                "clearance": 0.0,
+                "collision": 0.0,
+            },
+        },
+    )
+    env.init_state()
+    env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
+
+    forward = env._compute_reward(np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32))[0]
+    off_axis = env._compute_reward(np.asarray([[0.0, 1.0, 0.0]], dtype=np.float32))[0]
+    off_axis_component = float(env._reward_components["off_axis"][0])
+    off_axis_intent = float(env._reward_components["intent"][0])
+    reverse = env._compute_reward(np.asarray([[-1.0, 0.0, 0.0]], dtype=np.float32))[0]
+
+    assert forward > off_axis
+    assert forward > reverse
+    assert off_axis_intent == pytest.approx(0.0)
+    assert off_axis_component < 0.0
+    assert env._reward_components["reverse"][0] < 0.0
+    env.close()
+
+
+def test_omni_car_axis_tracking_penalty_is_command_direction_gated() -> None:
     env = registry.make(
         "OmniCarGridAvoidance",
         sim_backend="mujoco",
         num_envs=1,
         env_cfg_override={
             "seed": 14,
-            "obstacles": {"count": 0},
+            "obstacles": {
+                "count": 1,
+                "circle_fraction": 1.0,
+                "box_fraction": 0.0,
+                "wall_fraction": 0.0,
+            },
             "reward": {
                 "intent": 0.0,
                 "intent_projection": 0.0,
                 "yaw_intent": 0.0,
                 "response": 0.0,
+                "blocked_stop": 0.0,
                 "vx_track": 1.0,
                 "vy_track": 2.0,
                 "vyaw_track": 3.0,
@@ -421,14 +515,67 @@ def test_omni_car_axis_tracking_penalty_is_clearance_gated() -> None:
     )
     env.init_state()
     env._commands[:] = np.asarray([[1.0, -1.0, 1.0]], dtype=np.float32)
+    env._obstacle_xy[0, 0] = np.asarray([-1.0, 1.0], dtype=np.float32)
+    env._obstacle_radius[0, 0] = 0.20
 
     safe_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
     np.testing.assert_allclose(env._track_cost, [[0.25, 1.0, 0.25]], atol=1e-6)
+    assert env._command_safety_gate[0] == pytest.approx(1.0)
     assert safe_reward[0] == pytest.approx(-(0.25 + 2.0 + 0.75))
 
-    env._nearest_clearance[:] = 0.0
+    env._obstacle_xy[0, 0] = np.asarray([0.40, -0.40], dtype=np.float32)
     blocked_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
+    assert env._command_safety_gate[0] == pytest.approx(0.0)
     assert blocked_reward[0] == pytest.approx(0.0)
+    env.close()
+
+
+def test_omni_car_front_obstacle_rewards_stop_over_forward_push() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 15,
+            "obstacles": {
+                "count": 1,
+                "circle_fraction": 1.0,
+                "box_fraction": 0.0,
+                "wall_fraction": 0.0,
+            },
+            "reward": {
+                "intent": 8.0,
+                "intent_projection": 4.0,
+                "yaw_intent": 0.0,
+                "response": 0.0,
+                "blocked_stop": 10.0,
+                "vx_track": 0.0,
+                "vy_track": 0.0,
+                "vyaw_track": 0.0,
+                "vx_diff": 0.0,
+                "vy_diff": 0.0,
+                "vyaw_diff": 0.0,
+                "vx_jerk": 0.0,
+                "vy_jerk": 0.0,
+                "vyaw_jerk": 0.0,
+                "clearance": 0.0,
+                "collision": 0.0,
+            },
+        },
+    )
+    env.init_state()
+    env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
+    env._obstacle_xy[0, 0] = np.asarray([0.55, 0.0], dtype=np.float32)
+    env._obstacle_radius[0, 0] = 0.22
+    env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
+
+    stop_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
+    stop_blocked_reward = float(env._reward_components["blocked_stop"][0])
+    push_reward = env._compute_reward(np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32))
+
+    assert env._command_safety_gate[0] == pytest.approx(0.0)
+    assert stop_reward[0] > push_reward[0]
+    assert stop_blocked_reward > 0.0
     env.close()
 
 
