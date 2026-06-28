@@ -20,6 +20,7 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+import scripts.evaluate_omni_car_behaviors as evaluate_omni_car_behaviors
 import scripts.evaluate_omni_car_checkpoint as evaluate_omni_car_checkpoint
 
 _CHECKPOINT_RE = re.compile(r"^(?:model_)?(?P<id>\d+)(?:\.pt)?$")
@@ -200,6 +201,39 @@ def _evaluate_checkpoint(
         return evaluator(args)
 
 
+def compact_behavior_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "passed": bool(summary.get("strict_passed")),
+        "scenarios": [
+            {
+                "scenario": item.get("scenario"),
+                "passed": bool(item.get("passed")),
+                "failures": list(item.get("failures", [])),
+                "planar_speed_mean": item.get("planar_speed_mean"),
+                "yaw_abs_mean": item.get("yaw_abs_mean"),
+                "projection_mean": item.get("projection_mean"),
+                "off_axis_abs_mean": item.get("off_axis_abs_mean"),
+                "collision_fraction": item.get("collision_fraction"),
+                "command_safety_gate_mean": item.get("command_safety_gate_mean"),
+            }
+            for item in summary.get("scenarios", [])
+            if isinstance(item, dict)
+        ],
+    }
+
+
+def _row_passes_all_gates(row: dict[str, Any], *, behavior_gate_enabled: bool) -> bool:
+    reference = row.get("reference_gate")
+    if isinstance(reference, dict) and bool(reference.get("enabled")):
+        if reference.get("passed") is not True:
+            return False
+    if behavior_gate_enabled:
+        behavior = row.get("behavior_gate")
+        if not isinstance(behavior, dict) or behavior.get("passed") is not True:
+            return False
+    return True
+
+
 def scan_checkpoints(
     *,
     load_run: str,
@@ -215,6 +249,11 @@ def scan_checkpoints(
     reference_tracking: float | None,
     reference_source: str | None = None,
     evaluator: Evaluator = evaluate_omni_car_checkpoint.evaluate_checkpoint,
+    behavior_gate: bool = False,
+    behavior_num_envs: int = 16,
+    behavior_num_steps: int = 96,
+    behavior_seed: int | None = None,
+    behavior_evaluator: Evaluator = evaluate_omni_car_behaviors.evaluate_behaviors,
     verbose: bool = False,
 ) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
@@ -241,11 +280,31 @@ def scan_checkpoints(
             reference_collision=reference_collision,
             reference_tracking=reference_tracking,
         )
+        if behavior_gate:
+            behavior_args = argparse.Namespace(
+                load_run=load_run,
+                checkpoint=str(checkpoint),
+                num_envs=int(behavior_num_envs),
+                num_steps=int(behavior_num_steps),
+                seed=int(seed if behavior_seed is None else behavior_seed),
+                device=device,
+                json=True,
+                strict=True,
+            )
+            behavior_summary = _evaluate_checkpoint(
+                behavior_evaluator,
+                behavior_args,
+                verbose=verbose,
+            )
+            row["behavior_gate"] = compact_behavior_summary(behavior_summary)
         rows.append(row)
     if not rows:
         raise ValueError("No checkpoints selected for scanning.")
     best = min(rows, key=lambda row: float(row["selection_score"]))
     gated = [row for row in rows if row["reference_gate"].get("passed") is True]
+    all_gated = [
+        row for row in rows if _row_passes_all_gates(row, behavior_gate_enabled=behavior_gate)
+    ]
     return {
         "load_run": load_run,
         "checkpoints": [int(item) for item in checkpoints],
@@ -263,9 +322,18 @@ def scan_checkpoints(
             "collision": reference_collision,
             "tracking": reference_tracking,
         },
+        "behavior_gate": {
+            "enabled": bool(behavior_gate),
+            "num_envs": int(behavior_num_envs),
+            "num_steps": int(behavior_num_steps),
+            "seed": int(seed if behavior_seed is None else behavior_seed),
+        },
         "best_by_score": best,
         "best_passing_reference_gate": min(gated, key=lambda row: float(row["selection_score"]))
         if gated
+        else None,
+        "best_passing_all_gates": min(all_gated, key=lambda row: float(row["selection_score"]))
+        if all_gated
         else None,
         "evaluations": rows,
     }
@@ -298,6 +366,19 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--collision-weight", type=float, default=10.0)
     parser.add_argument("--tracking-weight", type=float, default=1.0)
     parser.add_argument("--jerk-weight", type=float, default=0.25)
+    parser.add_argument(
+        "--behavior-gate",
+        action="store_true",
+        help="Also run controlled zero-input/obstacle behavior probes for each checkpoint.",
+    )
+    parser.add_argument("--behavior-num-envs", type=int, default=16)
+    parser.add_argument("--behavior-num-steps", type=int, default=96)
+    parser.add_argument(
+        "--behavior-seed",
+        type=int,
+        default=None,
+        help="Seed for behavior probes. Defaults to --seed.",
+    )
     parser.add_argument(
         "--reference-manifest",
         type=Path,
@@ -365,6 +446,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         reference_collision=reference_collision,
         reference_tracking=reference_tracking,
         reference_source=reference_source,
+        behavior_gate=bool(args.behavior_gate),
+        behavior_num_envs=int(args.behavior_num_envs),
+        behavior_num_steps=int(args.behavior_num_steps),
+        behavior_seed=args.behavior_seed,
         verbose=bool(args.verbose),
     )
     text = json.dumps(result, indent=2, sort_keys=True)

@@ -159,6 +159,54 @@ def test_scan_checkpoints_ranks_and_reports_reference_gate() -> None:
     assert result["evaluations"][1]["reference_gate"]["passed"] is True
 
 
+def test_scan_checkpoints_can_require_behavior_gate() -> None:
+    module = _load_module()
+    summaries = {
+        "100": _summary(collision=0.01, tracking=0.20, jerk=0.10, ret=30.0),
+        "200": _summary(collision=0.02, tracking=0.35, jerk=0.10, ret=20.0),
+    }
+    behaviors = {
+        "100": {"strict_passed": False, "scenarios": [{"scenario": "zero", "passed": False}]},
+        "200": {"strict_passed": True, "scenarios": [{"scenario": "zero", "passed": True}]},
+    }
+
+    def _fake_evaluator(args: Namespace) -> dict[str, object]:
+        return summaries[str(args.checkpoint)]
+
+    def _fake_behavior_evaluator(args: Namespace) -> dict[str, object]:
+        assert args.num_envs == 2
+        assert args.num_steps == 3
+        assert args.seed == 19
+        assert args.strict is True
+        return behaviors[str(args.checkpoint)]
+
+    result = module.scan_checkpoints(
+        load_run="/tmp/run",
+        checkpoints=[100, 200],
+        num_envs=4,
+        num_steps=8,
+        seed=7,
+        device="cpu",
+        collision_weight=10.0,
+        tracking_weight=1.0,
+        jerk_weight=0.25,
+        reference_collision=None,
+        reference_tracking=None,
+        evaluator=_fake_evaluator,
+        behavior_gate=True,
+        behavior_num_envs=2,
+        behavior_num_steps=3,
+        behavior_seed=19,
+        behavior_evaluator=_fake_behavior_evaluator,
+    )
+
+    assert result["best_by_score"]["checkpoint"] == 100
+    assert result["best_passing_reference_gate"] is None
+    assert result["best_passing_all_gates"]["checkpoint"] == 200
+    assert result["evaluations"][0]["behavior_gate"]["passed"] is False
+    assert result["evaluations"][1]["behavior_gate"]["passed"] is True
+
+
 def test_scan_checkpoints_suppresses_noisy_evaluator_output_by_default(capsys) -> None:
     module = _load_module()
 
