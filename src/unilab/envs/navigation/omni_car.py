@@ -105,6 +105,7 @@ class OmniCarRewardCfg:
     clearance_motion: float = 8.0
     clearance_target_motion: float = 10.0
     clearance_opening: float = 0.0
+    blocked_lateral_escape: float = 0.0
     target_collision: float = 0.0
     target_collision_margin_m: float = 0.25
     target_collision_speed_mps: float = 0.25
@@ -480,6 +481,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 "clearance_motion",
                 "clearance_target_motion",
                 "clearance_opening",
+                "blocked_lateral_escape",
                 "blocked_projection",
                 "blocked_stop",
                 "idle_stop",
@@ -2363,6 +2365,18 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             previous_clearance_risk * np.tanh(opening_speed / 0.25),
             0.0,
         )
+        blocked_lateral_escape_reward = np.where(
+            active_planar,
+            blocked_path_risk
+            * np.clip(
+                lateral_speed / max(float(self._cfg.physical_limits.max_y_speed), 1e-6),
+                0.0,
+                1.0,
+            )
+            * np.exp(-(np.maximum(along_speed, 0.0) / 0.20) ** 2)
+            * np.exp(-(closing_speed / 0.25) ** 2),
+            0.0,
+        )
         clearance_motion_cost = clearance_risk * (closing_speed / 0.25) ** 2
         clearance_target_motion_cost = np.maximum(clearance_risk, target_risk) * (
             target_closing_speed / 0.25
@@ -2428,6 +2442,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "clearance_opening": (
                 cfg.clearance_opening * clearance_opening_reward
             ).astype(self._dtype),
+            "blocked_lateral_escape": (
+                cfg.blocked_lateral_escape * blocked_lateral_escape_reward
+            ).astype(self._dtype),
             "target_collision": (-cfg.target_collision * target_collision_cost).astype(
                 self._dtype
             ),
@@ -2466,6 +2483,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             + self._reward_components["clearance_motion"]
             + self._reward_components["clearance_target_motion"]
             + self._reward_components["clearance_opening"]
+            + self._reward_components["blocked_lateral_escape"]
             + self._reward_components["target_collision"]
             + self._reward_components["blocked_projection"]
             + self._reward_components["blocked_stop"]
@@ -2734,6 +2752,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "clearance_motion",
             "clearance_target_motion",
             "clearance_opening",
+            "blocked_lateral_escape",
             "target_collision",
             "blocked_projection",
             "blocked_stop",
