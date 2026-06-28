@@ -1596,3 +1596,36 @@ def test_omni_car_cnn_gru_model_forward_actor_and_critic() -> None:
     critic_out = critic(TensorDict({"critic": critic_obs}, batch_size=2))
     assert actor_out.shape == (2, 3)
     assert critic_out.shape == (2, 1)
+
+
+def test_omni_car_cnn_gru_model_uses_silu_activation_alias() -> None:
+    cfg = OmniCarGridAvoidanceCfg()
+    actor_obs_dim = (
+        cfg.grid_history_len * cfg.grid.size * cfg.grid.size
+        + 3
+        + 3
+        + 3
+        + cfg.obs_history_len * 9
+    )
+    actor_obs = torch.zeros((2, actor_obs_dim), dtype=torch.float32)
+    actor = OmniCarGridCNNGRUModel(
+        TensorDict({"actor": actor_obs}, batch_size=2),
+        {"actor": ["actor"]},
+        "actor",
+        3,
+        hidden_dims=[16],
+        activation="silu",
+        grid_history_len=cfg.grid_history_len,
+        cnn_feature_dim=8,
+        gru_hidden_dim=8,
+        distribution_cfg={
+            "class_name": "rsl_rl.modules.distribution.GaussianDistribution",
+            "init_std": 0.5,
+            "std_type": "scalar",
+        },
+    )
+
+    actor_out = actor(TensorDict({"actor": actor_obs}, batch_size=2))
+    assert actor_out.shape == (2, 3)
+    assert any(isinstance(module, torch.nn.SiLU) for module in actor.grid_encoder)
+    assert any(isinstance(module, torch.nn.SiLU) for module in actor.mlp)

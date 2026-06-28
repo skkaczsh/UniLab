@@ -3,7 +3,17 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 from rsl_rl.models import MLPModel
+from rsl_rl.utils import resolve_nn_activation
 from tensordict import TensorDict
+
+
+def _normalize_activation_name(activation: str) -> str:
+    normalized = activation.lower()
+    return "swish" if normalized == "silu" else normalized
+
+
+def _activation(activation: str) -> nn.Module:
+    return resolve_nn_activation(_normalize_activation_name(activation))
 
 
 class OmniCarGridCNNModel(MLPModel):
@@ -25,6 +35,7 @@ class OmniCarGridCNNModel(MLPModel):
         self.grid_size = int(grid_size)
         self.grid_dim = self.grid_size * self.grid_size
         self.cnn_feature_dim = int(cnn_feature_dim)
+        activation = _normalize_activation_name(activation)
         super().__init__(
             obs,
             obs_groups,
@@ -41,14 +52,14 @@ class OmniCarGridCNNModel(MLPModel):
             )
         self.grid_encoder = nn.Sequential(
             nn.Conv2d(1, 8, kernel_size=5, stride=2, padding=2),
-            nn.ELU(),
+            _activation(activation),
             nn.Conv2d(8, 16, kernel_size=3, stride=2, padding=1),
-            nn.ELU(),
+            _activation(activation),
             nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
-            nn.ELU(),
+            _activation(activation),
             nn.Flatten(),
             nn.Linear(32 * 10 * 10, self.cnn_feature_dim),
-            nn.ELU(),
+            _activation(activation),
         )
 
     def get_latent(self, obs: TensorDict, masks=None, hidden_state=None) -> torch.Tensor:
@@ -97,6 +108,7 @@ class OmniCarGridCNNGRUModel(MLPModel):
         self.cnn_feature_dim = int(cnn_feature_dim)
         self.gru_hidden_dim = int(gru_hidden_dim)
         self.gru_layers = int(gru_layers)
+        activation = _normalize_activation_name(activation)
         super().__init__(
             obs,
             obs_groups,
@@ -118,14 +130,14 @@ class OmniCarGridCNNGRUModel(MLPModel):
             )
         self.grid_encoder = nn.Sequential(
             nn.Conv2d(1, 8, kernel_size=5, stride=2, padding=2),
-            nn.ELU(),
+            _activation(activation),
             nn.Conv2d(8, 16, kernel_size=3, stride=2, padding=1),
-            nn.ELU(),
+            _activation(activation),
             nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
-            nn.ELU(),
+            _activation(activation),
             nn.Flatten(),
             nn.Linear(32 * 10 * 10, self.cnn_feature_dim),
-            nn.ELU(),
+            _activation(activation),
         )
         self.grid_gru = nn.GRU(
             input_size=self.cnn_feature_dim,
