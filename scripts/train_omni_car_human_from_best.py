@@ -7,6 +7,7 @@ import argparse
 import shlex
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -45,6 +46,17 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--axis-vy", type=int, default=0)
     parser.add_argument("--axis-vyaw", type=int, default=3)
     parser.add_argument("--render-every-steps", type=int, default=1)
+    parser.add_argument(
+        "--wait-for-joystick",
+        type=float,
+        default=0.0,
+        help="Seconds to wait for pygame to detect a joystick before launching training.",
+    )
+    parser.add_argument(
+        "--allow-no-joystick",
+        action="store_true",
+        help="Open the viewer even when no joystick is detected; human command remains zero.",
+    )
     parser.add_argument("--device", default=None)
     parser.add_argument("--dry-run", action="store_true", help="Print the command without running it.")
     parser.add_argument(
@@ -95,6 +107,7 @@ def build_resume_command(args: argparse.Namespace) -> list[str]:
         f"env.human_command.axis_vy={int(args.axis_vy)}",
         f"env.human_command.axis_vyaw={int(args.axis_vyaw)}",
         f"env.human_command.replay_fanout={int(args.replay_fanout)}",
+        f"env.human_command.require_joystick={str(not bool(args.allow_no_joystick)).lower()}",
         "env.human_command.render_enabled=true",
         f"env.human_command.render_every_steps={int(args.render_every_steps)}",
         *_normalize_overrides(args.overrides),
@@ -113,8 +126,49 @@ def build_resume_command(args: argparse.Namespace) -> list[str]:
     )
 
 
+def _pygame_joystick_count() -> tuple[int, list[str]]:
+    try:
+        import pygame
+    except ImportError as exc:
+        raise SystemExit(
+            "pygame is required for Xbox human-command input. Run `uv sync` first."
+        ) from exc
+
+    pygame.init()
+    pygame.joystick.init()
+    try:
+        count = pygame.joystick.get_count()
+        names = []
+        for joystick_id in range(count):
+            joystick = pygame.joystick.Joystick(joystick_id)
+            joystick.init()
+            names.append(joystick.get_name())
+        return count, names
+    finally:
+        pygame.quit()
+
+
+def _require_or_wait_for_joystick(args: argparse.Namespace) -> None:
+    if args.allow_no_joystick or args.dry_run:
+        return
+    deadline = time.monotonic() + max(float(args.wait_for_joystick), 0.0)
+    while True:
+        count, names = _pygame_joystick_count()
+        if count > 0:
+            print(f"Detected joystick(s): {', '.join(names)}")
+            return
+        if time.monotonic() >= deadline:
+            raise SystemExit(
+                "No joystick detected by pygame. Reconnect the Xbox controller and confirm macOS "
+                "Bluetooth shows it as Connected, or pass `--allow-no-joystick` to open the HUD "
+                "viewer with zero human input."
+            )
+        time.sleep(0.5)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
+    _require_or_wait_for_joystick(args)
     command = build_resume_command(args)
     if args.dry_run:
         print(" ".join(shlex.quote(part) for part in command))

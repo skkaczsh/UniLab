@@ -51,6 +51,7 @@ def test_human_resume_script_builds_low_latency_resume_command(tmp_path, monkeyp
     assert "algo.algorithm.num_mini_batches=1" in command
     assert "env.human_command.enabled=true" in command
     assert "env.human_command.render_enabled=true" in command
+    assert "env.human_command.require_joystick=true" in command
     assert "env.human_command.axis_vyaw=3" in command
     assert "training.play_render_mode=none" in command
     assert "env.human_command.axis_vyaw=3" in command
@@ -64,3 +65,12 @@ def test_human_resume_script_defaults_to_repo_best_checkpoint() -> None:
     command = module.build_resume_command(args)
 
     assert f"algo.load_run={checkpoint}" in command
+
+
+def test_human_resume_script_can_allow_missing_joystick_for_debug_viewer() -> None:
+    module = _load_module()
+
+    args = module._parse_args(["--dry-run", "--allow-no-joystick"])
+    command = module.build_resume_command(args)
+
+    assert "env.human_command.require_joystick=false" in command
