@@ -7,9 +7,12 @@ deviating smoothly when obstacles block the path.
 ## Observation and action
 
 - Grid input: `80 x 80`, `0.05 m` per cell, centered on the robot body frame.
-- Policy input: occupancy grid, current smoothed command, current velocity, last
-  action, command history, velocity history, action history, nearest clearance,
-  and collision flag.
+- Policy input: deployable signals only: `10` occupancy-grid frames, current
+  smoothed command, current velocity, last action, command history, velocity
+  history, and action history. Nearest clearance and collision are not actor
+  inputs.
+- Critic input: policy input plus train-time privileged state: nearest
+  clearance, collision flag, and global pose.
 - Action output: body-frame `vx`, `vy`, `vyaw`.
 - Physical limits are enforced before integration. Tracking smoothness is shaped
   in reward, while absolute feasibility comes from velocity and acceleration
@@ -46,14 +49,25 @@ The MuJoCo owner config lives in
 Current defaults in this branch:
 
 - Trainer episode horizon statistic: `300 s`
+- Grid history: `10` frames
 - Observation history: `24` frames
 - Command resample interval: `2.5 s`
 - Command smoothing time constant: `0.55 s`
 - PPO rollout: `128` envs, `32` steps per env
-- Policy architecture: `OmniCarGridCNNModel` (`CNN + MLP`)
+- Policy architecture: `OmniCarGridCNNGRUModel` (`CNN per grid frame + GRU over
+  10 CNN features + MLP`)
+- Body footprint: `0.56 m x 0.32 m`, plus `0.05 m` safety margin in clearance
+  checks
+- Physical velocity caps: `2.0 / 1.0 / 2.0` for `vx / vy / vyaw`
 - Scene: shared `36 m` world, `260` mixed static obstacles, heterogeneous dense
   regions, thick closed perimeter, and car-to-car dynamic obstacles
 - Physical acceleration caps: `3.5 / 3.5 / 4.5` for `vx / vy / vyaw`
+
+The command sampler balances the active-axis combinations across `vx`, `vy`,
+and `vyaw` and samples low, medium, and high amplitude bands. This gives PPO
+coverage over pure longitudinal, pure lateral, pure yaw, planar, yaw-coupled,
+and full omnidirectional commands instead of relying on independent uniform
+axis sampling.
 
 Reward shaping emphasizes four things:
 
@@ -71,6 +85,11 @@ The latest yaw-response pass adds explicit clearance-gated per-axis tracking
 costs and raises yaw intent/tracking weight. This addresses a failure mode seen
 in the `remote_5070_git_long_3000` run where later checkpoints became very
 smooth by suppressing yaw output instead of following `vyaw` commands.
+
+The `CNN + GRU` observation contract is intentionally incompatible with older
+`CNN + MLP` checkpoints. Historical checkpoint manifests remain useful for
+record keeping, but this branch needs a fresh training run before a checkpoint
+can be loaded with the current default config.
 
 ## Training
 

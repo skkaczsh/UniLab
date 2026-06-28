@@ -5,7 +5,7 @@ import pytest
 import torch
 from tensordict import TensorDict
 
-from unilab.algos.torch.omni_car import OmniCarGridCNNModel
+from unilab.algos.torch.omni_car import OmniCarGridCNNGRUModel, OmniCarGridCNNModel
 from unilab.base import registry
 from unilab.envs.navigation.omni_car import OmniCarGridAvoidanceCfg
 
@@ -22,6 +22,8 @@ def test_omni_car_grid_contract() -> None:
     state = env.init_state()
     assert state.obs["obs"].shape == (4, env.obs_groups_spec["obs"])
     assert state.obs["critic"].shape == (4, env.obs_groups_spec["critic"])
+    assert env.obs_groups_spec["obs"] == 10 * 80 * 80 + 3 + 3 + 3 + 24 * 9
+    assert env.obs_groups_spec["critic"] == env.obs_groups_spec["obs"] + 5
     assert env.action_space.shape == (3,)
 
     next_state = env.step(np.zeros((4, 3), dtype=np.float32))
@@ -66,7 +68,7 @@ def test_omni_car_observation_layout_matches_reference_concatenate() -> None:
     env_indices = np.asarray([2, 0], dtype=np.int32)
 
     actual = env._build_obs(env_indices)
-    grid = env._occupancy_grid(env_indices)
+    grid = env._grid_history[env_indices].reshape(env_indices.size, -1)
     command_hist = env._command_history[env_indices].reshape(env_indices.size, -1)
     velocity_hist = env._velocity_history[env_indices].reshape(env_indices.size, -1)
     action_hist = env._action_history[env_indices].reshape(env_indices.size, -1)
@@ -81,20 +83,71 @@ def test_omni_car_observation_layout_matches_reference_concatenate() -> None:
             command_hist,
             velocity_hist,
             action_hist,
-            clearance,
-            collision,
         ],
         axis=1,
         dtype=env._dtype,
     )
     expected_critic = np.concatenate(
-        [expected_obs, env._pose[env_indices]],
+        [expected_obs, clearance, collision, env._pose[env_indices]],
         axis=1,
         dtype=env._dtype,
     )
 
     np.testing.assert_array_equal(actual["obs"], expected_obs)
     np.testing.assert_array_equal(actual["critic"], expected_critic)
+    env.close()
+
+
+def test_omni_car_grid_history_excludes_privileged_actor_inputs() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={"seed": 43, "grid_history_len": 3, "obstacles": {"count": 1}},
+    )
+    state = env.init_state()
+    grid_stack_dim = env._grid_history_len * env._grid_dim
+
+    assert state.obs["obs"].shape[1] == grid_stack_dim + 3 + 3 + 3 + env._history_dim
+    assert state.obs["critic"].shape[1] == state.obs["obs"].shape[1] + 5
+    np.testing.assert_array_equal(
+        state.obs["critic"][:, : state.obs["obs"].shape[1]],
+        state.obs["obs"],
+    )
+
+    first_frame = env._grid_history[0, 0].copy()
+    for frame_id in range(1, env._grid_history_len):
+        np.testing.assert_array_equal(env._grid_history[0, frame_id], first_frame)
+
+    env._obstacle_xy[0, 0] += np.asarray([0.50, 0.0], dtype=np.float32)
+    state = env.step(np.zeros((1, 3), dtype=np.float32))
+    assert state.obs["critic"][0, -5] == pytest.approx(env._nearest_clearance[0])
+    assert state.obs["critic"][0, -4] == pytest.approx(float(env._collision[0]))
+    assert np.count_nonzero(env._grid_history[0, 0] != env._grid_history[0, -1]) > 0
+    env.close()
+
+
+def test_omni_car_balanced_command_sampler_covers_modes_and_limits() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={"seed": 47},
+    )
+    samples = env._sample_commands(700)
+    active = np.abs(samples) > env._cfg.command.deadband
+
+    np.testing.assert_array_less(np.abs(samples[:, 0]), 2.0 + 1e-6)
+    np.testing.assert_array_less(np.abs(samples[:, 1]), 1.0 + 1e-6)
+    np.testing.assert_array_less(np.abs(samples[:, 2]), 2.0 + 1e-6)
+    for mode in env._COMMAND_MODE_MASKS:
+        assert np.any(np.all(active == mode, axis=1))
+
+    normalized = np.abs(samples) / np.asarray([2.0, 1.0, 2.0], dtype=np.float32)
+    nonzero = normalized[normalized > 0.0]
+    assert np.any((0.15 <= nonzero) & (nonzero < 0.35))
+    assert np.any((0.35 <= nonzero) & (nonzero < 0.65))
+    assert np.any(nonzero >= 0.65)
     env.close()
 
 
@@ -224,8 +277,8 @@ def test_omni_car_axis_tracking_penalty_is_clearance_gated() -> None:
     env._commands[:] = np.asarray([[1.0, -1.0, 1.0]], dtype=np.float32)
 
     safe_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
-    np.testing.assert_allclose(env._track_cost, [[0.25, 0.25, 0.25]], atol=1e-6)
-    assert safe_reward[0] == pytest.approx(-(0.25 + 0.5 + 0.75))
+    np.testing.assert_allclose(env._track_cost, [[0.25, 1.0, 0.25]], atol=1e-6)
+    assert safe_reward[0] == pytest.approx(-(0.25 + 2.0 + 0.75))
 
     env._nearest_clearance[:] = 0.0
     blocked_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
@@ -585,6 +638,51 @@ def test_omni_car_cnn_model_forward_actor_and_critic() -> None:
         1,
         hidden_dims=[16],
         cnn_feature_dim=8,
+    )
+
+    actor_out = actor(TensorDict({"actor": actor_obs}, batch_size=2))
+    critic_out = critic(TensorDict({"critic": critic_obs}, batch_size=2))
+    assert actor_out.shape == (2, 3)
+    assert critic_out.shape == (2, 1)
+
+
+def test_omni_car_cnn_gru_model_forward_actor_and_critic() -> None:
+    cfg = OmniCarGridAvoidanceCfg()
+    actor_obs_dim = (
+        cfg.grid_history_len * cfg.grid.size * cfg.grid.size
+        + 3
+        + 3
+        + 3
+        + cfg.obs_history_len * 9
+    )
+    critic_obs_dim = actor_obs_dim + 5
+
+    actor_obs = torch.zeros((2, actor_obs_dim), dtype=torch.float32)
+    critic_obs = torch.zeros((2, critic_obs_dim), dtype=torch.float32)
+    actor = OmniCarGridCNNGRUModel(
+        TensorDict({"actor": actor_obs}, batch_size=2),
+        {"actor": ["actor"]},
+        "actor",
+        3,
+        hidden_dims=[16],
+        grid_history_len=cfg.grid_history_len,
+        cnn_feature_dim=8,
+        gru_hidden_dim=8,
+        distribution_cfg={
+            "class_name": "rsl_rl.modules.distribution.GaussianDistribution",
+            "init_std": 0.5,
+            "std_type": "scalar",
+        },
+    )
+    critic = OmniCarGridCNNGRUModel(
+        TensorDict({"critic": critic_obs}, batch_size=2),
+        {"critic": ["critic"]},
+        "critic",
+        1,
+        hidden_dims=[16],
+        grid_history_len=cfg.grid_history_len,
+        cnn_feature_dim=8,
+        gru_hidden_dim=8,
     )
 
     actor_out = actor(TensorDict({"actor": actor_obs}, batch_size=2))

@@ -18,23 +18,27 @@ algo:
     critic:
       - critic
   actor:
-    class_name: unilab.algos.torch.omni_car:OmniCarGridCNNModel
+    class_name: unilab.algos.torch.omni_car:OmniCarGridCNNGRUModel
     hidden_dims: [256, 128]
     activation: elu
     obs_normalization: true
     grid_size: 80
+    grid_history_len: 10
     cnn_feature_dim: 128
+    gru_hidden_dim: 128
     distribution_cfg:
       class_name: rsl_rl.modules.distribution.GaussianDistribution
       init_std: 0.5
       std_type: scalar
   critic:
-    class_name: unilab.algos.torch.omni_car:OmniCarGridCNNModel
+    class_name: unilab.algos.torch.omni_car:OmniCarGridCNNGRUModel
     hidden_dims: [256, 128]
     activation: elu
     obs_normalization: true
     grid_size: 80
+    grid_history_len: 10
     cnn_feature_dim: 128
+    gru_hidden_dim: 128
   algorithm:
     num_learning_epochs: 2
     num_mini_batches: 4
@@ -44,12 +48,13 @@ algo:
 
 env:
   max_episode_seconds: 300.0
+  grid_history_len: 10
   obs_history_len: 24
   sim_dt: 0.05
   ctrl_dt: 0.05
   command:
     max_x_speed: 2.0
-    max_y_speed: 2.0
+    max_y_speed: 1.0
     max_yaw_rate: 2.0
     resample_interval_s: 2.5
     deadband: 0.10
@@ -59,7 +64,7 @@ env:
     cell_size: 0.05
     safety_margin_m: 0.05
   body:
-    length_m: 0.48
+    length_m: 0.56
     width_m: 0.32
   obstacles:
     count: 18
@@ -115,7 +120,7 @@ env:
     collision: -24.0
   physical_limits:
     max_x_speed: 2.0
-    max_y_speed: 2.0
+    max_y_speed: 1.0
     max_yaw_rate: 2.0
     max_x_accel: 3.5
     max_y_accel: 3.5
