@@ -164,7 +164,9 @@ Reward shaping emphasizes these signals:
 5. Penalize velocity far from the commanded planar direction with an explicit
    off-axis term.
 6. Penalize reverse motion against the commanded planar direction.
-7. Track commanded yaw intent independently.
+7. Track commanded yaw intent independently, but only when the operator gives a
+   non-zero yaw command so zero-yaw commands do not create a constant reward for
+   standing still.
 8. Improve response speed when the command direction is clear.
 9. Penalize per-axis tracking, action diff, and jerk independently for `vx`,
    `vy`, and `vyaw`.

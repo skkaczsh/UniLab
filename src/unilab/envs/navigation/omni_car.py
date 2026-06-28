@@ -2133,8 +2133,10 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         intent_reward[active_planar] = projection_reward[active_planar] * np.exp(
             -projected_error[active_planar] * projected_error[active_planar]
         )
+        active_yaw = np.abs(cmd[:, 2]) > self._cfg.command.deadband
         yaw_error = np.abs(action[:, 2] - cmd[:, 2]) / max(self._cfg.command.max_yaw_rate, 1e-6)
-        yaw_reward = np.exp(-yaw_error * yaw_error)
+        yaw_reward = np.zeros((self._num_envs,), dtype=self._dtype)
+        yaw_reward[active_yaw] = np.exp(-yaw_error[active_yaw] * yaw_error[active_yaw])
         high = self._velocity_limit
         accel_delta = self._accel_delta_limit
         prev_error = np.linalg.norm((cmd - self._last_action) / high, axis=1)
