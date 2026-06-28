@@ -116,6 +116,18 @@ uv run train --algo ppo --task omni_car_grid_avoidance --sim mujoco \
 signal, or raise it when you want the same human command waveform sampled
 against more obstacle layouts.
 
+To continue low-latency manual training from a selected checkpoint, place or
+symlink that checkpoint as `artifacts/omni_car/checkpoints/best.pt`, then run:
+
+```bash
+uv run scripts/train_omni_car_human_from_best.py
+```
+
+The launcher resumes from `best.pt`, enables Xbox command input and the live
+training viewer, and defaults to a light local profile: `8` envs, `8` rollout
+steps, `1` learning epoch, and `1` minibatch. Override those flags when you want
+more throughput and can tolerate longer viewer stalls.
+
 Reward shaping emphasizes four things:
 
 1. Track commanded planar and yaw intent.
