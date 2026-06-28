@@ -52,13 +52,14 @@ Current defaults in this branch:
 - Grid history: `10` frames
 - Observation history: `24` frames
 - Command hold curriculum: short holds from `2-8 s`, long holds from `8-35 s`
-  for `40%` of samples, plus `24%` explicit zero-input samples
+  for `40%` of samples, plus `30%` explicit zero-input samples
 - Command smoothing time constant: `0.55 s`
 - PPO rollout: `128` envs, `32` steps per env
 - Policy architecture: `OmniCarGridCNNGRUModel` (`CNN per grid frame + GRU over
   10 CNN features + MLP`)
-- Body footprint: `0.56 m x 0.32 m`, plus `0.05 m` safety margin in clearance
-  checks
+- Body footprint: `0.56 m x 0.32 m`; local collision/nearest-clearance uses the
+  rectangular footprint, while the `0.05 m` safety margin is applied to
+  command-corridor and grid safety reasoning.
 - Physical velocity caps: `2.0 / 1.0 / 2.0` for `vx / vy / vyaw`
 - Scene: shared `36 m` world, `260` mixed static obstacles, heterogeneous dense
   regions, thick closed perimeter, and car-to-car dynamic obstacles
@@ -460,7 +461,8 @@ cost in four ways:
 
 - occupancy grids are rasterized only inside each obstacle's local AABB instead
   of scanning the full `80 x 80` grid for every obstacle
-- clearance is computed in one batched vectorized pass across all envs
+- local clearance is computed in one batched vectorized pass across all envs
+  against the rectangular body footprint
 - observation, critic, grid, velocity-limit, and env-index arrays are reused
   instead of reallocated on every step
 - large batches (`>=256` envs) precompute obstacle bounds in batched NumPy

@@ -680,7 +680,7 @@ def test_omni_car_front_obstacle_rewards_stop_over_forward_push() -> None:
     )
     env.init_state()
     env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
-    env._obstacle_xy[0, 0] = np.asarray([0.55, 0.0], dtype=np.float32)
+    env._obstacle_xy[0, 0] = np.asarray([0.52, 0.0], dtype=np.float32)
     env._obstacle_radius[0, 0] = 0.22
     env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
 
@@ -847,6 +847,34 @@ def test_omni_car_side_wall_keeps_forward_projection_reward_available() -> None:
     assert env._reward_components["intent"][0] > 0.0
     assert env._reward_components["intent_projection"][0] > 0.0
     assert reward[0] > 0.0
+    env.close()
+
+
+def test_omni_car_clearance_uses_rectangular_body_footprint() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 57,
+            "obstacles": {
+                "count": 1,
+                "circle_fraction": 1.0,
+                "box_fraction": 0.0,
+                "wall_fraction": 0.0,
+            },
+        },
+    )
+    env.init_state()
+    env._obstacle_xy[0, 0] = np.asarray([0.60, -0.34], dtype=np.float32)
+    env._obstacle_radius[0, 0] = 0.22
+    side_clearance = env._compute_clearance(np.asarray([0], dtype=np.int32))[0]
+
+    env._obstacle_xy[0, 0] = np.asarray([0.30, -0.34], dtype=np.float32)
+    near_corner_clearance = env._compute_clearance(np.asarray([0], dtype=np.int32))[0]
+
+    assert side_clearance > 0.0
+    assert near_corner_clearance < 0.0
     env.close()
 
 
@@ -1190,15 +1218,23 @@ def test_omni_car_grid_and_clearance_match_dense_reference() -> None:
     pad = env._cfg.grid.cell_size * 0.5
     occupied = np.zeros((env._cfg.grid.size, env._cfg.grid.size), dtype=bool)
     signed = np.empty((env._cfg.obstacles.count,), dtype=np.float32)
+    car_half_x = 0.5 * env._cfg.body.length_m
+    car_half_y = 0.5 * env._cfg.body.width_m
 
     for obstacle_id in range(env._cfg.obstacles.count):
         center_x, center_y = local_xy[obstacle_id]
         if env._obstacle_type[0, obstacle_id] == env._OBSTACLE_CIRCLE:
             radius = env._obstacle_radius[0, obstacle_id] + pad
             occupied |= (grid_x - center_x) ** 2 + (grid_y - center_y) ** 2 <= radius**2
-            signed[obstacle_id] = np.linalg.norm(local_xy[obstacle_id]) - env._obstacle_radius[
-                0, obstacle_id
-            ]
+            qx = abs(center_x) - car_half_x
+            qy = abs(center_y) - car_half_y
+            outside_x = max(qx, 0.0)
+            outside_y = max(qy, 0.0)
+            outside_distance = float(np.hypot(outside_x, outside_y))
+            inside_distance = min(max(qx, qy), 0.0)
+            signed[obstacle_id] = (
+                outside_distance + inside_distance - env._obstacle_radius[0, obstacle_id]
+            )
             continue
 
         half_extent_x, half_extent_y = env._obstacle_half_extents[0, obstacle_id]
@@ -1213,23 +1249,33 @@ def test_omni_car_grid_and_clearance_match_dense_reference() -> None:
             np.abs(local_y) <= half_extent_y + pad
         )
 
-        point_local_x = cos_yaw * center_x + sin_yaw * center_y
-        point_local_y = -sin_yaw * center_x + cos_yaw * center_y
-        qx = abs(point_local_x) - half_extent_x
-        qy = abs(point_local_y) - half_extent_y
-        outside_x = max(qx, 0.0)
-        outside_y = max(qy, 0.0)
-        outside_distance = float(np.hypot(outside_x, outside_y))
-        inside_distance = min(max(qx, qy), 0.0)
-        signed[obstacle_id] = outside_distance + inside_distance
+        sep_car_x = (
+            abs(center_x)
+            - car_half_x
+            - (half_extent_x * abs(cos_yaw) + half_extent_y * abs(sin_yaw))
+        )
+        sep_car_y = (
+            abs(center_y)
+            - car_half_y
+            - (half_extent_x * abs(sin_yaw) + half_extent_y * abs(cos_yaw))
+        )
+        sep_obs_x = (
+            abs(center_x * cos_yaw + center_y * sin_yaw)
+            - half_extent_x
+            - (car_half_x * abs(cos_yaw) + car_half_y * abs(sin_yaw))
+        )
+        sep_obs_y = (
+            abs(-center_x * sin_yaw + center_y * cos_yaw)
+            - half_extent_y
+            - (car_half_x * abs(sin_yaw) + car_half_y * abs(cos_yaw))
+        )
+        signed[obstacle_id] = max(sep_car_x, sep_car_y, sep_obs_x, sep_obs_y)
 
     expected_grid = occupied.reshape(1, -1).astype(np.float32)
     actual_grid = env._occupancy_grid(np.asarray([0], dtype=np.int32))
     np.testing.assert_array_equal(actual_grid, expected_grid)
 
-    safety_radius = 0.5 * float(np.hypot(env._cfg.body.length_m, env._cfg.body.width_m))
-    safety_radius += env._cfg.grid.safety_margin_m
-    expected_clearance = np.min(signed - safety_radius)
+    expected_clearance = np.min(signed)
     actual_clearance = env._compute_clearance(np.asarray([0], dtype=np.int32))
     np.testing.assert_allclose(actual_clearance, [expected_clearance], atol=1e-6)
     env.close()

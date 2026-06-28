@@ -2135,10 +2135,20 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         local_xy = self._world_to_body_obstacles(env_indices)
         obstacle_types = self._obstacle_type[env_indices]
         signed = np.empty((env_indices.size, self._cfg.obstacles.count), dtype=self._dtype)
+        car_half_x = 0.5 * float(self._cfg.body.length_m)
+        car_half_y = 0.5 * float(self._cfg.body.width_m)
 
         circle_mask = obstacle_types == self._OBSTACLE_CIRCLE
         if np.any(circle_mask):
-            circle_signed = np.linalg.norm(local_xy, axis=2) - self._obstacle_radius[env_indices]
+            qx = np.abs(local_xy[:, :, 0]) - car_half_x
+            qy = np.abs(local_xy[:, :, 1]) - car_half_y
+            outside_x = np.maximum(qx, 0.0)
+            outside_y = np.maximum(qy, 0.0)
+            outside_distance = np.sqrt(outside_x * outside_x + outside_y * outside_y)
+            inside_distance = np.minimum(np.maximum(qx, qy), 0.0)
+            circle_signed = (
+                outside_distance + inside_distance - self._obstacle_radius[env_indices]
+            )
             signed[circle_mask] = circle_signed[circle_mask]
 
         rect_mask = ~circle_mask
@@ -2146,19 +2156,36 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             rel_yaw = self._obstacle_yaw[env_indices] - self._pose[env_indices, 2][:, None]
             cos_yaw = np.cos(rel_yaw)
             sin_yaw = np.sin(rel_yaw)
-            local_x = cos_yaw * local_xy[:, :, 0] + sin_yaw * local_xy[:, :, 1]
-            local_y = -sin_yaw * local_xy[:, :, 0] + cos_yaw * local_xy[:, :, 1]
             half_extents = self._obstacle_half_extents[env_indices]
-            qx = np.abs(local_x) - half_extents[:, :, 0]
-            qy = np.abs(local_y) - half_extents[:, :, 1]
-            outside_x = np.maximum(qx, 0.0)
-            outside_y = np.maximum(qy, 0.0)
-            outside_distance = np.sqrt(outside_x * outside_x + outside_y * outside_y)
-            inside_distance = np.minimum(np.maximum(qx, qy), 0.0)
-            rect_signed = outside_distance + inside_distance
+            center_x = local_xy[:, :, 0]
+            center_y = local_xy[:, :, 1]
+            obs_half_x = half_extents[:, :, 0]
+            obs_half_y = half_extents[:, :, 1]
+
+            sep_car_x = (
+                np.abs(center_x)
+                - car_half_x
+                - (obs_half_x * np.abs(cos_yaw) + obs_half_y * np.abs(sin_yaw))
+            )
+            sep_car_y = (
+                np.abs(center_y)
+                - car_half_y
+                - (obs_half_x * np.abs(sin_yaw) + obs_half_y * np.abs(cos_yaw))
+            )
+            sep_obs_x = (
+                np.abs(center_x * cos_yaw + center_y * sin_yaw)
+                - obs_half_x
+                - (car_half_x * np.abs(cos_yaw) + car_half_y * np.abs(sin_yaw))
+            )
+            sep_obs_y = (
+                np.abs(-center_x * sin_yaw + center_y * cos_yaw)
+                - obs_half_y
+                - (car_half_x * np.abs(sin_yaw) + car_half_y * np.abs(cos_yaw))
+            )
+            rect_signed = np.maximum.reduce((sep_car_x, sep_car_y, sep_obs_x, sep_obs_y))
             signed[rect_mask] = rect_signed[rect_mask]
 
-        clearance[:] = np.min(signed - safety_radius, axis=1).astype(self._dtype, copy=False)
+        clearance[:] = np.min(signed, axis=1).astype(self._dtype, copy=False)
         return clearance
 
     def _compute_clearance_at_pose(
