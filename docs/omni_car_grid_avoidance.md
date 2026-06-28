@@ -75,7 +75,10 @@ independent hold timer, so commands do not all change on the same global step.
 The default non-zero mode weights are `[0.10, 0.10, 0.10, 0.22, 0.10, 0.10,
 0.28]` for `vx`, `vy`, `vyaw`, `vx+vy`, `vx+vyaw`, `vy+vyaw`, and
 `vx+vy+vyaw`; this deliberately gives more mass to arbitrary planar directions
-while retaining pure-axis and yaw-coupled cases.
+while retaining pure-axis and yaw-coupled cases. Zero-command samples are kept
+as true zero-input windows instead of only slow smoothing tails: when the raw
+sampled command norm is within `zero_snap_norm`, the smoothed command snaps to
+zero and the observation history can contain sustained all-zero commands.
 
 The local obstacle curriculum reserves a controlled slice of resets for
 command-relative geometry: `33%` front blockers, `25%` side-wall cases, and the

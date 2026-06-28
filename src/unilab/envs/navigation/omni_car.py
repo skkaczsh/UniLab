@@ -33,6 +33,7 @@ class OmniCarCommandCfg:
     )
     deadband: float = 0.15
     smoothing_tau_s: float = 0.40
+    zero_snap_norm: float = 0.10
 
 
 @dataclass
@@ -1233,8 +1234,12 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         )
 
     def _update_commands(self) -> None:
+        raw_norm = np.linalg.norm(self._raw_commands, axis=1)
+        snapped = raw_norm <= float(self._cfg.command.zero_snap_norm)
         if self._cfg.command.smoothing_tau_s <= 0.0:
             self._commands = self._raw_commands.copy()
+            if np.any(snapped):
+                self._commands[snapped] = 0.0
             self._update_human_smoothed_commands()
             return
 
@@ -1242,6 +1247,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._commands = ((1.0 - alpha) * self._commands + alpha * self._raw_commands).astype(
             self._dtype
         )
+        if np.any(snapped):
+            self._commands[snapped] = 0.0
         self._update_human_smoothed_commands()
 
     def _update_human_smoothed_commands(self) -> None:

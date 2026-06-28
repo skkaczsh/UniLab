@@ -223,6 +223,33 @@ def test_omni_car_command_hold_sampler_includes_long_segments() -> None:
     env.close()
 
 
+def test_omni_car_auto_zero_command_snaps_without_smoothing_tail() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=2,
+        env_cfg_override={
+            "seed": 29,
+            "command": {"smoothing_tau_s": 0.55, "zero_snap_norm": 0.10},
+            "obstacles": {"count": 0},
+        },
+    )
+    env.init_state()
+    env._commands[:] = np.asarray(
+        [[1.0, -0.4, 0.3], [0.8, 0.1, -0.5]], dtype=env._dtype
+    )
+    env._raw_commands[:] = np.asarray(
+        [[0.0, 0.0, 0.0], [0.05, 0.02, 0.01]], dtype=env._dtype
+    )
+
+    env._update_commands()
+    env._seed_history(np.asarray([0, 1], dtype=np.int32))
+
+    np.testing.assert_allclose(env._commands, np.zeros((2, 3), dtype=env._dtype))
+    np.testing.assert_allclose(env._command_history, np.zeros_like(env._command_history))
+    env.close()
+
+
 def test_omni_car_human_command_overrides_selected_agent() -> None:
     env = registry.make(
         "OmniCarGridAvoidance",
