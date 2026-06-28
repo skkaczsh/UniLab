@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+import torch
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
@@ -177,6 +178,41 @@ def _train_rsl_rl(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setitem(sys.modules, "rsl_rl", rsl_pkg)
     monkeypatch.setitem(sys.modules, "rsl_rl.runners", runners_mod)
     return _load_script("train_rsl_rl")
+
+
+def test_train_rsl_rl_reset_runner_action_std_scalar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mod = _train_rsl_rl(monkeypatch)
+    param = torch.nn.Parameter(torch.tensor([0.01, 0.02, 0.03]))
+    optimizer = torch.optim.Adam([param])
+    optimizer.state[param]["exp_avg"] = torch.ones_like(param)
+    dist = types.SimpleNamespace(std_type="scalar", std_param=param)
+    policy = types.SimpleNamespace(distribution=dist)
+    runner = types.SimpleNamespace(
+        alg=types.SimpleNamespace(get_policy=lambda: policy, optimizer=optimizer)
+    )
+
+    mod.reset_runner_action_std(runner, 0.25)
+
+    torch.testing.assert_close(param, torch.full_like(param, 0.25))
+    assert param not in optimizer.state
+
+
+def test_train_rsl_rl_reset_runner_action_std_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mod = _train_rsl_rl(monkeypatch)
+    param = torch.nn.Parameter(torch.tensor([-4.0, -4.0, -4.0]))
+    dist = types.SimpleNamespace(std_type="log", log_std_param=param)
+    policy = types.SimpleNamespace(distribution=dist)
+    runner = types.SimpleNamespace(
+        alg=types.SimpleNamespace(get_policy=lambda: policy, optimizer=None)
+    )
+
+    mod.reset_runner_action_std(runner, 0.2)
+
+    torch.testing.assert_close(param, torch.full_like(param, float(np.log(0.2))))
 
 
 def _train_appo():

@@ -1,4 +1,5 @@
 import datetime
+import math
 import statistics
 import sys
 import time
@@ -60,6 +61,31 @@ def _patch_runner_action_std_logging(runner: Any) -> None:
         return original_log(*args, **kwargs)
 
     runner.logger.log = _safe_log.__get__(runner.logger, type(runner.logger))
+
+
+def reset_runner_action_std(runner: Any, action_std: float) -> None:
+    """Reset a resumed RSL-RL Gaussian action std and clear its optimizer state."""
+    value = float(action_std)
+    if not math.isfinite(value) or value <= 0.0:
+        raise ValueError(f"algo.resume_action_std must be positive and finite, got {action_std!r}")
+
+    policy = runner.alg.get_policy()
+    dist = getattr(policy, "distribution", None)
+    if dist is None or not hasattr(dist, "std_type"):
+        raise RuntimeError("Cannot reset action std: actor policy has no Gaussian distribution")
+
+    if dist.std_type == "scalar":
+        param = dist.std_param
+        param.data.fill_(value)
+    elif dist.std_type == "log":
+        param = dist.log_std_param
+        param.data.fill_(math.log(value))
+    else:
+        raise RuntimeError(f"Cannot reset action std for unknown std_type={dist.std_type!r}")
+
+    optimizer = getattr(runner.alg, "optimizer", None)
+    if optimizer is not None:
+        optimizer.state.pop(param, None)
 
 
 def _backend_adapter(cfg: DictConfig) -> BackendAdapter:
@@ -413,6 +439,12 @@ def main(cfg: DictConfig) -> None:
                 if resume_path:
                     print(f"Resuming from {resume_path}")
                     runner.load(str(resume_path), map_location=device)
+                    resume_action_std = OmegaConf.select(
+                        cfg, "algo.resume_action_std", default=None
+                    )
+                    if resume_action_std is not None:
+                        reset_runner_action_std(runner, float(resume_action_std))
+                        print(f"Reset resumed action std to {float(resume_action_std):.6g}")
 
             train_start_wall = time.time()
             runner.learn(num_learning_iterations=max_iterations, init_at_random_ep_len=True)
