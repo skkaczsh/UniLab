@@ -111,8 +111,8 @@ env:
     wall_fraction: 0.30
     spawn_radius_m: 4.2
     keepout_radius_m: 0.90
-    front_blocker_fraction: 0.30
-    side_wall_fraction: 0.20
+    front_blocker_fraction: 0.35
+    side_wall_fraction: 0.25
     front_blocker_box_fraction: 0.30
     front_blocker_wall_fraction: 0.45
   large_scene:
@@ -139,8 +139,8 @@ env:
     intent_projection: 5.5
     yaw_intent: 7.0
     response: 12.0
-    blocked_stop: 10.0
-    blocked_motion: 8.0
+    blocked_stop: 14.0
+    blocked_motion: 16.0
     idle_stop: 8.0
     yaw_idle_stop: 10.0
     off_axis: 8.0
@@ -156,8 +156,8 @@ env:
     vx_jerk: 3.0
     vy_jerk: 3.0
     vyaw_jerk: 3.4
-    clearance: 2.2
-    collision: -24.0
+    clearance: 3.5
+    collision: -48.0
   physical_limits:
     max_x_speed: 2.0
     max_y_speed: 1.0
@@ -171,8 +171,8 @@ reward:
   intent_projection: 5.5
   yaw_intent: 7.0
   response: 12.0
-  blocked_stop: 10.0
-  blocked_motion: 8.0
+  blocked_stop: 14.0
+  blocked_motion: 16.0
   idle_stop: 8.0
   yaw_idle_stop: 10.0
   off_axis: 8.0
@@ -188,5 +188,5 @@ reward:
   vx_jerk: 3.0
   vy_jerk: 3.0
   vyaw_jerk: 3.4
-  clearance: 2.2
-  collision: -24.0
+  clearance: 3.5
+  collision: -48.0
