@@ -52,7 +52,7 @@ Current defaults in this branch:
 - Grid history: `10` frames
 - Observation history: `24` frames
 - Command hold curriculum: short holds from `2-8 s`, long holds from `8-35 s`
-  for `40%` of samples, plus `18%` explicit zero-input samples
+  for `40%` of samples, plus `24%` explicit zero-input samples
 - Command smoothing time constant: `0.55 s`
 - PPO rollout: `128` envs, `32` steps per env
 - Policy architecture: `OmniCarGridCNNGRUModel` (`CNN per grid frame + GRU over
@@ -77,13 +77,21 @@ The default non-zero mode weights are `[0.10, 0.10, 0.10, 0.22, 0.10, 0.10,
 `vx+vy+vyaw`; this deliberately gives more mass to arbitrary planar directions
 while retaining pure-axis and yaw-coupled cases.
 
+The local obstacle curriculum reserves a controlled slice of resets for
+command-relative geometry: `35%` front blockers, `20%` side-wall cases, and the
+rest unconstrained random obstacle fields. Front blockers are intentionally
+mixed across circles, boxes, and wall-like rectangles so the policy sees both
+single-object avoidance and true corridor closure under sustained forward
+commands.
+
 Before launching a long run, inspect the actual input distribution with:
 
 ```bash
 uv run scripts/analyze_omni_car_input_coverage.py \
   --num-envs 128 \
   --num-steps 512 \
-  --command-samples 8192
+  --command-samples 8192 \
+  --large-scene off
 ```
 
 This reports standalone command balance, hold-duration percentiles, and rollout

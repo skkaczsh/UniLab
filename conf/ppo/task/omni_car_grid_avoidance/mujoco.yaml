@@ -111,8 +111,10 @@ env:
     wall_fraction: 0.30
     spawn_radius_m: 4.2
     keepout_radius_m: 0.90
-    front_blocker_fraction: 0.25
+    front_blocker_fraction: 0.35
     side_wall_fraction: 0.20
+    front_blocker_box_fraction: 0.30
+    front_blocker_wall_fraction: 0.45
   large_scene:
     enabled: true
     world_size_m: 36.0

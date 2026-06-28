@@ -68,6 +68,8 @@ class OmniCarObstacleCfg:
     keepout_radius_m: float = 0.75
     front_blocker_fraction: float = 0.25
     side_wall_fraction: float = 0.20
+    front_blocker_box_fraction: float = 0.30
+    front_blocker_wall_fraction: float = 0.40
 
 
 @dataclass
@@ -208,6 +210,17 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
         if self.obstacles.front_blocker_fraction + self.obstacles.side_wall_fraction > 1.0:
             raise ValueError(
                 "obstacles.front_blocker_fraction + obstacles.side_wall_fraction must be <= 1"
+            )
+        if (
+            self.obstacles.front_blocker_box_fraction < 0.0
+            or self.obstacles.front_blocker_wall_fraction < 0.0
+            or self.obstacles.front_blocker_box_fraction
+            + self.obstacles.front_blocker_wall_fraction
+            > 1.0
+        ):
+            raise ValueError(
+                "front_blocker_box_fraction and front_blocker_wall_fraction must be "
+                "non-negative and sum to <= 1"
             )
         if self.obs_history_len <= 0:
             raise ValueError("obs_history_len must be a positive integer")
@@ -1315,12 +1328,37 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 lateral = np.asarray([-direction[1], direction[0]], dtype=self._dtype)
                 curriculum_draw = float(self._rng.random())
                 if curriculum_draw < cfg.front_blocker_fraction:
-                    xy[0] = direction * self._rng.uniform(0.55, 0.85) + lateral * self._rng.uniform(
-                        -0.05, 0.05
+                    xy[0] = direction * self._rng.uniform(0.55, 0.70) + lateral * self._rng.uniform(
+                        -0.08, 0.08
                     )
-                    obstacle_types[0] = self._OBSTACLE_CIRCLE
-                    radii[0] = self._rng.uniform(0.22, max(0.23, cfg.radius_max_m))
-                    half_extents[0] = 0.0
+                    heading = math.atan2(float(direction[1]), float(direction[0]))
+                    shape_draw = float(self._rng.random())
+                    if shape_draw < cfg.front_blocker_wall_fraction:
+                        obstacle_types[0] = self._OBSTACLE_WALL
+                        radii[0] = cfg.radius_min_m
+                        wall_length_low = min(max(0.70, cfg.wall_length_min_m), cfg.wall_length_max_m)
+                        wall_width_high = max(
+                            cfg.wall_width_min_m, min(cfg.wall_width_max_m, 0.24)
+                        )
+                        half_extents[0, 0] = 0.5 * self._rng.uniform(
+                            wall_length_low, cfg.wall_length_max_m
+                        )
+                        half_extents[0, 1] = 0.5 * self._rng.uniform(
+                            cfg.wall_width_min_m, wall_width_high
+                        )
+                        yaw[0] = heading + np.pi * 0.5
+                    elif shape_draw < (
+                        cfg.front_blocker_wall_fraction + cfg.front_blocker_box_fraction
+                    ):
+                        obstacle_types[0] = self._OBSTACLE_BOX
+                        radii[0] = cfg.radius_min_m
+                        half_extents[0, 0] = 0.5 * self._rng.uniform(0.45, 0.85)
+                        half_extents[0, 1] = 0.5 * self._rng.uniform(0.22, 0.42)
+                        yaw[0] = heading + np.pi * 0.5
+                    else:
+                        obstacle_types[0] = self._OBSTACLE_CIRCLE
+                        radii[0] = self._rng.uniform(0.24, max(0.25, cfg.radius_max_m))
+                        half_extents[0] = 0.0
                 elif curriculum_draw < cfg.front_blocker_fraction + cfg.side_wall_fraction:
                     side = float(self._rng.choice(np.asarray([-1.0, 1.0], dtype=self._dtype)))
                     wall_count = min(cfg.count, 3)
@@ -1826,22 +1864,40 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         half_length = 0.5 * float(self._cfg.body.length_m)
         safety_margin = float(self._cfg.grid.safety_margin_m)
         circle_extent = self._obstacle_radius[active_ids]
-        rect_extent = np.linalg.norm(self._obstacle_half_extents[active_ids], axis=2)
-        obstacle_extent = np.where(
-            obstacle_types == self._OBSTACLE_CIRCLE,
-            circle_extent,
-            rect_extent,
-        )
+        half_extents = self._obstacle_half_extents[active_ids]
+        rel_yaw = self._obstacle_yaw[active_ids] - self._pose[active_ids, 2][:, None]
+        cos_yaw = np.cos(rel_yaw)
+        sin_yaw = np.sin(rel_yaw)
 
         for row, env_id in enumerate(active_ids):
             direction = commands[env_id, :2] / planar_norm[env_id]
+            lateral_direction = np.asarray([-direction[1], direction[0]], dtype=self._dtype)
             points = local_xy[row]
             forward = points @ direction
             lateral = np.abs(points[:, 0] * direction[1] - points[:, 1] * direction[0])
-            lateral_limit = safety_margin + 0.5 * self._grid_cell_size + obstacle_extent[row]
-            in_swept_width = lateral <= lateral_limit
-            forward_clearance = forward - half_length - obstacle_extent[row]
-            ahead = forward_clearance > 0.0
+            circle_mask = obstacle_types[row] == self._OBSTACLE_CIRCLE
+            half_extent_x = half_extents[row, :, 0]
+            half_extent_y = half_extents[row, :, 1]
+            axis_x_dir = np.abs(direction[0] * cos_yaw[row] + direction[1] * sin_yaw[row])
+            axis_y_dir = np.abs(-direction[0] * sin_yaw[row] + direction[1] * cos_yaw[row])
+            axis_x_lateral = np.abs(
+                lateral_direction[0] * cos_yaw[row] + lateral_direction[1] * sin_yaw[row]
+            )
+            axis_y_lateral = np.abs(
+                -lateral_direction[0] * sin_yaw[row]
+                + lateral_direction[1] * cos_yaw[row]
+            )
+            rect_forward_extent = half_extent_x * axis_x_dir + half_extent_y * axis_y_dir
+            rect_lateral_extent = (
+                half_extent_x * axis_x_lateral + half_extent_y * axis_y_lateral
+            )
+            forward_extent = np.where(circle_mask, circle_extent[row], rect_forward_extent)
+            lateral_extent = np.where(circle_mask, circle_extent[row], rect_lateral_extent)
+            in_swept_width = (
+                lateral <= safety_margin + 0.5 * self._grid_cell_size + lateral_extent
+            )
+            forward_clearance = forward - half_length - forward_extent
+            ahead = forward + forward_extent > half_length
             blocking = ahead & in_swept_width
             if np.any(blocking):
                 clearance[env_id] = np.min(forward_clearance[blocking])

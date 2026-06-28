@@ -687,6 +687,8 @@ def test_omni_car_obstacle_curriculum_samples_front_blockers_and_side_walls() ->
                 "wall_fraction": 0.0,
                 "front_blocker_fraction": 1.0,
                 "side_wall_fraction": 0.0,
+                "front_blocker_box_fraction": 0.0,
+                "front_blocker_wall_fraction": 1.0,
             },
         },
     )
@@ -694,8 +696,35 @@ def test_omni_car_obstacle_curriculum_samples_front_blockers_and_side_walls() ->
     front_env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
     front_env._sample_obstacles(np.asarray([0], dtype=np.int32))
     front_env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
+    assert front_env._obstacle_type[0, 0] == front_env._OBSTACLE_WALL
     assert front_env._command_safety_gate[0] == pytest.approx(0.0)
     front_env.close()
+
+    box_env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 22,
+            "obstacles": {
+                "count": 1,
+                "circle_fraction": 1.0,
+                "box_fraction": 0.0,
+                "wall_fraction": 0.0,
+                "front_blocker_fraction": 1.0,
+                "side_wall_fraction": 0.0,
+                "front_blocker_box_fraction": 1.0,
+                "front_blocker_wall_fraction": 0.0,
+            },
+        },
+    )
+    box_env.init_state()
+    box_env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
+    box_env._sample_obstacles(np.asarray([0], dtype=np.int32))
+    box_env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
+    assert box_env._obstacle_type[0, 0] == box_env._OBSTACLE_BOX
+    assert box_env._command_safety_gate[0] == pytest.approx(0.0)
+    box_env.close()
 
     side_env = registry.make(
         "OmniCarGridAvoidance",
@@ -827,6 +856,8 @@ def test_omni_car_samples_circle_box_and_wall_obstacles() -> None:
                 "seed": 17,
                 "obstacles": {
                     "count": 4,
+                    "front_blocker_fraction": 0.0,
+                    "side_wall_fraction": 0.0,
                     **fractions,
                 },
             },

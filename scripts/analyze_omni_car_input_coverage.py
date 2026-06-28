@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import sys
 from collections.abc import Sequence
@@ -50,6 +51,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         choices=("command", "zero"),
         default="command",
         help="Action used during rollout coverage. 'command' exposes command transitions.",
+    )
+    parser.add_argument(
+        "--large-scene",
+        choices=("config", "on", "off"),
+        default="config",
+        help="Override env.large_scene.enabled for coverage diagnostics.",
     )
     parser.add_argument("--seed", type=int, default=17, help="Environment seed override.")
     parser.add_argument("--json", action="store_true", help="Print JSON only.")
@@ -193,16 +200,22 @@ def rollout_coverage(env: Any, *, num_steps: int, action_mode: str) -> dict[str,
 def analyze_coverage(args: argparse.Namespace) -> dict[str, Any]:
     train_rsl_rl.ensure_registries()
     cfg = _compose_cfg()
+    env_cfg_override = copy.deepcopy(train_rsl_rl.build_ppo_env_cfg_override(cfg))
+    env_cfg_override["seed"] = int(args.seed)
+    if args.large_scene != "config":
+        large_scene_override = env_cfg_override.setdefault("large_scene", {})
+        large_scene_override["enabled"] = args.large_scene == "on"
     env = train_rsl_rl.create_env(
         cfg,
         num_envs=int(args.num_envs),
-        env_cfg_override={"seed": int(args.seed)},
+        env_cfg_override=env_cfg_override,
     )
     try:
         command_samples = env._sample_commands(int(args.command_samples))
         hold_steps = env._sample_command_hold_steps(int(args.command_samples))
         return {
             "seed": int(args.seed),
+            "large_scene": args.large_scene,
             "num_envs": int(args.num_envs),
             "num_steps": int(args.num_steps),
             "command_samples": summarize_commands(
@@ -224,6 +237,7 @@ def _format_summary(summary: dict[str, Any]) -> str:
     rollout = summary["rollout"]
     lines = [
         f"seed: {summary['seed']}",
+        f"large_scene: {summary['large_scene']}",
         f"num_envs: {summary['num_envs']}",
         f"num_steps: {summary['num_steps']}",
         f"command_zero_fraction: {command['zero_fraction']:.4f}",
