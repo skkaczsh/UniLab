@@ -2279,8 +2279,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         ]
         command_clearance = self._compute_command_direction_clearance(cmd)
         blocked_path_risk = np.exp(-np.maximum(command_clearance, 0.0) / 0.20)
+        blocked_follow_risk = np.exp(-np.maximum(command_clearance, 0.0) / 0.35)
         command_free_scale = np.ones((self._num_envs,), dtype=self._dtype)
-        command_free_scale[active_planar] = 1.0 - blocked_path_risk[active_planar]
+        command_free_scale[active_planar] = 1.0 - blocked_follow_risk[active_planar]
         along_speed = np.sum(action[:, :2] * command_dir, axis=1)
         projection = np.zeros((self._num_envs,), dtype=self._dtype)
         projection[active_planar] = along_speed[active_planar] / safe_planar_norm[active_planar]

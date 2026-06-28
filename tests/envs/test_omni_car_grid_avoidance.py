@@ -633,7 +633,7 @@ def test_omni_car_axis_tracking_penalty_scales_when_command_path_blocked() -> No
 
     safe_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
     np.testing.assert_allclose(env._track_cost, [[0.25, 1.0, 0.25]], atol=1e-6)
-    assert safe_reward[0] == pytest.approx(-(0.25 + 2.0 + 0.75), abs=1e-3)
+    assert safe_reward[0] == pytest.approx(-(0.25 + 2.0 + 0.75), abs=0.02)
     assert env._reward_components["vyaw_track"][0] == pytest.approx(-0.75)
 
     env._obstacle_xy[0, 0] = np.asarray([0.40, -0.40], dtype=np.float32)

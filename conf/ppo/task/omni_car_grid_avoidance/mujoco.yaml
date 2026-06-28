@@ -142,9 +142,9 @@ env:
     yaw_intent: 10.0
     response: 35.0
     clearance_motion: 80.0
-    clearance_target_motion: 160.0
-    blocked_projection: 900.0
-    blocked_stop: 18.0
+    clearance_target_motion: 220.0
+    blocked_projection: 1200.0
+    blocked_stop: 32.0
     idle_stop: 40.0
     yaw_idle_stop: 30.0
     off_axis: 28.0
@@ -159,7 +159,7 @@ env:
     vy_jerk: 3.0
     vyaw_jerk: 3.4
     clearance: 6.0
-    collision: -300.0
+    collision: -420.0
   physical_limits:
     max_x_speed: 2.0
     max_y_speed: 1.0
@@ -174,9 +174,9 @@ reward:
   yaw_intent: 10.0
   response: 35.0
   clearance_motion: 80.0
-  clearance_target_motion: 160.0
-  blocked_projection: 900.0
-  blocked_stop: 18.0
+  clearance_target_motion: 220.0
+  blocked_projection: 1200.0
+  blocked_stop: 32.0
   idle_stop: 40.0
   yaw_idle_stop: 30.0
   off_axis: 28.0
@@ -191,4 +191,4 @@ reward:
   vy_jerk: 3.0
   vyaw_jerk: 3.4
   clearance: 6.0
-  collision: -300.0
+  collision: -420.0
