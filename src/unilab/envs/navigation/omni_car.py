@@ -67,6 +67,7 @@ class OmniCarObstacleCfg:
     wall_fraction: float = 0.15
     spawn_radius_m: float = 3.2
     keepout_radius_m: float = 0.75
+    clear_path_fraction: float = 0.15
     front_blocker_fraction: float = 0.25
     side_wall_fraction: float = 0.20
     front_blocker_box_fraction: float = 0.30
@@ -205,13 +206,21 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
         )
         if min(fractions) < 0.0 or sum(fractions) <= 0.0:
             raise ValueError("obstacle type fractions must be non-negative with positive sum")
+        if not 0.0 <= self.obstacles.clear_path_fraction <= 1.0:
+            raise ValueError("obstacles.clear_path_fraction must be in [0, 1]")
         if not 0.0 <= self.obstacles.front_blocker_fraction <= 1.0:
             raise ValueError("obstacles.front_blocker_fraction must be in [0, 1]")
         if not 0.0 <= self.obstacles.side_wall_fraction <= 1.0:
             raise ValueError("obstacles.side_wall_fraction must be in [0, 1]")
-        if self.obstacles.front_blocker_fraction + self.obstacles.side_wall_fraction > 1.0:
+        if (
+            self.obstacles.clear_path_fraction
+            + self.obstacles.front_blocker_fraction
+            + self.obstacles.side_wall_fraction
+            > 1.0
+        ):
             raise ValueError(
-                "obstacles.front_blocker_fraction + obstacles.side_wall_fraction must be <= 1"
+                "obstacles.clear_path_fraction + obstacles.front_blocker_fraction + "
+                "obstacles.side_wall_fraction must be <= 1"
             )
         if (
             self.obstacles.front_blocker_box_fraction < 0.0
@@ -1340,7 +1349,23 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 direction = cmd[:2] / planar_norm
                 lateral = np.asarray([-direction[1], direction[0]], dtype=self._dtype)
                 curriculum_draw = float(self._rng.random())
-                if curriculum_draw < cfg.front_blocker_fraction:
+                if curriculum_draw < cfg.clear_path_fraction:
+                    front_mask = self._rng.random(cfg.count) < 0.5
+                    forward = np.where(
+                        front_mask,
+                        self._rng.uniform(0.75, cfg.spawn_radius_m, size=(cfg.count,)),
+                        self._rng.uniform(
+                            -cfg.spawn_radius_m, -cfg.keepout_radius_m, size=(cfg.count,)
+                        ),
+                    )
+                    lateral_sign = self._rng.choice(
+                        np.asarray([-1.0, 1.0], dtype=self._dtype), size=(cfg.count,)
+                    )
+                    lateral_offset = self._rng.uniform(0.95, cfg.spawn_radius_m, size=(cfg.count,))
+                    xy = direction * forward[:, None] + lateral * (
+                        lateral_sign * lateral_offset
+                    )[:, None]
+                elif curriculum_draw < cfg.clear_path_fraction + cfg.front_blocker_fraction:
                     xy[0] = direction * self._rng.uniform(0.55, 0.70) + lateral * self._rng.uniform(
                         -0.08, 0.08
                     )
@@ -1372,7 +1397,11 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                         obstacle_types[0] = self._OBSTACLE_CIRCLE
                         radii[0] = self._rng.uniform(0.24, max(0.25, cfg.radius_max_m))
                         half_extents[0] = 0.0
-                elif curriculum_draw < cfg.front_blocker_fraction + cfg.side_wall_fraction:
+                elif curriculum_draw < (
+                    cfg.clear_path_fraction
+                    + cfg.front_blocker_fraction
+                    + cfg.side_wall_fraction
+                ):
                     side = float(self._rng.choice(np.asarray([-1.0, 1.0], dtype=self._dtype)))
                     wall_count = min(cfg.count, 3)
                     base_distances = np.asarray([0.60, 1.05, 1.50], dtype=self._dtype)

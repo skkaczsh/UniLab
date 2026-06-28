@@ -82,11 +82,13 @@ sampled command norm is within `zero_snap_norm`, the smoothed command snaps to
 zero and the observation history can contain sustained all-zero commands.
 
 The local obstacle curriculum reserves a controlled slice of resets for
-command-relative geometry: `45%` front blockers, `20%` side-wall cases, and the
-rest unconstrained random obstacle fields. Front blockers are intentionally
-mixed across circles, boxes, and wall-like rectangles so the policy sees both
-single-object avoidance and true corridor closure under sustained forward
-commands.
+command-relative geometry: `25%` clear command corridors, `45%` front blockers,
+`20%` side-wall cases, and the rest unconstrained random obstacle fields. Clear
+corridors keep obstacles outside the commanded swept path so long-hold commands
+continue to provide strong follow-the-input samples. Front blockers are
+intentionally mixed across circles, boxes, and wall-like rectangles so the
+policy sees both single-object avoidance and true corridor closure under
+sustained forward commands.
 
 Before launching a long run, inspect the actual input distribution with:
 

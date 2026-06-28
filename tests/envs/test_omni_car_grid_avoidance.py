@@ -890,6 +890,7 @@ def test_omni_car_obstacle_curriculum_samples_front_blockers_and_side_walls() ->
                 "circle_fraction": 1.0,
                 "box_fraction": 0.0,
                 "wall_fraction": 0.0,
+                "clear_path_fraction": 0.0,
                 "front_blocker_fraction": 1.0,
                 "side_wall_fraction": 0.0,
                 "front_blocker_box_fraction": 0.0,
@@ -916,6 +917,7 @@ def test_omni_car_obstacle_curriculum_samples_front_blockers_and_side_walls() ->
                 "circle_fraction": 1.0,
                 "box_fraction": 0.0,
                 "wall_fraction": 0.0,
+                "clear_path_fraction": 0.0,
                 "front_blocker_fraction": 1.0,
                 "side_wall_fraction": 0.0,
                 "front_blocker_box_fraction": 1.0,
@@ -942,6 +944,7 @@ def test_omni_car_obstacle_curriculum_samples_front_blockers_and_side_walls() ->
                 "circle_fraction": 1.0,
                 "box_fraction": 0.0,
                 "wall_fraction": 0.0,
+                "clear_path_fraction": 0.0,
                 "front_blocker_fraction": 0.0,
                 "side_wall_fraction": 1.0,
             },
@@ -953,6 +956,31 @@ def test_omni_car_obstacle_curriculum_samples_front_blockers_and_side_walls() ->
     side_env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
     assert side_env._command_clearance[0] > 0.80
     side_env.close()
+
+    clear_env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 23,
+            "obstacles": {
+                "count": 8,
+                "circle_fraction": 1.0,
+                "box_fraction": 0.0,
+                "wall_fraction": 0.0,
+                "clear_path_fraction": 1.0,
+                "front_blocker_fraction": 0.0,
+                "side_wall_fraction": 0.0,
+            },
+        },
+    )
+    clear_env.init_state()
+    clear_env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
+    clear_env._sample_obstacles(np.asarray([0], dtype=np.int32))
+    clear_env._compute_reward(np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32))
+    assert clear_env._command_clearance[0] > 1.0
+    assert clear_env._reward_components["blocked_projection"][0] == pytest.approx(0.0)
+    clear_env.close()
 
 
 def test_omni_car_zero_command_rewards_idle_action() -> None:

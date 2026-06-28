@@ -112,6 +112,7 @@ env:
     wall_fraction: 0.30
     spawn_radius_m: 4.2
     keepout_radius_m: 0.90
+    clear_path_fraction: 0.25
     front_blocker_fraction: 0.45
     side_wall_fraction: 0.20
     front_blocker_box_fraction: 0.30
