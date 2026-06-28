@@ -66,7 +66,7 @@ class OmniCarObstacleCfg:
     wall_fraction: float = 0.15
     spawn_radius_m: float = 3.2
     keepout_radius_m: float = 0.75
-    front_blocker_fraction: float = 0.35
+    front_blocker_fraction: float = 0.25
     side_wall_fraction: float = 0.20
 
 
@@ -1332,25 +1332,6 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                         obstacle_types[obstacle_id] = self._OBSTACLE_CIRCLE
                         radii[obstacle_id] = self._rng.uniform(0.20, 0.24)
                         half_extents[obstacle_id] = 0.0
-                else:
-                    xy[0] = direction * self._rng.uniform(1.0, 2.0) + lateral * self._rng.uniform(
-                        -0.45, 0.45
-                    )
-                    obstacle_types[0] = self._rng.choice(3, p=type_weights)
-                    radii[0] = max(float(radii[0]), 0.18)
-                    yaw[0] = float(np.arctan2(direction[1], direction[0])) + self._rng.uniform(
-                        -0.6, 0.6
-                    )
-                    if obstacle_types[0] == self._OBSTACLE_BOX:
-                        half_extents[0] = [
-                            0.5 * self._rng.uniform(cfg.box_length_min_m, cfg.box_length_max_m),
-                            0.5 * self._rng.uniform(cfg.box_width_min_m, cfg.box_width_max_m),
-                        ]
-                    elif obstacle_types[0] == self._OBSTACLE_WALL:
-                        half_extents[0] = [
-                            0.5 * self._rng.uniform(cfg.wall_length_min_m, cfg.wall_length_max_m),
-                            0.5 * self._rng.uniform(cfg.wall_width_min_m, cfg.wall_width_max_m),
-                        ]
             self._obstacle_xy[env_id] = xy.astype(self._dtype)
             self._obstacle_radius[env_id] = radii.astype(self._dtype)
             self._obstacle_half_extents[env_id] = half_extents
