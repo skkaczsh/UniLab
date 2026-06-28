@@ -217,6 +217,8 @@ def compact_behavior_summary(summary: dict[str, Any]) -> dict[str, Any]:
                 "off_axis_abs_mean": item.get("off_axis_abs_mean"),
                 "collision_fraction": item.get("collision_fraction"),
                 "command_safety_gate_mean": item.get("command_safety_gate_mean"),
+                "reward_blocked_motion_mean": item.get("reward_blocked_motion_mean"),
+                "reward_idle_stop_mean": item.get("reward_idle_stop_mean"),
             }
             for item in summary.get("scenarios", [])
             if isinstance(item, dict)

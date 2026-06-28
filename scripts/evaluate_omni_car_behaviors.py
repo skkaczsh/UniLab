@@ -193,6 +193,8 @@ def _empty_record() -> dict[str, list[float]]:
         "command_safety_gate": [],
         "reward_total": [],
         "reward_blocked_stop": [],
+        "reward_blocked_motion": [],
+        "reward_idle_stop": [],
     }
 
 
@@ -220,6 +222,10 @@ def _record_step(record: dict[str, list[float]], env: Any, step_info: dict[str, 
     record["reward_blocked_stop"].extend(
         np.asarray(reward_components["blocked_stop"]).tolist()
     )
+    record["reward_blocked_motion"].extend(
+        np.asarray(reward_components["blocked_motion"]).tolist()
+    )
+    record["reward_idle_stop"].extend(np.asarray(reward_components["idle_stop"]).tolist())
 
 
 def _mean(values: Sequence[float]) -> float:
@@ -239,6 +245,8 @@ def _summarize_record(
         "command_safety_gate_mean": _mean(record["command_safety_gate"]),
         "reward_total_mean": _mean(record["reward_total"]),
         "reward_blocked_stop_mean": _mean(record["reward_blocked_stop"]),
+        "reward_blocked_motion_mean": _mean(record["reward_blocked_motion"]),
+        "reward_idle_stop_mean": _mean(record["reward_idle_stop"]),
     }
     failures: list[str] = []
     if scenario.min_projection is not None and summary["projection_mean"] < scenario.min_projection:
@@ -301,7 +309,9 @@ def _format_summary(summary: dict[str, Any]) -> str:
             f"proj={item['projection_mean']:.4f} "
             f"off_axis={item['off_axis_abs_mean']:.4f} "
             f"collision={item['collision_fraction']:.4f} "
-            f"gate={item['command_safety_gate_mean']:.4f}"
+            f"gate={item['command_safety_gate_mean']:.4f} "
+            f"r_blocked_motion={item['reward_blocked_motion_mean']:.4f} "
+            f"r_idle={item['reward_idle_stop_mean']:.4f}"
         )
         if item["failures"]:
             lines.append(f"  failures: {', '.join(item['failures'])}")
