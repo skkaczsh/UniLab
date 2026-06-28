@@ -118,8 +118,11 @@ class OmniCarHumanCommandCfg:
     backend: str = "pygame"
     joystick_index: int = 0
     require_joystick: bool = True
-    deadzone: float = 0.08
+    deadzone: float = 0.15
+    zero_snap_norm: float = 0.10
     smoothing_tau_s: float = 0.10
+    idle_action_hold: bool = True
+    idle_action_hold_norm: float = 0.12
     axis_vx: int = 1
     axis_vy: int = 0
     axis_vyaw: int = 3
@@ -215,8 +218,12 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
             raise ValueError("human_command.replay_fanout must be non-negative")
         if not 0.0 <= human.deadzone < 1.0:
             raise ValueError("human_command.deadzone must be in [0, 1)")
+        if human.zero_snap_norm < 0.0:
+            raise ValueError("human_command.zero_snap_norm must be non-negative")
         if human.smoothing_tau_s < 0.0:
             raise ValueError("human_command.smoothing_tau_s must be non-negative")
+        if human.idle_action_hold_norm < 0.0:
+            raise ValueError("human_command.idle_action_hold_norm must be non-negative")
         if min(human.axis_vx, human.axis_vy, human.axis_vyaw) < 0:
             raise ValueError("human_command axis indices must be non-negative")
         if human.render_every_steps <= 0:
@@ -554,13 +561,35 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             ],
             dtype=self._dtype,
         )
-        return (normalized * self._velocity_limit).astype(self._dtype)
+        command = (normalized * self._velocity_limit).astype(self._dtype)
+        if np.linalg.norm(command) <= float(human.zero_snap_norm):
+            command.fill(0.0)
+        return command
 
     def _refresh_human_commands(self) -> None:
         if not self._human_command_enabled or self._human_command_env_ids.size == 0:
             return
         self._human_command = self._read_human_command()
         self._raw_commands[self._human_command_env_ids] = self._human_command
+
+    def _human_idle_mask(self) -> np.ndarray:
+        mask = np.zeros((self._num_envs,), dtype=bool)
+        if not self._human_command_enabled or self._human_command_env_ids.size == 0:
+            return mask
+        if not self._cfg.human_command.idle_action_hold:
+            return mask
+        raw_norm = np.linalg.norm(self._raw_commands[self._human_command_env_ids], axis=1)
+        idle = raw_norm <= float(self._cfg.human_command.idle_action_hold_norm)
+        mask[self._human_command_env_ids[idle]] = True
+        return mask
+
+    def _apply_human_idle_action_hold(self, actions: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        idle_mask = self._human_idle_mask()
+        if not np.any(idle_mask):
+            return actions, idle_mask
+        held = actions.copy()
+        held[idle_mask] = 0.0
+        return held, idle_mask
 
     def init_state(self) -> NpEnvState:
         obs, info = self.reset(np.arange(self._num_envs, dtype=np.int32))
@@ -626,6 +655,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         if actions.shape != (self._num_envs, 3):
             raise ValueError(f"Expected action shape {(self._num_envs, 3)}, got {actions.shape}")
         policy_action = actions.copy()
+        self._refresh_human_commands()
+        actions, human_idle_hold = self._apply_human_idle_action_hold(actions)
         self._state.info["_final_observation"] = np.zeros((self._num_envs,), dtype=bool)
 
         limited = self._apply_physical_limits(actions)
@@ -668,6 +699,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             },
             "policy_action": policy_action.copy(),
             "executed_action": limited.copy(),
+            "human_idle_hold": human_idle_hold.copy(),
             "human_command": self._human_command.copy(),
             "human_command_env_id": self._human_command_env_id,
             "human_command_agent_count": self._human_command_env_ids.size,
@@ -700,6 +732,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._state.info["human_controller_name"] = self._human_controller_name
         self._state.info["policy_action"] = policy_action.copy()
         self._state.info["executed_action"] = limited.copy()
+        self._state.info["human_idle_hold"] = human_idle_hold.copy()
         self._state.info["reward_components"] = {
             name: values.copy() for name, values in log_snapshot["reward_components"].items()
         }
@@ -765,8 +798,41 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             ),
             "omni_car/human_command_norm": float(np.linalg.norm(log_snapshot["human_command"])),
         }
+        focus_id = int(
+            np.clip(
+                log_snapshot["human_command_env_id"]
+                if log_snapshot["human_command_env_id"] >= 0
+                else 0,
+                0,
+                max(self._num_envs - 1, 0),
+            )
+        )
+        self._state.info["log"].update(
+            {
+                "omni_car/focus_env_id": float(focus_id),
+                "omni_car/focus_command_norm": float(
+                    np.linalg.norm(log_snapshot["commands"][focus_id])
+                ),
+                "omni_car/focus_policy_action_norm": float(
+                    np.linalg.norm(log_snapshot["policy_action"][focus_id])
+                ),
+                "omni_car/focus_executed_action_norm": float(
+                    np.linalg.norm(log_snapshot["executed_action"][focus_id])
+                ),
+                "omni_car/focus_human_idle_hold": float(
+                    log_snapshot["human_idle_hold"][focus_id]
+                ),
+                "omni_car/focus_policy_vyaw": float(
+                    log_snapshot["policy_action"][focus_id, 2]
+                ),
+                "omni_car/focus_executed_vyaw": float(
+                    log_snapshot["executed_action"][focus_id, 2]
+                ),
+            }
+        )
         for name, values in log_snapshot["reward_components"].items():
             self._state.info["log"][f"omni_car/reward/{name}"] = float(np.mean(values))
+            self._state.info["log"][f"omni_car/focus_reward/{name}"] = float(values[focus_id])
         return self._state
 
     def _render_human_live_viewer(self) -> None:
@@ -1010,16 +1076,22 @@ class OmniCarGridAvoidanceEnv(ABEnv):
     def _update_human_smoothed_commands(self) -> None:
         if not self._human_command_enabled or self._human_command_env_ids.size == 0:
             return
+        ids = self._human_command_env_ids
+        raw_norm = np.linalg.norm(self._raw_commands[ids], axis=1)
+        snapped = raw_norm <= float(self._cfg.human_command.zero_snap_norm)
+        if np.any(snapped):
+            self._commands[ids[snapped]] = 0.0
+        active_ids = ids[~snapped]
+        if active_ids.size == 0:
+            return
         tau = float(self._cfg.human_command.smoothing_tau_s)
         if tau <= 0.0:
-            self._commands[self._human_command_env_ids] = self._raw_commands[
-                self._human_command_env_ids
-            ]
+            self._commands[active_ids] = self._raw_commands[active_ids]
             return
         alpha = float(self._cfg.ctrl_dt / (tau + self._cfg.ctrl_dt))
-        ids = self._human_command_env_ids
-        self._commands[ids] = (
-            (1.0 - alpha) * self._commands[ids] + alpha * self._raw_commands[ids]
+        self._commands[active_ids] = (
+            (1.0 - alpha) * self._commands[active_ids]
+            + alpha * self._raw_commands[active_ids]
         ).astype(self._dtype)
 
     def _append_history(self) -> None:
@@ -1942,6 +2014,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "human_command": self._human_command.copy(),
             "human_command_connected": self._human_command_connected,
             "human_controller_name": self._human_controller_name,
+            "human_idle_hold": self._human_idle_mask()[env_indices].copy(),
             "policy_action": self._last_action[env_indices].copy(),
             "executed_action": self._velocity[env_indices].copy(),
             "reward_components": {
@@ -2096,6 +2169,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         policy = self._state.info.get("policy_action", self._last_action)[env_id]
         executed = self._state.info.get("executed_action", self._velocity)[env_id]
         velocity = self._velocity[env_id]
+        idle_hold = np.asarray(
+            self._state.info.get("human_idle_hold", np.zeros((self._num_envs,), dtype=bool))
+        )
         components = self._reward_components
 
         def vec(label: str, value: np.ndarray) -> str:
@@ -2104,7 +2180,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         lines = [
             f"env={env_id} step={int(self._state.info['steps'][env_id])} "
             f"clearance={float(self._nearest_clearance[env_id]):+.2f} "
-            f"collision={int(bool(self._collision[env_id]))}",
+            f"collision={int(bool(self._collision[env_id]))} "
+            f"idle_hold={int(bool(idle_hold[env_id]))}",
             vec("raw", raw),
             vec("cmd", cmd),
             vec("policy", policy),

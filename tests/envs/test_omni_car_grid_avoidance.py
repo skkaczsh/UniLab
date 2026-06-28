@@ -241,6 +241,39 @@ def test_omni_car_human_command_axis_mapping_uses_xbox_sticks() -> None:
 
     deadzone_command = env._map_human_axes_to_command(np.asarray([0.05, -0.05, 0.05]))
     np.testing.assert_array_equal(deadzone_command, np.zeros((3,), dtype=env._dtype))
+
+    drift_command = env._map_human_axes_to_command(np.asarray([0.12, -0.12, 0.12]))
+    np.testing.assert_array_equal(drift_command, np.zeros((3,), dtype=env._dtype))
+    env.close()
+
+
+def test_omni_car_human_zero_input_holds_executed_action() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=2,
+        env_cfg_override={
+            "seed": 60,
+            "obstacles": {"count": 0},
+            "human_command": {
+                "enabled": True,
+                "env_index": 0,
+                "backend": "zero",
+                "smoothing_tau_s": 0.0,
+                "idle_action_hold": True,
+            },
+        },
+    )
+    env.init_state()
+
+    action = np.asarray([[1.0, -1.0, 1.0], [1.0, -1.0, 1.0]], dtype=np.float32)
+    state = env.step(action)
+
+    np.testing.assert_allclose(state.info["policy_action"][0], action[0])
+    np.testing.assert_allclose(state.info["executed_action"][0], np.zeros(3), atol=1e-6)
+    assert bool(state.info["human_idle_hold"][0]) is True
+    assert state.info["log"]["omni_car/focus_human_idle_hold"] == pytest.approx(1.0)
+    assert state.info["log"]["omni_car/focus_executed_action_norm"] == pytest.approx(0.0)
     env.close()
 
 

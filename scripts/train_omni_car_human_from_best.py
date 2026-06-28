@@ -45,6 +45,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--axis-vx", type=int, default=1)
     parser.add_argument("--axis-vy", type=int, default=0)
     parser.add_argument("--axis-vyaw", type=int, default=3)
+    parser.add_argument("--human-deadzone", type=float, default=0.15)
+    parser.add_argument("--human-zero-snap-norm", type=float, default=0.10)
+    parser.add_argument("--human-idle-hold-norm", type=float, default=0.12)
+    parser.add_argument("--disable-idle-action-hold", action="store_true")
     parser.add_argument("--render-every-steps", type=int, default=1)
     parser.add_argument(
         "--wait-for-joystick",
@@ -106,6 +110,10 @@ def build_resume_command(args: argparse.Namespace) -> list[str]:
         f"env.human_command.axis_vx={int(args.axis_vx)}",
         f"env.human_command.axis_vy={int(args.axis_vy)}",
         f"env.human_command.axis_vyaw={int(args.axis_vyaw)}",
+        f"env.human_command.deadzone={float(args.human_deadzone)}",
+        f"env.human_command.zero_snap_norm={float(args.human_zero_snap_norm)}",
+        f"env.human_command.idle_action_hold={str(not bool(args.disable_idle_action_hold)).lower()}",
+        f"env.human_command.idle_action_hold_norm={float(args.human_idle_hold_norm)}",
         f"env.human_command.replay_fanout={int(args.replay_fanout)}",
         f"env.human_command.require_joystick={str(not bool(args.allow_no_joystick)).lower()}",
         "env.human_command.render_enabled=true",

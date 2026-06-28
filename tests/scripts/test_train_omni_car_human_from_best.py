@@ -53,6 +53,10 @@ def test_human_resume_script_builds_low_latency_resume_command(tmp_path, monkeyp
     assert "env.human_command.render_enabled=true" in command
     assert "env.human_command.require_joystick=true" in command
     assert "env.human_command.axis_vyaw=3" in command
+    assert "env.human_command.deadzone=0.15" in command
+    assert "env.human_command.zero_snap_norm=0.1" in command
+    assert "env.human_command.idle_action_hold=true" in command
+    assert "env.human_command.idle_action_hold_norm=0.12" in command
     assert "training.play_render_mode=none" in command
     assert "env.human_command.axis_vyaw=3" in command
 
