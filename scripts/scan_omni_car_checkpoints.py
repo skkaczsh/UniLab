@@ -176,6 +176,7 @@ def compact_summary(checkpoint: int, summary: dict[str, Any], score: float) -> d
         "omni_car/vyaw_jerk_cost",
         "omni_car/reward/clearance_motion",
         "omni_car/reward/clearance_target_motion",
+        "omni_car/reward/clearance_opening",
         "omni_car/reward/blocked_projection",
         "omni_car/reward/blocked_stop",
         "omni_car/reward/idle_stop",
@@ -222,6 +223,9 @@ def compact_behavior_summary(summary: dict[str, Any]) -> dict[str, Any]:
                 "reward_clearance_motion_mean": item.get("reward_clearance_motion_mean"),
                 "reward_clearance_target_motion_mean": item.get(
                     "reward_clearance_target_motion_mean"
+                ),
+                "reward_clearance_opening_mean": item.get(
+                    "reward_clearance_opening_mean"
                 ),
                 "reward_target_collision_mean": item.get("reward_target_collision_mean"),
                 "reward_idle_stop_mean": item.get("reward_idle_stop_mean"),

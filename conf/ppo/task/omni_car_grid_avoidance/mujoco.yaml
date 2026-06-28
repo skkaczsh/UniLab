@@ -143,6 +143,7 @@ env:
     response: 35.0
     clearance_motion: 80.0
     clearance_target_motion: 220.0
+    clearance_opening: 90.0
     target_collision: 220.0
     target_collision_margin_m: 0.25
     target_collision_speed_mps: 0.25
@@ -178,6 +179,7 @@ reward:
   response: 35.0
   clearance_motion: 80.0
   clearance_target_motion: 220.0
+  clearance_opening: 90.0
   target_collision: 220.0
   target_collision_margin_m: 0.25
   target_collision_speed_mps: 0.25

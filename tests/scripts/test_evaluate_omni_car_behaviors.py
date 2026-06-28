@@ -39,6 +39,7 @@ def test_behavior_summary_reports_threshold_failures() -> None:
             "reward_total": [-1.0, -2.0],
             "reward_clearance_motion": [-0.5, -1.5],
             "reward_clearance_target_motion": [-0.25, -0.75],
+            "reward_clearance_opening": [0.5, 1.5],
             "reward_idle_stop": [-2.0, -4.0],
             "reward_yaw_idle_stop": [-6.0, -8.0],
         },
@@ -48,6 +49,7 @@ def test_behavior_summary_reports_threshold_failures() -> None:
     assert summary["planar_speed_mean"] == 0.11
     assert summary["reward_clearance_motion_mean"] == -1.0
     assert summary["reward_clearance_target_motion_mean"] == -0.5
+    assert summary["reward_clearance_opening_mean"] == 1.0
     assert summary["reward_idle_stop_mean"] == -3.0
     assert summary["reward_yaw_idle_stop_mean"] == -7.0
     assert summary["failures"] == ["planar_speed_mean > 0.08"]
@@ -66,6 +68,7 @@ def test_record_step_uses_step_info_snapshot() -> None:
             "total": np.asarray([-2.0], dtype=np.float32),
             "clearance_motion": np.asarray([-3.0], dtype=np.float32),
             "clearance_target_motion": np.asarray([-1.5], dtype=np.float32),
+            "clearance_opening": np.asarray([1.25], dtype=np.float32),
             "idle_stop": np.asarray([-4.0], dtype=np.float32),
             "yaw_idle_stop": np.asarray([-5.0], dtype=np.float32),
         },
@@ -82,6 +85,7 @@ def test_record_step_uses_step_info_snapshot() -> None:
     assert record["reward_total"] == [-2.0]
     assert record["reward_clearance_motion"] == [-3.0]
     assert record["reward_clearance_target_motion"] == [-1.5]
+    assert record["reward_clearance_opening"] == [1.25]
     assert record["reward_idle_stop"] == [-4.0]
     assert record["reward_yaw_idle_stop"] == [-5.0]
 
