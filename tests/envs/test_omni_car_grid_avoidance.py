@@ -408,6 +408,8 @@ def test_omni_car_response_diff_and_jerk_rewards_are_measured() -> None:
                 "yaw_intent": 0.0,
                 "response": 1.0,
                 "blocked_stop": 0.0,
+                "blocked_motion": 0.0,
+                "idle_stop": 0.0,
                 "off_axis": 0.0,
                 "reverse": 0.0,
                 "vx_track": 0.0,
@@ -476,6 +478,8 @@ def test_omni_car_projection_reward_penalizes_off_axis_and_reverse_motion() -> N
                 "yaw_intent": 0.0,
                 "response": 0.0,
                 "blocked_stop": 0.0,
+                "blocked_motion": 0.0,
+                "idle_stop": 0.0,
                 "off_axis": 6.0,
                 "reverse": 8.0,
                 "vx_track": 0.0,
@@ -528,6 +532,10 @@ def test_omni_car_axis_tracking_penalty_is_command_direction_gated() -> None:
                 "yaw_intent": 0.0,
                 "response": 0.0,
                 "blocked_stop": 0.0,
+                "blocked_motion": 0.0,
+                "idle_stop": 0.0,
+                "off_axis": 0.0,
+                "reverse": 0.0,
                 "vx_track": 1.0,
                 "vy_track": 2.0,
                 "vyaw_track": 3.0,
@@ -578,6 +586,10 @@ def test_omni_car_front_obstacle_rewards_stop_over_forward_push() -> None:
                 "yaw_intent": 0.0,
                 "response": 0.0,
                 "blocked_stop": 10.0,
+                "blocked_motion": 8.0,
+                "idle_stop": 0.0,
+                "off_axis": 0.0,
+                "reverse": 0.0,
                 "vx_track": 0.0,
                 "vy_track": 0.0,
                 "vyaw_track": 0.0,
@@ -601,10 +613,55 @@ def test_omni_car_front_obstacle_rewards_stop_over_forward_push() -> None:
     stop_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
     stop_blocked_reward = float(env._reward_components["blocked_stop"][0])
     push_reward = env._compute_reward(np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32))
+    push_blocked_motion = float(env._reward_components["blocked_motion"][0])
 
     assert env._command_safety_gate[0] == pytest.approx(0.0)
     assert stop_reward[0] > push_reward[0]
     assert stop_blocked_reward > 0.0
+    assert push_blocked_motion < 0.0
+    env.close()
+
+
+def test_omni_car_zero_command_rewards_idle_action() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 18,
+            "obstacles": {"count": 0},
+            "reward": {
+                "intent": 0.0,
+                "intent_projection": 0.0,
+                "yaw_intent": 1.0,
+                "response": 0.0,
+                "blocked_stop": 0.0,
+                "blocked_motion": 0.0,
+                "idle_stop": 4.0,
+                "off_axis": 0.0,
+                "reverse": 0.0,
+                "vx_track": 0.0,
+                "vy_track": 0.0,
+                "vyaw_track": 0.0,
+                "vx_diff": 0.0,
+                "vy_diff": 0.0,
+                "vyaw_diff": 0.0,
+                "vx_jerk": 0.0,
+                "vy_jerk": 0.0,
+                "vyaw_jerk": 0.0,
+                "clearance": 0.0,
+                "collision": 0.0,
+            },
+        },
+    )
+    env.init_state()
+    env._commands[:] = 0.0
+
+    idle_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
+    drift_reward = env._compute_reward(np.asarray([[0.08, 0.0, 0.12]], dtype=np.float32))
+
+    assert idle_reward[0] > drift_reward[0]
+    assert env._reward_components["idle_stop"][0] < 0.0
     env.close()
 
 
@@ -843,6 +900,11 @@ def test_omni_car_large_scene_border_collision_and_stagnation_reset() -> None:
                 "intent_projection": 0.0,
                 "yaw_intent": 0.0,
                 "response": 0.0,
+                "blocked_stop": 0.0,
+                "blocked_motion": 0.0,
+                "idle_stop": 0.0,
+                "off_axis": 0.0,
+                "reverse": 0.0,
                 "vx_diff": 0.0,
                 "vy_diff": 0.0,
                 "vyaw_diff": 0.0,

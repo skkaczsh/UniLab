@@ -157,14 +157,18 @@ Reward shaping emphasizes these signals:
    direction.
 2. Suppress planar intent and tracking rewards when the command direction is
    blocked in the local occupancy grid, then reward stopping instead.
-3. Penalize velocity far from the commanded planar direction with an explicit
+3. Penalize forward motion into a blocked command corridor so pushing into a
+   wall cannot win through residual projection or yaw rewards.
+4. Penalize any output velocity during zero-command windows so the learned
+   optimum is physically idle when the operator is idle.
+5. Penalize velocity far from the commanded planar direction with an explicit
    off-axis term.
-4. Penalize reverse motion against the commanded planar direction.
-5. Track commanded yaw intent independently.
-6. Improve response speed when the command direction is clear.
-7. Penalize per-axis tracking, action diff, and jerk independently for `vx`,
+6. Penalize reverse motion against the commanded planar direction.
+7. Track commanded yaw intent independently.
+8. Improve response speed when the command direction is clear.
+9. Penalize per-axis tracking, action diff, and jerk independently for `vx`,
    `vy`, and `vyaw`.
-8. Preserve clearance and heavily punish collision.
+10. Preserve clearance and heavily punish collision.
 
 The command-direction gate is derived from the deployable occupancy grid by
 checking a car-width corridor in front of the body along the current command.

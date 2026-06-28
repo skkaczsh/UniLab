@@ -136,6 +136,8 @@ env:
     yaw_intent: 9.0
     response: 12.0
     blocked_stop: 10.0
+    blocked_motion: 8.0
+    idle_stop: 4.0
     off_axis: 8.0
     reverse: 10.0
     directional_clearance_margin_m: 0.35
@@ -165,6 +167,8 @@ reward:
   yaw_intent: 9.0
   response: 12.0
   blocked_stop: 10.0
+  blocked_motion: 8.0
+  idle_stop: 4.0
   off_axis: 8.0
   reverse: 10.0
   directional_clearance_margin_m: 0.35
