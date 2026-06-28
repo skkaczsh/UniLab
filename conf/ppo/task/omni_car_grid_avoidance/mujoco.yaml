@@ -44,7 +44,7 @@ algo:
     num_mini_batches: 4
     learning_rate: 5.0e-4
     desired_kl: 0.02
-    entropy_coef: 0.005
+    entropy_coef: 0.01
 
 env:
   max_episode_seconds: 300.0
@@ -135,29 +135,29 @@ env:
     stagnation_min_return_delta: 1.0
     resample_scene_on_full_reset: false
   reward:
-    intent: 22.0
-    intent_projection: 8.0
-    yaw_intent: 7.0
-    response: 14.0
-    blocked_stop: 18.0
-    blocked_motion: 24.0
-    idle_stop: 16.0
-    yaw_idle_stop: 10.0
-    off_axis: 10.0
-    reverse: 30.0
+    intent: 48.0
+    intent_projection: 22.0
+    yaw_intent: 10.0
+    response: 24.0
+    blocked_stop: 24.0
+    blocked_motion: 48.0
+    idle_stop: 24.0
+    yaw_idle_stop: 16.0
+    off_axis: 28.0
+    reverse: 45.0
     directional_clearance_margin_m: 0.35
     directional_clearance_range_m: 1.0
-    vx_track: 4.0
-    vy_track: 4.0
-    vyaw_track: 14.0
+    vx_track: 9.0
+    vy_track: 9.0
+    vyaw_track: 20.0
     vx_diff: 6.0
     vy_diff: 6.0
     vyaw_diff: 7.0
     vx_jerk: 3.0
     vy_jerk: 3.0
     vyaw_jerk: 3.4
-    clearance: 4.0
-    collision: -60.0
+    clearance: 6.0
+    collision: -120.0
   physical_limits:
     max_x_speed: 2.0
     max_y_speed: 1.0
@@ -167,26 +167,26 @@ env:
     max_yaw_accel: 4.5
 
 reward:
-  intent: 22.0
-  intent_projection: 8.0
-  yaw_intent: 7.0
-  response: 14.0
-  blocked_stop: 18.0
-  blocked_motion: 24.0
-  idle_stop: 16.0
-  yaw_idle_stop: 10.0
-  off_axis: 10.0
-  reverse: 30.0
+  intent: 48.0
+  intent_projection: 22.0
+  yaw_intent: 10.0
+  response: 24.0
+  blocked_stop: 24.0
+  blocked_motion: 48.0
+  idle_stop: 24.0
+  yaw_idle_stop: 16.0
+  off_axis: 28.0
+  reverse: 45.0
   directional_clearance_margin_m: 0.35
   directional_clearance_range_m: 1.0
-  vx_track: 4.0
-  vy_track: 4.0
-  vyaw_track: 14.0
+  vx_track: 9.0
+  vy_track: 9.0
+  vyaw_track: 20.0
   vx_diff: 6.0
   vy_diff: 6.0
   vyaw_diff: 7.0
   vx_jerk: 3.0
   vy_jerk: 3.0
   vyaw_jerk: 3.4
-  clearance: 4.0
-  collision: -60.0
+  clearance: 6.0
+  collision: -120.0

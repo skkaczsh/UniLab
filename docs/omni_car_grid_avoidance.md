@@ -182,31 +182,25 @@ Reward shaping emphasizes these signals:
    `vy`, and `vyaw`.
 11. Preserve clearance and heavily punish collision.
 
-The command-direction gate is derived from local obstacle geometry by checking
-whether the commanded centerline is blocked ahead of the body. It intentionally
-does not close merely because a side obstacle is close; side-wall avoidance is
-left to clearance/collision terms so the policy can learn to preserve forward
-intent while sliding away from the wall.
+The command-direction feasibility scalar is a reward-shaping signal derived
+from local obstacle geometry by checking whether the commanded centerline is
+blocked ahead of the body. It is not an action gate. It intentionally does not
+close merely because a side obstacle is close; side-wall avoidance is left to
+clearance/collision terms so the policy can learn to preserve forward intent
+while sliding away from the wall.
 The actor does not receive privileged nearest-clearance or collision flags;
 those remain critic/logging signals only. The reward can still use privileged
 training information, but the positive planar intent term is now tied to the
 actual projection onto the user command, so pure side slip or reverse output
 does not earn forward-intent reward.
-The executed action is not clamped by a command-direction geometry gate; obstacle
-avoidance is learned through PPO from the reward and curriculum signals.
-The current reward balance keeps collision and blocked-motion expensive, raises
-projection/reverse/axis-tracking terms so the policy does not back away under
-clear intent, and uses a stronger idle-stop term to keep zero-input behavior
-stationary.
-
-The current tuning pass intentionally shifted some burden from reward penalties
-back into the physical envelope: acceleration caps were loosened so the policy
-can respond to intent and obstacles faster, while collision and clearance terms
-were strengthened to stop the extra agility from turning into reckless contact.
-The latest yaw-response pass adds explicit clearance-gated per-axis tracking
-costs and raises yaw intent/tracking weight. This addresses a failure mode seen
-in the `remote_5070_git_long_3000` run where later checkpoints became very
-smooth by suppressing yaw output instead of following `vyaw` commands.
+The executed action is not clamped by command-direction geometry; obstacle
+avoidance is learned through PPO from the reward and curriculum signals. The
+current reward balance makes clear-command projection, response, and per-axis
+tracking large enough to compete with smoothness penalties, while making
+off-axis drift, blocked forward motion, and collision expensive enough that
+sliding into walls or pushing through blockers is not a profitable local
+optimum. Entropy is kept slightly higher during PPO training to avoid early
+collapse into slow, biased motion.
 
 The `CNN + GRU` observation contract is intentionally incompatible with older
 `CNN + MLP` checkpoints. Historical checkpoint manifests remain useful for
