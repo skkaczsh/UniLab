@@ -170,8 +170,9 @@ Reward shaping emphasizes these signals:
    blocked in the local occupancy grid, then reward stopping instead.
 3. Penalize forward motion into a blocked command corridor so pushing into a
    wall cannot win through residual projection or yaw rewards.
-4. Penalize any output velocity during zero-command windows so the learned
-   optimum is physically idle when the operator is idle.
+4. Penalize any output velocity during zero-command windows, including both the
+   raw policy target and the physically limited executed velocity, so the
+   learned optimum is idle when the operator is idle.
 5. Penalize velocity far from the commanded planar direction with an explicit
    off-axis term.
 6. Penalize reverse motion against the commanded planar direction.

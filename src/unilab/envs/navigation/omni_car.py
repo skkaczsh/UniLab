@@ -759,7 +759,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
 
         self._nearest_clearance = self._compute_clearance(self._all_env_indices)
         self._collision = self._nearest_clearance <= 0.0
-        reward = self._compute_reward(limited, commands=reward_commands)
+        reward = self._compute_reward(limited, commands=reward_commands, policy_action=policy_action)
         self._update_reward_progress(reward)
         log_snapshot = {
             "commands": reward_commands.copy(),
@@ -2158,9 +2158,19 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         clearance[:] = np.min(signed - safety_radius, axis=1).astype(self._dtype, copy=False)
         return clearance
 
-    def _compute_reward(self, action: np.ndarray, commands: np.ndarray | None = None) -> np.ndarray:
+    def _compute_reward(
+        self,
+        action: np.ndarray,
+        commands: np.ndarray | None = None,
+        policy_action: np.ndarray | None = None,
+    ) -> np.ndarray:
         cfg = self._cfg.reward
         cmd = self._commands if commands is None else np.asarray(commands, dtype=self._dtype)
+        target_action = (
+            np.zeros_like(action)
+            if policy_action is None
+            else np.asarray(policy_action, dtype=self._dtype)
+        )
         planar_norm = np.linalg.norm(cmd[:, :2], axis=1)
         active_planar = planar_norm > self._cfg.command.deadband
         safe_planar_norm = np.maximum(planar_norm, 1e-6)
@@ -2231,16 +2241,28 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         ) ** 2
         command_norm = np.linalg.norm(cmd, axis=1)
         idle_mask = command_norm <= self._cfg.command.deadband
+        target_planar_speed = np.linalg.norm(target_action[:, :2], axis=1)
+        target_yaw_speed = np.abs(target_action[:, 2])
         idle_action_cost = np.where(
             idle_mask,
             (np.linalg.norm(action[:, :2], axis=1) / 0.10) ** 2
             + (np.abs(action[:, 2]) / 0.10) ** 2,
             0.0,
         )
+        idle_target_cost = np.where(
+            idle_mask,
+            (target_planar_speed / 0.20) ** 2 + (target_yaw_speed / 0.20) ** 2,
+            0.0,
+        )
         yaw_idle_mask = np.abs(cmd[:, 2]) <= self._cfg.command.deadband
         yaw_idle_cost = np.where(
             yaw_idle_mask,
             (np.abs(action[:, 2]) / 0.12) ** 2,
+            0.0,
+        )
+        yaw_idle_target_cost = np.where(
+            yaw_idle_mask,
+            (target_yaw_speed / 0.20) ** 2,
             0.0,
         )
         self._tracking_error = new_error.astype(self._dtype)
@@ -2261,8 +2283,12 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "blocked_motion": (-cfg.blocked_motion * blocked_motion_cost).astype(
                 self._dtype
             ),
-            "idle_stop": (-cfg.idle_stop * idle_action_cost).astype(self._dtype),
-            "yaw_idle_stop": (-cfg.yaw_idle_stop * yaw_idle_cost).astype(self._dtype),
+            "idle_stop": (-cfg.idle_stop * (idle_action_cost + idle_target_cost)).astype(
+                self._dtype
+            ),
+            "yaw_idle_stop": (
+                -cfg.yaw_idle_stop * (yaw_idle_cost + yaw_idle_target_cost)
+            ).astype(self._dtype),
             "off_axis": (-cfg.off_axis * off_axis_cost).astype(self._dtype),
             "reverse": (-cfg.reverse * reverse_cost).astype(self._dtype),
             "vx_track": track_penalty[:, 0].astype(self._dtype),
