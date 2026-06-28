@@ -1785,24 +1785,56 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         if active_ids.size == 0:
             return clearance
 
-        grid = self._occupancy_grid(active_ids).reshape(
-            active_ids.size, self._cfg.grid.size * self._cfg.grid.size
-        )
-        half_width = 0.5 * float(self._cfg.body.width_m) + float(self._cfg.grid.safety_margin_m)
+        if self._large_scene_enabled:
+            grid = self._occupancy_grid(active_ids).reshape(
+                active_ids.size, self._cfg.grid.size * self._cfg.grid.size
+            )
+            half_width = 0.5 * float(self._cfg.body.width_m) + float(
+                self._cfg.grid.safety_margin_m
+            )
+            half_length = 0.5 * float(self._cfg.body.length_m)
+            corridor_half_width = half_width + self._grid_cell_size
+
+            for row, env_id in enumerate(active_ids):
+                occupied_ids = np.flatnonzero(grid[row] > 0.5)
+                if occupied_ids.size == 0:
+                    continue
+                direction = commands[env_id, :2] / planar_norm[env_id]
+                points = self._grid_points[occupied_ids]
+                forward = points @ direction
+                lateral = np.abs(points[:, 0] * direction[1] - points[:, 1] * direction[0])
+                in_corridor = (forward > half_length) & (lateral <= corridor_half_width)
+                if np.any(in_corridor):
+                    clearance[env_id] = np.min(forward[in_corridor] - half_length)
+            return clearance.astype(self._dtype, copy=False)
+
+        if self._cfg.obstacles.count == 0:
+            return clearance
+
+        local_xy = self._world_to_body_obstacles(active_ids)
+        obstacle_types = self._obstacle_type[active_ids]
         half_length = 0.5 * float(self._cfg.body.length_m)
-        corridor_half_width = half_width + self._grid_cell_size
+        safety_margin = float(self._cfg.grid.safety_margin_m)
+        circle_extent = self._obstacle_radius[active_ids]
+        rect_extent = np.linalg.norm(self._obstacle_half_extents[active_ids], axis=2)
+        obstacle_extent = np.where(
+            obstacle_types == self._OBSTACLE_CIRCLE,
+            circle_extent,
+            rect_extent,
+        )
 
         for row, env_id in enumerate(active_ids):
-            occupied_ids = np.flatnonzero(grid[row] > 0.5)
-            if occupied_ids.size == 0:
-                continue
             direction = commands[env_id, :2] / planar_norm[env_id]
-            points = self._grid_points[occupied_ids]
+            points = local_xy[row]
             forward = points @ direction
             lateral = np.abs(points[:, 0] * direction[1] - points[:, 1] * direction[0])
-            in_corridor = (forward > half_length) & (lateral <= corridor_half_width)
-            if np.any(in_corridor):
-                clearance[env_id] = np.min(forward[in_corridor] - half_length)
+            lateral_limit = safety_margin + 0.5 * self._grid_cell_size + obstacle_extent[row]
+            in_swept_width = lateral <= lateral_limit
+            forward_clearance = forward - half_length - obstacle_extent[row]
+            ahead = forward_clearance > 0.0
+            blocking = ahead & in_swept_width
+            if np.any(blocking):
+                clearance[env_id] = np.min(forward_clearance[blocking])
         return clearance.astype(self._dtype, copy=False)
 
     def _select_local_obstacles(

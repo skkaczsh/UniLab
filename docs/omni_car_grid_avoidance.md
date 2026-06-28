@@ -170,8 +170,11 @@ Reward shaping emphasizes these signals:
    `vy`, and `vyaw`.
 10. Preserve clearance and heavily punish collision.
 
-The command-direction gate is derived from the deployable occupancy grid by
-checking a car-width corridor in front of the body along the current command.
+The command-direction gate is derived from local obstacle geometry by checking
+whether the commanded centerline is blocked ahead of the body. It intentionally
+does not close merely because a side obstacle is close; side-wall avoidance is
+left to clearance/collision terms so the policy can learn to preserve forward
+intent while sliding away from the wall.
 The actor does not receive privileged nearest-clearance or collision flags;
 those remain critic/logging signals only. The reward can still use privileged
 training information, but the positive planar intent term is now tied to the
