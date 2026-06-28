@@ -160,12 +160,37 @@ def test_omni_car_balanced_command_sampler_covers_modes_and_limits() -> None:
     assert np.mean(zero_rows) == pytest.approx(env._cfg.command.zero_fraction, abs=0.06)
     for mode in env._COMMAND_MODE_MASKS:
         assert np.any(np.all(active == mode, axis=1))
+    planar_arbitrary = np.mean(active[:, 0] & active[:, 1])
+    assert planar_arbitrary > 0.25
 
     normalized = np.abs(samples) / np.asarray([2.0, 1.0, 2.0], dtype=np.float32)
     nonzero = normalized[normalized > 0.0]
     assert np.any((0.15 <= nonzero) & (nonzero < 0.35))
     assert np.any((0.35 <= nonzero) & (nonzero < 0.65))
     assert np.any(nonzero >= 0.65)
+    env.close()
+
+
+def test_omni_car_command_sampler_respects_mode_weights() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 48,
+            "command": {
+                "zero_fraction": 0.0,
+                "mode_weights": [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+                "deadband": 0.0,
+            },
+        },
+    )
+    mode_ids = env._sample_command_mode_ids(128)
+    samples = env._sample_commands(128)
+
+    assert np.all(mode_ids == 3)
+    assert np.all(np.linalg.norm(samples[:, :2], axis=1) > 0.0)
+    assert np.all(samples[:, 2] == 0.0)
     env.close()
 
 

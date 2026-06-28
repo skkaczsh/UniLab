@@ -28,6 +28,9 @@ class OmniCarCommandCfg:
     long_hold_min_s: float = 8.0
     long_hold_max_s: float = 30.0
     zero_fraction: float = 0.15
+    mode_weights: tuple[float, ...] = field(
+        default_factory=lambda: (0.10, 0.10, 0.10, 0.22, 0.10, 0.10, 0.28)
+    )
     deadband: float = 0.15
     smoothing_tau_s: float = 0.40
 
@@ -235,6 +238,10 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
             raise ValueError("command.long_hold_fraction must be in [0, 1]")
         if not 0.0 <= command.zero_fraction <= 1.0:
             raise ValueError("command.zero_fraction must be in [0, 1]")
+        if len(command.mode_weights) != 7:
+            raise ValueError("command.mode_weights must contain 7 weights")
+        if min(command.mode_weights) < 0.0 or sum(command.mode_weights) <= 0.0:
+            raise ValueError("command.mode_weights must be non-negative with positive sum")
         reward = self.reward
         if reward.directional_clearance_range_m <= 0.0:
             raise ValueError("reward.directional_clearance_range_m must be positive")
@@ -1091,9 +1098,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         if nonzero_count == 0:
             return sampled
 
-        mode_count = self._COMMAND_MODE_MASKS.shape[0]
         band_count = len(self._COMMAND_AMPLITUDE_BANDS)
-        mode_ids = (np.arange(nonzero_count) + int(self._rng.integers(mode_count))) % mode_count
+        mode_ids = self._sample_command_mode_ids(nonzero_count)
         band_ids = (np.arange(nonzero_count) + int(self._rng.integers(band_count))) % band_count
         self._rng.shuffle(mode_ids)
         self._rng.shuffle(band_ids)
@@ -1130,6 +1136,34 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         small = np.linalg.norm(sampled[:, :2], axis=1) < cmd.deadband
         sampled[small, :2] = 0.0
         return sampled
+
+    def _sample_command_mode_ids(self, count: int) -> np.ndarray:
+        if count == 0:
+            return np.zeros((0,), dtype=np.int64)
+        weights = np.asarray(self._cfg.command.mode_weights, dtype=np.float64)
+        probabilities = weights / np.sum(weights)
+        positive_ids = np.flatnonzero(weights > 0.0)
+        if count >= positive_ids.size:
+            remaining = count - positive_ids.size
+            sampled = np.concatenate(
+                [
+                    positive_ids,
+                    self._rng.choice(
+                        np.arange(weights.size),
+                        size=remaining,
+                        replace=True,
+                        p=probabilities,
+                    ),
+                ]
+            )
+            self._rng.shuffle(sampled)
+            return sampled.astype(np.int64, copy=False)
+        return self._rng.choice(
+            np.arange(weights.size),
+            size=count,
+            replace=False,
+            p=probabilities,
+        ).astype(np.int64, copy=False)
 
     def _sample_command_hold_steps(self, count: int) -> np.ndarray:
         if count == 0:

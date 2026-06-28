@@ -72,6 +72,25 @@ lateral limits. This gives PPO coverage over pure longitudinal, pure lateral,
 pure yaw, planar, yaw-coupled, and full omnidirectional commands instead of
 relying on independent uniform axis sampling. Each vectorized agent owns an
 independent hold timer, so commands do not all change on the same global step.
+The default non-zero mode weights are `[0.10, 0.10, 0.10, 0.22, 0.10, 0.10,
+0.28]` for `vx`, `vy`, `vyaw`, `vx+vy`, `vx+vyaw`, `vy+vyaw`, and
+`vx+vy+vyaw`; this deliberately gives more mass to arbitrary planar directions
+while retaining pure-axis and yaw-coupled cases.
+
+Before launching a long run, inspect the actual input distribution with:
+
+```bash
+uv run scripts/analyze_omni_car_input_coverage.py \
+  --num-envs 128 \
+  --num-steps 512 \
+  --command-samples 8192
+```
+
+This reports standalone command balance, hold-duration percentiles, and rollout
+fractions for blocked, partially blocked, and clear command directions. Treat it
+as a data check for whether the training stream really contains enough zero
+input, long same-direction commands, all active-axis modes, blocked forward
+pushes, and near-obstacle command-grid pairs.
 
 ## Xbox human-command mode
 
@@ -168,6 +187,22 @@ The `CNN + GRU` observation contract is intentionally incompatible with older
 `CNN + MLP` checkpoints. Historical checkpoint manifests remain useful for
 record keeping, but this branch needs a fresh training run before a checkpoint
 can be loaded with the current default config.
+
+For checkpoint-level behavior gates, run:
+
+```bash
+uv run scripts/evaluate_omni_car_behaviors.py \
+  --load-run artifacts/omni_car/checkpoints/best.pt \
+  --num-envs 16 \
+  --num-steps 96 \
+  --strict
+```
+
+The behavior probe forces controlled scenarios for zero input, clear forward
+and diagonal following, front-blocked push, and a near-wall forward command.
+It reports planar speed, yaw drift, command projection, off-axis motion,
+collision fraction, and command-safety gate. A checkpoint should pass this
+probe before being treated as a candidate for manual Xbox fine-tuning.
 
 ## Training
 
