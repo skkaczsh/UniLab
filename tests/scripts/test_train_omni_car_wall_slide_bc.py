@@ -47,6 +47,14 @@ def test_wall_slide_scenario_probabilities_are_normalized() -> None:
     assert np.all(probabilities > 0.0)
 
 
+def test_behavior_correction_rolls_out_policy_actions_by_default() -> None:
+    module = _load_module()
+
+    args = module._parse_args(["--load-run", "model.pt", "--output", "corrected.pt"])
+
+    assert args.rollout_actions == "policy"
+
+
 def test_wall_slide_target_tensor_repeats_action() -> None:
     module = _load_module()
     scenario = module.ORACLE_SCENARIOS[-1]

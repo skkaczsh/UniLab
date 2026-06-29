@@ -132,6 +132,15 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--num-envs", type=int, default=32)
     parser.add_argument("--iterations", type=int, default=240)
     parser.add_argument("--rollout-steps", type=int, default=3)
+    parser.add_argument(
+        "--rollout-actions",
+        choices=("policy", "target"),
+        default="policy",
+        help=(
+            "Action source used to advance the supervised rollout. "
+            "The default trains on the policy's own closed-loop state distribution."
+        ),
+    )
     parser.add_argument("--learning-rate", type=float, default=1.0e-4)
     parser.add_argument("--seed", type=int, default=31)
     parser.add_argument("--device", default=None)
@@ -236,6 +245,7 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                 "output": str(args.output),
                 "loss": float(loss.detach().cpu().item()),
                 "policy_output_shape": list(output.shape),
+                "rollout_actions": str(args.rollout_actions),
             }
         for _ in range(int(args.iterations)):
             scenario = ORACLE_SCENARIOS[int(rng.choice(len(ORACLE_SCENARIOS), p=probabilities))]
@@ -251,7 +261,8 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                 optimizer.step()
                 loss_history.append(float(loss.detach().cpu().item()))
                 with torch.no_grad():
-                    obs, _rewards, dones, _infos = wrapped_env.step(target)
+                    step_action = prediction.detach() if args.rollout_actions == "policy" else target
+                    obs, _rewards, dones, _infos = wrapped_env.step(step_action)
                     if bool(torch.any(dones).item()):
                         obs = _apply_scenario(env, wrapped_env, scenario.behavior)
         output = Path(args.output)
@@ -264,6 +275,7 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
             "rollout_steps": int(args.rollout_steps),
             "num_envs": int(args.num_envs),
             "learning_rate": float(args.learning_rate),
+            "rollout_actions": str(args.rollout_actions),
             "scenario_counts": scenario_counts,
             "loss_initial": loss_history[0] if loss_history else None,
             "loss_final": loss_history[-1] if loss_history else None,
