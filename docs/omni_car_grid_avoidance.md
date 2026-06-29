@@ -58,6 +58,13 @@ Current defaults in this branch:
 - Policy architecture: `OmniCarGridCNNGRUModel` with command-conditioned grid
   channels (`occupancy + command longitudinal + |lateral| + command norm` per
   grid frame, then GRU over 10 CNN features + MLP)
+- The actor can optionally use a command-skip residual form,
+  `action = command + residual`. By default the residual is interpreted in body
+  axes for checkpoint compatibility; setting `algo.actor.residual_action_frame=command`
+  interprets planar residual as `[parallel_to_command, lateral_to_command]`
+  before rotating it back to body axes. This keeps the policy learned while
+  making "slow down along the requested direction" and "sidestep" separate
+  outputs.
 - Body footprint: `0.56 m x 0.32 m`; local collision/nearest-clearance uses the
   rectangular footprint, while the `0.05 m` safety margin is applied to
   command-corridor and grid safety reasoning.
