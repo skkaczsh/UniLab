@@ -117,6 +117,18 @@ def test_open_follow_phase_is_sparse_and_command_dominant() -> None:
     assert phase.scenario_weights["clear_forward_follow"] > phase.scenario_weights["zero_input_hold"]
 
 
+def test_side_follow_phase_prioritizes_wall_following_without_dropping_stop() -> None:
+    module = _load_module()
+
+    phase = module.PHASES["side_follow"]
+
+    assert "env.obstacles.side_wall_fraction=0.60" in phase.overrides
+    assert "env.obstacles.front_blocker_fraction=0.10" in phase.overrides
+    assert "env.reward.idle_stop=48.0" in phase.overrides
+    assert phase.scenario_weights["right_wall_forward"] > phase.scenario_weights["clear_forward_follow"]
+    assert phase.scenario_weights["zero_input_hold"] >= phase.scenario_weights["front_blocked_stop"]
+
+
 def test_build_scan_command_enables_behavior_gate() -> None:
     module = _load_module()
 
