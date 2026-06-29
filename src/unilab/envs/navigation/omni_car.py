@@ -105,6 +105,7 @@ class OmniCarRewardCfg:
     clearance_motion: float = 8.0
     clearance_target_motion: float = 10.0
     clearance_opening: float = 0.0
+    clearance_target_opening: float = 0.0
     blocked_lateral_escape: float = 0.0
     target_collision: float = 0.0
     target_collision_margin_m: float = 0.25
@@ -482,6 +483,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 "clearance_motion",
                 "clearance_target_motion",
                 "clearance_opening",
+                "clearance_target_opening",
                 "blocked_lateral_escape",
                 "target_collision",
                 "blocked_projection",
@@ -2347,6 +2349,12 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         idle_mask = command_norm <= self._cfg.command.deadband
         target_planar_speed = np.linalg.norm(target_action[:, :2], axis=1)
         target_yaw_speed = np.abs(target_action[:, 2])
+        target_along_speed = np.sum(target_action[:, :2] * command_dir, axis=1)
+        target_projection = np.zeros((self._num_envs,), dtype=self._dtype)
+        target_projection[active_planar] = (
+            target_along_speed[active_planar] / safe_planar_norm[active_planar]
+        )
+        target_projection_reward = np.clip(target_projection, 0.0, 1.0)
         blocked_speed_action = target_action if policy_action is not None else action
         blocked_planar_speed = np.linalg.norm(blocked_speed_action[:, :2], axis=1)
         closing_speed = np.maximum(
@@ -2360,6 +2368,10 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             (previous_clearance - target_clearance) / max(self._cfg.ctrl_dt, 1e-6),
             0.0,
         )
+        target_opening_speed = np.maximum(
+            (target_clearance - previous_clearance) / max(self._cfg.ctrl_dt, 1e-6),
+            0.0,
+        )
         previous_clearance_risk = np.exp(-np.maximum(previous_clearance, 0.0) / 0.35)
         opening_speed = np.maximum(
             (self._nearest_clearance - previous_clearance) / max(self._cfg.ctrl_dt, 1e-6),
@@ -2368,6 +2380,14 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         clearance_opening_reward = np.where(
             active_planar,
             previous_clearance_risk * np.tanh(opening_speed / 0.25),
+            0.0,
+        )
+        clearance_target_opening_reward = np.where(
+            active_planar,
+            command_free_scale
+            * previous_clearance_risk
+            * target_projection_reward
+            * np.tanh(target_opening_speed / 0.25),
             0.0,
         )
         blocked_lateral_escape_reward = np.where(
@@ -2454,6 +2474,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "clearance_opening": (
                 cfg.clearance_opening * clearance_opening_reward
             ).astype(self._dtype),
+            "clearance_target_opening": (
+                cfg.clearance_target_opening * clearance_target_opening_reward
+            ).astype(self._dtype),
             "blocked_lateral_escape": (
                 cfg.blocked_lateral_escape * blocked_lateral_escape_reward
             ).astype(self._dtype),
@@ -2498,6 +2521,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             + self._reward_components["clearance_motion"]
             + self._reward_components["clearance_target_motion"]
             + self._reward_components["clearance_opening"]
+            + self._reward_components["clearance_target_opening"]
             + self._reward_components["blocked_lateral_escape"]
             + self._reward_components["target_collision"]
             + self._reward_components["blocked_projection"]

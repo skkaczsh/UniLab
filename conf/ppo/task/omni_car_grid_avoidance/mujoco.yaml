@@ -148,6 +148,7 @@ env:
     clearance_motion: 80.0
     clearance_target_motion: 220.0
     clearance_opening: 90.0
+    clearance_target_opening: 60.0
     blocked_lateral_escape: 70.0
     target_collision: 220.0
     target_collision_margin_m: 0.25
@@ -186,6 +187,7 @@ reward:
   clearance_motion: 80.0
   clearance_target_motion: 220.0
   clearance_opening: 90.0
+  clearance_target_opening: 60.0
   blocked_lateral_escape: 70.0
   target_collision: 220.0
   target_collision_margin_m: 0.25

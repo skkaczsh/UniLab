@@ -195,6 +195,7 @@ def _empty_record() -> dict[str, list[float]]:
         "reward_clearance_motion": [],
         "reward_clearance_target_motion": [],
         "reward_clearance_opening": [],
+        "reward_clearance_target_opening": [],
         "reward_blocked_lateral_escape": [],
         "reward_target_collision": [],
         "reward_blocked_projection": [],
@@ -236,6 +237,12 @@ def _record_step(record: dict[str, list[float]], env: Any, step_info: dict[str, 
     if clearance_opening is None:
         clearance_opening = np.zeros_like(reward_components["idle_stop"])
     record["reward_clearance_opening"].extend(np.asarray(clearance_opening).tolist())
+    clearance_target_opening = reward_components.get("clearance_target_opening")
+    if clearance_target_opening is None:
+        clearance_target_opening = np.zeros_like(reward_components["idle_stop"])
+    record["reward_clearance_target_opening"].extend(
+        np.asarray(clearance_target_opening).tolist()
+    )
     blocked_lateral_escape = reward_components.get("blocked_lateral_escape")
     if blocked_lateral_escape is None:
         blocked_lateral_escape = np.zeros_like(reward_components["idle_stop"])
@@ -287,6 +294,9 @@ def _summarize_record(
         ),
         "reward_clearance_opening_mean": _mean(
             record.get("reward_clearance_opening", [])
+        ),
+        "reward_clearance_target_opening_mean": _mean(
+            record.get("reward_clearance_target_opening", [])
         ),
         "reward_blocked_lateral_escape_mean": _mean(
             record.get("reward_blocked_lateral_escape", [])
@@ -363,6 +373,7 @@ def _format_summary(summary: dict[str, Any]) -> str:
             f"r_clear_motion={item['reward_clearance_motion_mean']:.4f} "
             f"r_clear_target={item['reward_clearance_target_motion_mean']:.4f} "
             f"r_clear_open={item['reward_clearance_opening_mean']:.4f} "
+            f"r_clear_target_open={item['reward_clearance_target_opening_mean']:.4f} "
             f"r_lat_escape={item['reward_blocked_lateral_escape_mean']:.4f} "
             f"r_target_collision={item['reward_target_collision_mean']:.4f} "
             f"r_blocked_proj={item['reward_blocked_projection_mean']:.4f} "
