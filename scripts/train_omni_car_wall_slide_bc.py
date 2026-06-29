@@ -97,7 +97,7 @@ ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
             obstacle_radius=(0.22,),
         ),
         target_action=(0.0, 0.0, 0.0),
-        weight=3.0,
+        weight=12.0,
     ),
     OracleScenario(
         name="right_wall_slide",
@@ -107,8 +107,8 @@ ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
             obstacle_xy=((0.60, -0.34), (1.05, -0.34), (1.50, -0.34)),
             obstacle_radius=(0.22, 0.22, 0.22),
         ),
-        target_action=(0.65, 0.28, 0.0),
-        weight=3.5,
+        target_action=(0.45, 0.45, 0.0),
+        weight=8.0,
     ),
     OracleScenario(
         name="left_wall_slide",
@@ -118,8 +118,8 @@ ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
             obstacle_xy=((0.60, 0.34), (1.05, 0.34), (1.50, 0.34)),
             obstacle_radius=(0.22, 0.22, 0.22),
         ),
-        target_action=(0.65, -0.28, 0.0),
-        weight=3.5,
+        target_action=(0.45, -0.45, 0.0),
+        weight=8.0,
     ),
 )
 

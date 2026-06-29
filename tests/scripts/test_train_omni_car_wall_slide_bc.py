@@ -26,6 +26,7 @@ def test_oracle_scenarios_include_directional_follow_slide_and_guards() -> None:
 
     assert scenarios["zero_input_hold"].target_action == (0.0, 0.0, 0.0)
     assert scenarios["front_blocked_stop"].target_action == (0.0, 0.0, 0.0)
+    assert scenarios["front_blocked_stop"].weight > scenarios["clear_forward_follow"].weight
     assert scenarios["clear_forward_follow"].target_action == (1.0, 0.0, 0.0)
     assert scenarios["clear_left_follow"].target_action == (0.0, 0.7, 0.0)
     assert scenarios["clear_right_follow"].target_action == (0.0, -0.7, 0.0)
@@ -34,8 +35,12 @@ def test_oracle_scenarios_include_directional_follow_slide_and_guards() -> None:
     assert scenarios["yaw_only_follow"].target_action == (0.0, 0.0, 1.0)
     assert scenarios["right_wall_slide"].target_action[0] > 0.0
     assert scenarios["right_wall_slide"].target_action[1] > 0.0
+    assert scenarios["right_wall_slide"].target_action[1] >= scenarios["right_wall_slide"].target_action[0]
+    assert scenarios["right_wall_slide"].weight > scenarios["clear_forward_follow"].weight
     assert scenarios["left_wall_slide"].target_action[0] > 0.0
     assert scenarios["left_wall_slide"].target_action[1] < 0.0
+    assert abs(scenarios["left_wall_slide"].target_action[1]) >= scenarios["left_wall_slide"].target_action[0]
+    assert scenarios["left_wall_slide"].weight > scenarios["clear_forward_follow"].weight
 
 
 def test_wall_slide_scenario_probabilities_are_normalized() -> None:
