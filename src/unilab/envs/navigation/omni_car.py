@@ -110,6 +110,8 @@ class OmniCarRewardCfg:
     target_collision: float = 0.0
     target_collision_margin_m: float = 0.25
     target_collision_speed_mps: float = 0.25
+    target_collision_cost_clip: float = 1.0
+    speed_cost_clip: float = 4.0
     blocked_projection: float = 0.0
     blocked_speed: float = 0.0
     blocked_stop: float = 0.0
@@ -2269,7 +2271,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
     ) -> np.ndarray:
         cfg = self._cfg.reward
         cmd = self._commands if commands is None else np.asarray(commands, dtype=self._dtype)
-        target_action = (
+        raw_target_action = (
             np.zeros_like(action)
             if policy_action is None
             else np.asarray(policy_action, dtype=self._dtype)
@@ -2308,11 +2310,15 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             * projection_reward[active_planar]
             * np.exp(-projected_error[active_planar] * projected_error[active_planar])
         )
+        high = self._velocity_limit
+        target_action = np.clip(raw_target_action, -high, high).astype(
+            self._dtype,
+            copy=False,
+        )
         active_yaw = np.abs(cmd[:, 2]) > self._cfg.command.deadband
         yaw_error = np.abs(action[:, 2] - cmd[:, 2]) / max(self._cfg.command.max_yaw_rate, 1e-6)
         yaw_reward = np.zeros((self._num_envs,), dtype=self._dtype)
         yaw_reward[active_yaw] = np.exp(-yaw_error[active_yaw] * yaw_error[active_yaw])
-        high = self._velocity_limit
         accel_delta = self._accel_delta_limit
         prev_error = np.linalg.norm((cmd - self._last_action) / high, axis=1)
         new_error = np.linalg.norm((cmd - action) / high, axis=1)
@@ -2407,15 +2413,33 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             * np.exp(-(closing_speed / 0.25) ** 2),
             0.0,
         )
-        clearance_motion_cost = clearance_risk * (closing_speed / 0.25) ** 2
-        clearance_target_motion_cost = np.maximum(clearance_risk, target_risk) * (
-            target_closing_speed / 0.25
-        ) ** 2
+        speed_cost_clip = max(float(cfg.speed_cost_clip), 0.0)
+        clearance_motion_cost = clearance_risk * np.minimum(
+            (closing_speed / 0.25) ** 2,
+            speed_cost_clip,
+        )
+        clearance_target_motion_cost = np.maximum(clearance_risk, target_risk) * np.minimum(
+            (target_closing_speed / 0.25) ** 2,
+            speed_cost_clip,
+        )
         target_collision_margin = max(float(cfg.target_collision_margin_m), 0.0)
         target_collision_speed = max(float(cfg.target_collision_speed_mps), 1e-6)
-        target_collision_cost = (
-            (np.maximum(target_collision_margin - target_clearance, 0.0) / 0.10) ** 2
-            * (target_closing_speed / target_collision_speed) ** 2
+        target_collision_cost_clip = max(float(cfg.target_collision_cost_clip), 0.0)
+        target_collision_depth_cost = np.minimum(
+            (
+                np.maximum(target_collision_margin - target_clearance, 0.0)
+                / max(target_collision_margin, 0.10)
+            )
+            ** 2,
+            target_collision_cost_clip,
+        )
+        target_collision_closing_cost = np.minimum(
+            (target_closing_speed / target_collision_speed) ** 2,
+            target_collision_cost_clip,
+        )
+        target_collision_cost = np.minimum(
+            target_collision_depth_cost * target_collision_closing_cost,
+            target_collision_cost_clip,
         )
         blocked_projection_cost = np.where(
             active_planar,
@@ -2436,24 +2460,25 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         )
         idle_action_cost = np.where(
             idle_mask,
-            (np.linalg.norm(action[:, :2], axis=1) / 0.10) ** 2
-            + (np.abs(action[:, 2]) / 0.10) ** 2,
+            np.minimum((np.linalg.norm(action[:, :2], axis=1) / 0.10) ** 2, speed_cost_clip)
+            + np.minimum((np.abs(action[:, 2]) / 0.10) ** 2, speed_cost_clip),
             0.0,
         )
         idle_target_cost = np.where(
             idle_mask,
-            (target_planar_speed / 0.20) ** 2 + (target_yaw_speed / 0.20) ** 2,
+            np.minimum((target_planar_speed / 0.20) ** 2, speed_cost_clip)
+            + np.minimum((target_yaw_speed / 0.20) ** 2, speed_cost_clip),
             0.0,
         )
         yaw_idle_mask = np.abs(cmd[:, 2]) <= self._cfg.command.deadband
         yaw_idle_cost = np.where(
             yaw_idle_mask,
-            (np.abs(action[:, 2]) / 0.12) ** 2,
+            np.minimum((np.abs(action[:, 2]) / 0.12) ** 2, speed_cost_clip),
             0.0,
         )
         yaw_idle_target_cost = np.where(
             yaw_idle_mask,
-            (target_yaw_speed / 0.20) ** 2,
+            np.minimum((target_yaw_speed / 0.20) ** 2, speed_cost_clip),
             0.0,
         )
         self._tracking_error = new_error.astype(self._dtype)

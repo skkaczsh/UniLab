@@ -218,6 +218,12 @@ Reward shaping emphasizes these signals:
    `vy`, and `vyaw`.
 15. Preserve clearance and heavily punish collision.
 
+Safety and idle penalties use bounded normalized costs for the one-step target
+collision estimate, clearance-closing speed, and zero-command raw target
+motion. This keeps a single stochastic policy sample from dominating an entire
+PPO update while preserving the ordering that unsafe target motion is worse
+than stopping and zero-input motion is worse than idle output.
+
 The actor does not receive privileged nearest-clearance or collision flags;
 those remain critic/logging signals only. The reward can still use privileged
 training information, but the positive planar intent term is now tied to the
