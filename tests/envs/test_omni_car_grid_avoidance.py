@@ -1058,7 +1058,7 @@ def test_omni_car_clearance_opening_rewards_moving_away_from_near_obstacle() -> 
     prev_pose = env._pose.copy()
     prev_clearance = env._nearest_clearance.copy()
 
-    away_action = np.asarray([[0.0, -1.0, 0.0]], dtype=np.float32)
+    away_action = np.asarray([[0.2, -1.0, 0.0]], dtype=np.float32)
     env._pose[:] = env._predict_pose_from_action(prev_pose, away_action)
     env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
     away_reward = env._compute_reward(
@@ -1068,7 +1068,7 @@ def test_omni_car_clearance_opening_rewards_moving_away_from_near_obstacle() -> 
     )
     away_opening = float(env._reward_components["clearance_opening"][0])
 
-    toward_action = np.asarray([[0.0, 1.0, 0.0]], dtype=np.float32)
+    toward_action = np.asarray([[0.2, 1.0, 0.0]], dtype=np.float32)
     env._pose[:] = env._predict_pose_from_action(prev_pose, toward_action)
     env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
     toward_reward = env._compute_reward(
@@ -1091,6 +1091,82 @@ def test_omni_car_clearance_opening_rewards_moving_away_from_near_obstacle() -> 
     assert toward_opening == pytest.approx(0.0)
     assert away_reward[0] > toward_reward[0]
     assert idle_reward[0] == pytest.approx(0.0)
+    env.close()
+
+
+def test_omni_car_clearance_opening_requires_projection_when_path_is_free() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 74,
+            "obstacles": {
+                "count": 1,
+                "circle_fraction": 1.0,
+                "box_fraction": 0.0,
+                "wall_fraction": 0.0,
+            },
+            "reward": {
+                "intent": 0.0,
+                "intent_projection": 0.0,
+                "yaw_intent": 0.0,
+                "response": 0.0,
+                "clearance_motion": 0.0,
+                "clearance_target_motion": 0.0,
+                "clearance_opening": 20.0,
+                "target_collision": 0.0,
+                "blocked_projection": 0.0,
+                "blocked_stop": 0.0,
+                "idle_stop": 0.0,
+                "yaw_idle_stop": 0.0,
+                "off_axis": 0.0,
+                "reverse": 0.0,
+                "vx_track": 0.0,
+                "vy_track": 0.0,
+                "vyaw_track": 0.0,
+                "vx_diff": 0.0,
+                "vy_diff": 0.0,
+                "vyaw_diff": 0.0,
+                "vx_jerk": 0.0,
+                "vy_jerk": 0.0,
+                "vyaw_jerk": 0.0,
+                "clearance": 0.0,
+                "collision": 0.0,
+            },
+        },
+    )
+    env.init_state()
+    env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
+    env._obstacle_xy[0, 0] = np.asarray([0.20, -0.42], dtype=np.float32)
+    env._obstacle_radius[0, 0] = 0.22
+    env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
+    prev_pose = env._pose.copy()
+    prev_clearance = env._nearest_clearance.copy()
+
+    lateral_only = np.asarray([[0.0, 0.4, 0.0]], dtype=np.float32)
+    env._pose[:] = env._predict_pose_from_action(prev_pose, lateral_only)
+    env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
+    env._compute_reward(
+        lateral_only,
+        prev_clearance=prev_clearance,
+        prev_pose=prev_pose,
+    )
+    lateral_opening = float(env._reward_components["clearance_opening"][0])
+
+    projected_escape = np.asarray([[0.2, 0.4, 0.0]], dtype=np.float32)
+    env._pose[:] = env._predict_pose_from_action(prev_pose, projected_escape)
+    env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
+    env._compute_reward(
+        projected_escape,
+        prev_clearance=prev_clearance,
+        prev_pose=prev_pose,
+    )
+    projected_opening = float(env._reward_components["clearance_opening"][0])
+
+    assert env._compute_command_direction_clearance(env._commands)[0] > 1.0
+    assert lateral_opening == pytest.approx(0.0, abs=0.05)
+    assert projected_opening > lateral_opening
     env.close()
 
 

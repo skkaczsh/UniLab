@@ -2379,7 +2379,12 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         )
         clearance_opening_reward = np.where(
             active_planar,
-            previous_clearance_risk * np.tanh(opening_speed / 0.25),
+            previous_clearance_risk
+            * np.tanh(opening_speed / 0.25)
+            * (
+                blocked_path_risk
+                + (1.0 - blocked_path_risk) * projection_reward
+            ),
             0.0,
         )
         clearance_target_opening_reward = np.where(
