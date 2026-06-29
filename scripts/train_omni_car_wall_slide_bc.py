@@ -141,6 +141,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "The default trains on the policy's own closed-loop state distribution."
         ),
     )
+    parser.add_argument(
+        "--balanced-batch",
+        action="store_true",
+        help="Accumulate one optimizer update across every oracle scenario each iteration.",
+    )
     parser.add_argument("--learning-rate", type=float, default=1.0e-4)
     parser.add_argument("--seed", type=int, default=31)
     parser.add_argument("--device", default=None)
@@ -151,6 +156,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def _scenario_probabilities() -> np.ndarray:
     weights = np.asarray([scenario.weight for scenario in ORACLE_SCENARIOS], dtype=np.float64)
     return weights / np.sum(weights)
+
+
+def _shuffled_scenarios(rng: np.random.Generator) -> list[OracleScenario]:
+    order = rng.permutation(len(ORACLE_SCENARIOS))
+    return [ORACLE_SCENARIOS[int(index)] for index in order]
 
 
 def _target_tensor(
@@ -248,7 +258,36 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                 "rollout_actions": str(args.rollout_actions),
             }
         for _ in range(int(args.iterations)):
-            scenario = ORACLE_SCENARIOS[int(rng.choice(len(ORACLE_SCENARIOS), p=probabilities))]
+            if bool(args.balanced_batch):
+                optimizer.zero_grad(set_to_none=True)
+                normalizer = float(sum(scenario.weight for scenario in ORACLE_SCENARIOS))
+                normalizer *= float(max(int(args.rollout_steps), 1))
+                for scenario in _shuffled_scenarios(rng):
+                    scenario_counts[scenario.name] += 1
+                    obs = _apply_scenario(env, wrapped_env, scenario.behavior)
+                    target = _target_tensor(scenario, num_envs=env.num_envs, device=device)
+                    for _step in range(int(args.rollout_steps)):
+                        prediction = policy(obs)
+                        raw_loss = torch.nn.functional.mse_loss(prediction, target)
+                        loss = raw_loss * float(scenario.weight) / normalizer
+                        loss.backward()
+                        loss_history.append(float(raw_loss.detach().cpu().item()))
+                        with torch.no_grad():
+                            step_action = (
+                                prediction.detach()
+                                if args.rollout_actions == "policy"
+                                else target
+                            )
+                            obs, _rewards, dones, _infos = wrapped_env.step(step_action)
+                            if bool(torch.any(dones).item()):
+                                obs = _apply_scenario(env, wrapped_env, scenario.behavior)
+                torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
+                optimizer.step()
+                continue
+
+            scenario = ORACLE_SCENARIOS[
+                int(rng.choice(len(ORACLE_SCENARIOS), p=probabilities))
+            ]
             scenario_counts[scenario.name] += 1
             obs = _apply_scenario(env, wrapped_env, scenario.behavior)
             target = _target_tensor(scenario, num_envs=env.num_envs, device=device)
@@ -276,6 +315,7 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
             "num_envs": int(args.num_envs),
             "learning_rate": float(args.learning_rate),
             "rollout_actions": str(args.rollout_actions),
+            "balanced_batch": bool(args.balanced_batch),
             "scenario_counts": scenario_counts,
             "loss_initial": loss_history[0] if loss_history else None,
             "loss_final": loss_history[-1] if loss_history else None,

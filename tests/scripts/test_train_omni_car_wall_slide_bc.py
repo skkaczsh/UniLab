@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -66,3 +67,53 @@ def test_wall_slide_target_tensor_repeats_action() -> None:
         target,
         torch.tensor([scenario.target_action] * 3, dtype=torch.float32),
     )
+
+
+def test_balanced_batch_training_visits_every_oracle_scenario(monkeypatch, tmp_path: Path) -> None:
+    module = _load_module()
+    policy = torch.nn.Linear(3, 3)
+    env = SimpleNamespace(num_envs=2, close=lambda: None)
+
+    class _WrappedEnv:
+        def reset(self):  # type: ignore[no-untyped-def]
+            return None
+
+        def step(self, action):  # type: ignore[no-untyped-def]
+            return (
+                torch.zeros((2, 3), dtype=torch.float32),
+                torch.zeros((2,), dtype=torch.float32),
+                torch.zeros((2,), dtype=torch.bool),
+                {},
+            )
+
+    runner = SimpleNamespace(alg=SimpleNamespace(get_policy=lambda: policy))
+
+    def _fake_make_runner(_args):  # type: ignore[no-untyped-def]
+        return runner, env, _WrappedEnv(), tmp_path / "load.pt", "cpu"
+
+    monkeypatch.setattr(module, "_make_runner", _fake_make_runner)
+    monkeypatch.setattr(
+        module,
+        "_apply_scenario",
+        lambda _env, _wrapped, _scenario: torch.zeros((2, 3), dtype=torch.float32),
+    )
+    monkeypatch.setattr(module, "_save_corrected_checkpoint", lambda _runner, output: output.touch())
+
+    summary = module.train_wall_slide_bc(
+        SimpleNamespace(
+            seed=1,
+            learning_rate=1.0e-3,
+            num_envs=2,
+            iterations=1,
+            rollout_steps=1,
+            rollout_actions="policy",
+            balanced_batch=True,
+            dry_run=False,
+            output=str(tmp_path / "corrected.pt"),
+        )
+    )
+
+    assert summary["status"] == "completed"
+    assert summary["balanced_batch"] is True
+    assert summary["loss_initial"] is not None
+    assert all(count == 1 for count in summary["scenario_counts"].values())
