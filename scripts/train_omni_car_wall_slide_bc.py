@@ -449,6 +449,7 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
         for iteration in range(int(args.iterations)):
             if bool(args.balanced_batch):
                 optimizer.zero_grad(set_to_none=True)
+                iteration_losses: list[float] = []
                 normalizer = float(sum(scenario.weight for scenario in scenarios))
                 normalizer *= float(max(int(args.rollout_steps), 1))
                 for scenario in _shuffled_scenarios(rng, scenarios):
@@ -460,7 +461,9 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                         raw_loss = torch.nn.functional.mse_loss(prediction, target)
                         loss = raw_loss * float(scenario.weight) / normalizer
                         loss.backward()
-                        loss_history.append(float(raw_loss.detach().cpu().item()))
+                        raw_loss_value = float(raw_loss.detach().cpu().item())
+                        iteration_losses.append(raw_loss_value)
+                        loss_history.append(raw_loss_value)
                         with torch.no_grad():
                             step_action = (
                                 prediction.detach()
@@ -475,13 +478,15 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                 if args.progress_interval > 0 and (
                     (iteration + 1) % int(args.progress_interval) == 0
                 ):
-                    mean_loss = float(np.mean(loss_history[-int(args.rollout_steps) :]))
+                    mean_loss = float(np.mean(iteration_losses)) if iteration_losses else 0.0
+                    max_loss = float(np.max(iteration_losses)) if iteration_losses else 0.0
                     print(
                         json.dumps(
                             {
                                 "iteration": iteration + 1,
                                 "iterations": int(args.iterations),
-                                "loss_recent": mean_loss,
+                                "loss_iteration_mean": mean_loss,
+                                "loss_iteration_max": max_loss,
                                 "scenario_counts": scenario_counts,
                             },
                             sort_keys=True,
