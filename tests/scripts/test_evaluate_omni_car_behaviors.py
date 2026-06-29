@@ -35,7 +35,9 @@ def test_behavior_summary_reports_threshold_failures() -> None:
             "action_vy": [0.06, -0.02],
             "action_vyaw": [0.02, -0.04],
             "yaw_abs": [0.02, 0.04],
+            "yaw_projection": [0.0, 0.0],
             "projection": [0.0, 0.0],
+            "projection_ratio": [0.0, 0.0],
             "off_axis_abs": [0.0, 0.0],
             "collision": [0.0, 0.0],
             "clearance_risk": [0.0, 0.0],
@@ -56,6 +58,8 @@ def test_behavior_summary_reports_threshold_failures() -> None:
     assert np.isclose(summary["action_vx_mean"], 0.09)
     assert np.isclose(summary["action_vy_mean"], 0.02)
     assert np.isclose(summary["action_vyaw_mean"], -0.01)
+    assert summary["yaw_projection_mean"] == 0.0
+    assert summary["projection_ratio_mean"] == 0.0
     assert summary["reward_clearance_motion_mean"] == -1.0
     assert summary["reward_clearance_target_motion_mean"] == -0.5
     assert summary["reward_clearance_opening_mean"] == 1.0
@@ -65,6 +69,51 @@ def test_behavior_summary_reports_threshold_failures() -> None:
     assert summary["reward_idle_stop_mean"] == -3.0
     assert summary["reward_yaw_idle_stop_mean"] == -7.0
     assert summary["failures"] == ["planar_speed_mean > 0.08"]
+
+
+def test_behavior_summary_checks_projection_ratio_off_axis_and_yaw() -> None:
+    module = _load_module()
+    scenario = module.BehaviorScenario(
+        name="clear",
+        command=(1.0, 0.0, 1.0),
+        min_projection=0.40,
+        min_projection_ratio=0.50,
+        max_off_axis_abs=0.20,
+        min_yaw_projection=0.35,
+    )
+
+    summary = module._summarize_record(
+        scenario,
+        {
+            "planar_speed": [0.50],
+            "action_vx": [0.40],
+            "action_vy": [0.30],
+            "action_vyaw": [0.20],
+            "yaw_abs": [0.20],
+            "yaw_projection": [0.20],
+            "projection": [0.40],
+            "projection_ratio": [0.40],
+            "off_axis_abs": [0.30],
+            "collision": [0.0],
+            "clearance_risk": [0.0],
+            "reward_total": [0.0],
+            "reward_clearance_motion": [0.0],
+            "reward_clearance_target_motion": [0.0],
+            "reward_clearance_opening": [0.0],
+            "reward_clearance_target_opening": [0.0],
+            "reward_blocked_lateral_escape": [0.0],
+            "reward_blocked_speed": [0.0],
+            "reward_idle_stop": [0.0],
+            "reward_yaw_idle_stop": [0.0],
+        },
+    )
+
+    assert summary["passed"] is False
+    assert summary["failures"] == [
+        "projection_ratio_mean < 0.5",
+        "off_axis_abs_mean > 0.2",
+        "yaw_projection_mean < 0.35",
+    ]
 
 
 def test_record_step_uses_step_info_snapshot() -> None:
@@ -96,7 +145,9 @@ def test_record_step_uses_step_info_snapshot() -> None:
     assert record["action_vy"] == [0.5]
     assert record["action_vyaw"] == [0.10000000149011612]
     assert record["yaw_abs"] == [0.10000000149011612]
+    assert record["yaw_projection"] == [0.0]
     assert record["projection"] == [0.25]
+    assert record["projection_ratio"] == [0.25]
     assert record["off_axis_abs"] == [0.5]
     assert record["collision"] == [1.0]
     assert record["clearance_risk"] == [0.25]

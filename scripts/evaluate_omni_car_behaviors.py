@@ -34,8 +34,11 @@ class BehaviorScenario:
     obstacle_xy: tuple[tuple[float, float], ...] = ()
     obstacle_radius: tuple[float, ...] = ()
     min_projection: float | None = None
+    min_projection_ratio: float | None = None
     max_projection: float | None = None
+    max_off_axis_abs: float | None = None
     max_planar_speed: float | None = None
+    min_yaw_projection: float | None = None
     max_yaw_abs: float | None = None
     max_collision_fraction: float = 0.0
 
@@ -51,11 +54,48 @@ SCENARIOS: tuple[BehaviorScenario, ...] = (
         name="clear_forward_follow",
         command=(1.0, 0.0, 0.0),
         min_projection=0.45,
+        max_off_axis_abs=0.22,
     ),
     BehaviorScenario(
         name="clear_diagonal_follow",
         command=(0.8, 0.4, 0.0),
         min_projection=0.40,
+        min_projection_ratio=0.45,
+        max_off_axis_abs=0.25,
+    ),
+    BehaviorScenario(
+        name="clear_left_follow",
+        command=(0.0, 0.7, 0.0),
+        min_projection=0.30,
+        min_projection_ratio=0.40,
+        max_off_axis_abs=0.20,
+    ),
+    BehaviorScenario(
+        name="clear_right_follow",
+        command=(0.0, -0.7, 0.0),
+        min_projection=0.30,
+        min_projection_ratio=0.40,
+        max_off_axis_abs=0.20,
+    ),
+    BehaviorScenario(
+        name="clear_backward_follow",
+        command=(-0.8, 0.0, 0.0),
+        min_projection=0.30,
+        min_projection_ratio=0.35,
+        max_off_axis_abs=0.20,
+    ),
+    BehaviorScenario(
+        name="clear_slow_diagonal_follow",
+        command=(0.35, -0.25, 0.0),
+        min_projection=0.12,
+        min_projection_ratio=0.35,
+        max_off_axis_abs=0.16,
+    ),
+    BehaviorScenario(
+        name="yaw_only_follow",
+        command=(0.0, 0.0, 1.0),
+        min_yaw_projection=0.35,
+        max_planar_speed=0.10,
     ),
     BehaviorScenario(
         name="front_blocked_stop",
@@ -190,7 +230,9 @@ def _empty_record() -> dict[str, list[float]]:
         "action_vy": [],
         "action_vyaw": [],
         "yaw_abs": [],
+        "yaw_projection": [],
         "projection": [],
+        "projection_ratio": [],
         "off_axis_abs": [],
         "collision": [],
         "clearance_risk": [],
@@ -218,14 +260,22 @@ def _record_step(record: dict[str, list[float]], env: Any, step_info: dict[str, 
     direction[active] = cmd[active, :2] / np.maximum(command_norm[active, None], 1e-6)
     projection = np.zeros((cmd.shape[0],), dtype=np.float64)
     projection[active] = np.sum(action[active, :2] * direction[active], axis=1)
+    projection_ratio = np.zeros((cmd.shape[0],), dtype=np.float64)
+    projection_ratio[active] = projection[active] / np.maximum(command_norm[active], 1e-6)
     off_axis = np.abs(action[:, 0] * direction[:, 1] - action[:, 1] * direction[:, 0])
+    yaw_command_abs = np.abs(cmd[:, 2])
+    yaw_active = yaw_command_abs > env._cfg.command.deadband
+    yaw_projection = np.zeros((cmd.shape[0],), dtype=np.float64)
+    yaw_projection[yaw_active] = action[yaw_active, 2] * np.sign(cmd[yaw_active, 2])
 
     record["planar_speed"].extend(np.linalg.norm(action[:, :2], axis=1).tolist())
     record["action_vx"].extend(action[:, 0].tolist())
     record["action_vy"].extend(action[:, 1].tolist())
     record["action_vyaw"].extend(action[:, 2].tolist())
     record["yaw_abs"].extend(np.abs(action[:, 2]).tolist())
+    record["yaw_projection"].extend(yaw_projection.tolist())
     record["projection"].extend(projection.tolist())
+    record["projection_ratio"].extend(projection_ratio.tolist())
     record["off_axis_abs"].extend(off_axis.tolist())
     record["collision"].extend(np.asarray(step_info["collision"], dtype=np.float32).tolist())
     record["clearance_risk"].extend(
@@ -292,7 +342,9 @@ def _summarize_record(
         "action_vy_mean": _mean(record["action_vy"]),
         "action_vyaw_mean": _mean(record["action_vyaw"]),
         "yaw_abs_mean": _mean(record["yaw_abs"]),
+        "yaw_projection_mean": _mean(record["yaw_projection"]),
         "projection_mean": _mean(record["projection"]),
+        "projection_ratio_mean": _mean(record["projection_ratio"]),
         "off_axis_abs_mean": _mean(record["off_axis_abs"]),
         "collision_fraction": _mean(record["collision"]),
         "clearance_risk_mean": _mean(record["clearance_risk"]),
@@ -320,10 +372,25 @@ def _summarize_record(
     failures: list[str] = []
     if scenario.min_projection is not None and summary["projection_mean"] < scenario.min_projection:
         failures.append(f"projection_mean < {scenario.min_projection}")
+    if (
+        scenario.min_projection_ratio is not None
+        and summary["projection_ratio_mean"] < scenario.min_projection_ratio
+    ):
+        failures.append(f"projection_ratio_mean < {scenario.min_projection_ratio}")
     if scenario.max_projection is not None and summary["projection_mean"] > scenario.max_projection:
         failures.append(f"projection_mean > {scenario.max_projection}")
+    if (
+        scenario.max_off_axis_abs is not None
+        and summary["off_axis_abs_mean"] > scenario.max_off_axis_abs
+    ):
+        failures.append(f"off_axis_abs_mean > {scenario.max_off_axis_abs}")
     if scenario.max_planar_speed is not None and summary["planar_speed_mean"] > scenario.max_planar_speed:
         failures.append(f"planar_speed_mean > {scenario.max_planar_speed}")
+    if (
+        scenario.min_yaw_projection is not None
+        and summary["yaw_projection_mean"] < scenario.min_yaw_projection
+    ):
+        failures.append(f"yaw_projection_mean < {scenario.min_yaw_projection}")
     if scenario.max_yaw_abs is not None and summary["yaw_abs_mean"] > scenario.max_yaw_abs:
         failures.append(f"yaw_abs_mean > {scenario.max_yaw_abs}")
     if summary["collision_fraction"] > scenario.max_collision_fraction:
@@ -378,7 +445,9 @@ def _format_summary(summary: dict[str, Any]) -> str:
             f"vy={item['action_vy_mean']:.4f} "
             f"vyaw={item['action_vyaw_mean']:.4f} "
             f"yaw={item['yaw_abs_mean']:.4f} "
+            f"yaw_proj={item['yaw_projection_mean']:.4f} "
             f"proj={item['projection_mean']:.4f} "
+            f"proj_ratio={item['projection_ratio_mean']:.4f} "
             f"off_axis={item['off_axis_abs_mean']:.4f} "
             f"collision={item['collision_fraction']:.4f} "
             f"risk={item['clearance_risk_mean']:.4f} "
