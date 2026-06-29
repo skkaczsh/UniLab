@@ -33,6 +33,9 @@ class BehaviorScenario:
     command: tuple[float, float, float]
     obstacle_xy: tuple[tuple[float, float], ...] = ()
     obstacle_radius: tuple[float, ...] = ()
+    obstacle_type: tuple[str, ...] = ()
+    obstacle_half_extents: tuple[tuple[float, float], ...] = ()
+    obstacle_yaw: tuple[float, ...] = ()
     min_projection: float | None = None
     min_projection_ratio: float | None = None
     max_projection: float | None = None
@@ -203,8 +206,37 @@ def _apply_scenario(env: Any, wrapped_env: Any, scenario: BehaviorScenario) -> A
         if obstacle_id >= env._cfg.obstacles.count:
             break
         env._obstacle_xy[:, obstacle_id] = np.asarray(xy, dtype=env._dtype)
-        env._obstacle_radius[:, obstacle_id] = float(scenario.obstacle_radius[obstacle_id])
-        env._obstacle_type[:, obstacle_id] = env._OBSTACLE_CIRCLE
+        obstacle_type = (
+            scenario.obstacle_type[obstacle_id]
+            if obstacle_id < len(scenario.obstacle_type)
+            else "circle"
+        )
+        if obstacle_type == "circle":
+            env._obstacle_type[:, obstacle_id] = env._OBSTACLE_CIRCLE
+            radius = (
+                float(scenario.obstacle_radius[obstacle_id])
+                if obstacle_id < len(scenario.obstacle_radius)
+                else 0.22
+            )
+            env._obstacle_radius[:, obstacle_id] = radius
+            env._obstacle_half_extents[:, obstacle_id] = 0.0
+        elif obstacle_type in {"box", "wall"}:
+            env._obstacle_type[:, obstacle_id] = (
+                env._OBSTACLE_BOX if obstacle_type == "box" else env._OBSTACLE_WALL
+            )
+            half_extents = (
+                scenario.obstacle_half_extents[obstacle_id]
+                if obstacle_id < len(scenario.obstacle_half_extents)
+                else ((0.22, 0.22) if obstacle_type == "box" else (0.55, 0.08))
+            )
+            env._obstacle_half_extents[:, obstacle_id] = np.asarray(
+                half_extents, dtype=env._dtype
+            )
+            env._obstacle_radius[:, obstacle_id] = 0.10
+        else:
+            raise ValueError(f"Unsupported obstacle_type={obstacle_type!r}")
+        if obstacle_id < len(scenario.obstacle_yaw):
+            env._obstacle_yaw[:, obstacle_id] = float(scenario.obstacle_yaw[obstacle_id])
 
     env._collision[env_ids] = False
     env._static_collision[env_ids] = False

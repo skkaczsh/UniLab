@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 from collections.abc import Sequence
@@ -27,6 +28,9 @@ import scripts.train_rsl_rl as train_rsl_rl
 from scripts.evaluate_omni_car_behaviors import BehaviorScenario, _apply_scenario
 from unilab.training.experiment import patch_rsl_rl_resume_state
 
+MAX_X_SPEED = 2.0
+MAX_Y_SPEED = 1.0
+
 
 @dataclass(frozen=True)
 class OracleScenario:
@@ -36,7 +40,46 @@ class OracleScenario:
     weight: float = 1.0
 
 
-ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
+def _unit(angle: float) -> np.ndarray:
+    return np.asarray([math.cos(angle), math.sin(angle)], dtype=np.float64)
+
+
+def _lateral(direction: np.ndarray) -> np.ndarray:
+    return np.asarray([-direction[1], direction[0]], dtype=np.float64)
+
+
+def _directional_command(angle: float, fraction: float) -> tuple[float, float, float]:
+    direction = _unit(angle)
+    axis_scale = min(
+        MAX_X_SPEED / max(abs(float(direction[0])), 1e-6),
+        MAX_Y_SPEED / max(abs(float(direction[1])), 1e-6),
+    )
+    xy = direction * axis_scale * float(fraction)
+    return (float(xy[0]), float(xy[1]), 0.0)
+
+
+def _point(direction: np.ndarray, forward: float, lateral: float) -> tuple[float, float]:
+    xy = direction * float(forward) + _lateral(direction) * float(lateral)
+    return (float(xy[0]), float(xy[1]))
+
+
+def _yaw_from_direction(direction: np.ndarray, lateral_axis: bool = False) -> float:
+    yaw = math.atan2(float(direction[1]), float(direction[0]))
+    if lateral_axis:
+        yaw += math.pi * 0.5
+    return float(yaw)
+
+
+def _clip_target_xy(xy: np.ndarray) -> tuple[float, float, float]:
+    clipped = np.clip(
+        np.asarray(xy, dtype=np.float64),
+        np.asarray([-MAX_X_SPEED, -MAX_Y_SPEED], dtype=np.float64),
+        np.asarray([MAX_X_SPEED, MAX_Y_SPEED], dtype=np.float64),
+    )
+    return (float(clipped[0]), float(clipped[1]), 0.0)
+
+
+BASE_ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
     OracleScenario(
         name="zero_input_hold",
         behavior=BehaviorScenario(name="zero_input_hold", command=(0.0, 0.0, 0.0)),
@@ -124,6 +167,78 @@ ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
 )
 
 
+def _make_directional_oracle_scenarios(directions: int = 16) -> tuple[OracleScenario, ...]:
+    scenarios: list[OracleScenario] = []
+    angles = [2.0 * math.pi * i / int(directions) for i in range(int(directions))]
+    for angle_index, angle in enumerate(angles):
+        direction = _unit(angle)
+        for speed_name, fraction, weight in (
+            ("slow", 0.30, 1.6),
+            ("mid", 0.60, 2.0),
+            ("fast", 0.85, 2.2),
+        ):
+            command = _directional_command(angle, fraction)
+            scenarios.append(
+                OracleScenario(
+                    name=f"directional_clear_{angle_index:02d}_{speed_name}",
+                    behavior=BehaviorScenario(
+                        name=f"directional_clear_{angle_index:02d}_{speed_name}",
+                        command=command,
+                    ),
+                    target_action=command,
+                    weight=weight,
+                )
+            )
+        shape = ("circle", "box", "wall")[angle_index % 3]
+        scenarios.append(
+            OracleScenario(
+                name=f"directional_front_stop_{angle_index:02d}_{shape}",
+                behavior=BehaviorScenario(
+                    name=f"directional_front_stop_{angle_index:02d}_{shape}",
+                    command=_directional_command(angle, 0.65),
+                    obstacle_xy=(_point(direction, 0.70, 0.0),),
+                    obstacle_radius=(0.22,),
+                    obstacle_type=(shape,),
+                    obstacle_half_extents=((0.22, 0.18),),
+                    obstacle_yaw=(_yaw_from_direction(direction, lateral_axis=True),),
+                ),
+                target_action=(0.0, 0.0, 0.0),
+                weight=10.0,
+            )
+        )
+        if angle_index % 2 == 0:
+            for side_name, side_sign in (("right", -1.0), ("left", 1.0)):
+                lateral_offset = 0.34 * side_sign
+                away = -side_sign
+                target_xy = direction * 0.45 + _lateral(direction) * (0.45 * away)
+                scenarios.append(
+                    OracleScenario(
+                        name=f"directional_{side_name}_wall_{angle_index:02d}",
+                        behavior=BehaviorScenario(
+                            name=f"directional_{side_name}_wall_{angle_index:02d}",
+                            command=_directional_command(angle, 0.65),
+                            obstacle_xy=tuple(
+                                _point(direction, forward, lateral_offset)
+                                for forward in (0.60, 1.05, 1.50)
+                            ),
+                            obstacle_radius=(0.22, 0.22, 0.22),
+                            obstacle_type=("circle", "wall", "circle"),
+                            obstacle_half_extents=((0.22, 0.22), (0.36, 0.08), (0.22, 0.22)),
+                            obstacle_yaw=(0.0, _yaw_from_direction(direction), 0.0),
+                        ),
+                        target_action=_clip_target_xy(target_xy),
+                        weight=6.0,
+                    )
+                )
+    return tuple(scenarios)
+
+
+DIRECTIONAL_ORACLE_SCENARIOS = _make_directional_oracle_scenarios()
+ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
+    BASE_ORACLE_SCENARIOS + DIRECTIONAL_ORACLE_SCENARIOS
+)
+
+
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--load-run", required=True, help="Checkpoint path to correct.")
@@ -153,7 +268,19 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--scenario",
         action="append",
         choices=tuple(scenario.name for scenario in ORACLE_SCENARIOS),
-        help="Limit BC to one or more oracle scenarios. Defaults to all scenarios.",
+        help="Limit BC to one or more exact oracle scenarios. Defaults to all scenarios.",
+    )
+    parser.add_argument(
+        "--scenario-group",
+        action="append",
+        choices=(
+            "base",
+            "directional",
+            "directional_clear",
+            "directional_front",
+            "directional_wall",
+        ),
+        help="Add a named oracle scenario group to the selected BC set.",
     )
     parser.add_argument(
         "--progress-interval",
@@ -165,10 +292,45 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _selected_scenarios(names: Sequence[str] | None) -> tuple[OracleScenario, ...]:
-    if not names:
+def _scenario_group_names(groups: Sequence[str] | None) -> set[str]:
+    if not groups:
+        return set()
+    selected: set[str] = set()
+    for group in groups:
+        if group == "base":
+            selected.update(scenario.name for scenario in BASE_ORACLE_SCENARIOS)
+        elif group == "directional":
+            selected.update(scenario.name for scenario in DIRECTIONAL_ORACLE_SCENARIOS)
+        elif group == "directional_clear":
+            selected.update(
+                scenario.name
+                for scenario in DIRECTIONAL_ORACLE_SCENARIOS
+                if scenario.name.startswith("directional_clear_")
+            )
+        elif group == "directional_front":
+            selected.update(
+                scenario.name
+                for scenario in DIRECTIONAL_ORACLE_SCENARIOS
+                if scenario.name.startswith("directional_front_stop_")
+            )
+        elif group == "directional_wall":
+            selected.update(
+                scenario.name
+                for scenario in DIRECTIONAL_ORACLE_SCENARIOS
+                if "_wall_" in scenario.name
+            )
+        else:
+            raise ValueError(f"Unknown scenario group: {group}")
+    return selected
+
+
+def _selected_scenarios(
+    names: Sequence[str] | None, groups: Sequence[str] | None = None
+) -> tuple[OracleScenario, ...]:
+    selected_names = set(names or ())
+    selected_names.update(_scenario_group_names(groups))
+    if not selected_names:
         return ORACLE_SCENARIOS
-    selected_names = set(names)
     selected = tuple(scenario for scenario in ORACLE_SCENARIOS if scenario.name in selected_names)
     if len(selected) != len(selected_names):
         known = {scenario.name for scenario in ORACLE_SCENARIOS}
@@ -263,7 +425,7 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
     policy = runner.alg.get_policy()
     policy.train()
     optimizer = torch.optim.Adam(policy.parameters(), lr=float(args.learning_rate))
-    scenarios = _selected_scenarios(args.scenario)
+    scenarios = _selected_scenarios(args.scenario, args.scenario_group)
     probabilities = _scenario_probabilities(scenarios)
     loss_history: list[float] = []
     scenario_counts = {scenario.name: 0 for scenario in scenarios}

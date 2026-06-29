@@ -41,6 +41,9 @@ def test_oracle_scenarios_include_directional_follow_slide_and_guards() -> None:
     assert scenarios["left_wall_slide"].target_action[1] < 0.0
     assert abs(scenarios["left_wall_slide"].target_action[1]) >= scenarios["left_wall_slide"].target_action[0]
     assert scenarios["left_wall_slide"].weight > scenarios["clear_forward_follow"].weight
+    assert "directional_clear_00_slow" in scenarios
+    assert "directional_front_stop_00_circle" in scenarios
+    assert "directional_right_wall_00" in scenarios
 
 
 def test_wall_slide_scenario_probabilities_are_normalized() -> None:
@@ -65,6 +68,18 @@ def test_wall_slide_bc_can_filter_oracle_scenarios() -> None:
     ]
     assert probabilities.shape == (2,)
     assert np.isclose(float(np.sum(probabilities)), 1.0)
+
+
+def test_wall_slide_bc_can_filter_oracle_scenario_groups() -> None:
+    module = _load_module()
+
+    selected = module._selected_scenarios(None, ["directional_front"])
+    names = [scenario.name for scenario in selected]
+
+    assert names
+    assert all(name.startswith("directional_front_stop_") for name in names)
+    assert any(name.endswith("_box") for name in names)
+    assert any(name.endswith("_wall") for name in names)
 
 
 def test_behavior_correction_rolls_out_policy_actions_by_default() -> None:
@@ -128,6 +143,7 @@ def test_balanced_batch_training_visits_every_oracle_scenario(monkeypatch, tmp_p
             rollout_actions="policy",
             balanced_batch=True,
             scenario=None,
+            scenario_group=None,
             progress_interval=0,
             dry_run=False,
             output=str(tmp_path / "corrected.pt"),
