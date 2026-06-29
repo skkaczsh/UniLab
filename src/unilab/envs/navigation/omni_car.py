@@ -2390,7 +2390,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         target_collision_speed = max(float(cfg.target_collision_speed_mps), 1e-6)
         target_collision_cost = (
             (np.maximum(target_collision_margin - target_clearance, 0.0) / 0.10) ** 2
-            * (target_planar_speed / target_collision_speed) ** 2
+            * (target_closing_speed / target_collision_speed) ** 2
         )
         blocked_projection_cost = np.where(
             active_planar,
