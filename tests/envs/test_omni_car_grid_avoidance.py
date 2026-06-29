@@ -1847,6 +1847,8 @@ def test_omni_car_cnn_gru_model_forward_actor_and_critic() -> None:
         3,
         hidden_dims=[16],
         grid_history_len=cfg.grid_history_len,
+        grid_cell_size=cfg.grid.cell_size,
+        command_conditioned_grid=True,
         cnn_feature_dim=8,
         gru_hidden_dim=8,
         distribution_cfg={
@@ -1862,6 +1864,8 @@ def test_omni_car_cnn_gru_model_forward_actor_and_critic() -> None:
         1,
         hidden_dims=[16],
         grid_history_len=cfg.grid_history_len,
+        grid_cell_size=cfg.grid.cell_size,
+        command_conditioned_grid=True,
         cnn_feature_dim=8,
         gru_hidden_dim=8,
     )
@@ -1870,6 +1874,7 @@ def test_omni_car_cnn_gru_model_forward_actor_and_critic() -> None:
     critic_out = critic(TensorDict({"critic": critic_obs}, batch_size=2))
     assert actor_out.shape == (2, 3)
     assert critic_out.shape == (2, 1)
+    assert actor.grid_encoder[0].in_channels == 4
 
 
 def test_omni_car_cnn_gru_model_uses_silu_activation_alias() -> None:
@@ -1903,3 +1908,46 @@ def test_omni_car_cnn_gru_model_uses_silu_activation_alias() -> None:
     assert actor_out.shape == (2, 3)
     assert any(isinstance(module, torch.nn.SiLU) for module in actor.grid_encoder)
     assert any(isinstance(module, torch.nn.SiLU) for module in actor.mlp)
+
+
+def test_omni_car_cnn_gru_command_conditioning_adds_directional_grid_channels() -> None:
+    cfg = OmniCarGridAvoidanceCfg()
+    actor_obs_dim = (
+        cfg.grid_history_len * cfg.grid.size * cfg.grid.size
+        + 3
+        + 3
+        + 3
+        + cfg.obs_history_len * 9
+    )
+    actor_obs = torch.zeros((1, actor_obs_dim), dtype=torch.float32)
+    actor = OmniCarGridCNNGRUModel(
+        TensorDict({"actor": actor_obs}, batch_size=1),
+        {"actor": ["actor"]},
+        "actor",
+        3,
+        hidden_dims=[16],
+        grid_history_len=cfg.grid_history_len,
+        grid_cell_size=cfg.grid.cell_size,
+        command_conditioned_grid=True,
+        cnn_feature_dim=8,
+        gru_hidden_dim=8,
+        distribution_cfg={
+            "class_name": "rsl_rl.modules.distribution.GaussianDistribution",
+            "init_std": 0.5,
+            "std_type": "scalar",
+        },
+    )
+    grid = torch.zeros(
+        (1, cfg.grid_history_len, 1, cfg.grid.size, cfg.grid.size), dtype=torch.float32
+    )
+
+    forward = actor._condition_grid(grid, torch.tensor([[1.0, 0.0, 0.0]]))
+    lateral = actor._condition_grid(grid, torch.tensor([[0.0, 1.0, 0.0]]))
+    zero = actor._condition_grid(grid, torch.tensor([[0.0, 0.0, 0.0]]))
+    center = cfg.grid.size // 2
+    ahead = center + 8
+
+    assert forward.shape[2] == 4
+    assert forward[0, 0, 1, ahead, center] > forward[0, 0, 1, center, center]
+    assert lateral[0, 0, 1, center, ahead] > lateral[0, 0, 1, center, center]
+    assert torch.allclose(zero[:, :, 1:], torch.zeros_like(zero[:, :, 1:]))

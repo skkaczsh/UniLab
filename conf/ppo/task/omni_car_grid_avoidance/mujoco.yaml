@@ -24,6 +24,8 @@ algo:
     obs_normalization: true
     grid_size: 80
     grid_history_len: 10
+    grid_cell_size: 0.05
+    command_conditioned_grid: true
     cnn_feature_dim: 128
     gru_hidden_dim: 128
     distribution_cfg:
@@ -37,6 +39,8 @@ algo:
     obs_normalization: true
     grid_size: 80
     grid_history_len: 10
+    grid_cell_size: 0.05
+    command_conditioned_grid: true
     cnn_feature_dim: 128
     gru_hidden_dim: 128
   algorithm:

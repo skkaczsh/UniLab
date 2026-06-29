@@ -55,8 +55,9 @@ Current defaults in this branch:
   for `40%` of samples, plus `30%` explicit zero-input samples
 - Command smoothing time constant: `0.55 s`
 - PPO rollout: `128` envs, `32` steps per env
-- Policy architecture: `OmniCarGridCNNGRUModel` (`CNN per grid frame + GRU over
-  10 CNN features + MLP`)
+- Policy architecture: `OmniCarGridCNNGRUModel` with command-conditioned grid
+  channels (`occupancy + command longitudinal + |lateral| + command norm` per
+  grid frame, then GRU over 10 CNN features + MLP)
 - Body footprint: `0.56 m x 0.32 m`; local collision/nearest-clearance uses the
   rectangular footprint, while the `0.05 m` safety margin is applied to
   command-corridor and grid safety reasoning.
@@ -228,19 +229,25 @@ pushing through blockers is not a profitable local optimum. Entropy is kept low
 enough that zero-command samples can converge to a stationary mean action.
 
 Recent diagnostics showed that clear-scene command following and blocked-path
-safety are both learnable with the current `CNN + GRU + MLP` policy, but a
-single long fine-tune can let one behavior overwrite the other. The recommended
-training path is therefore an alternating curriculum: run short safety, clear,
-and balanced phases, scan checkpoints after each phase, and continue from the
-checkpoint with the best behavior coverage before phase-specific probe cost.
-This prevents low-collision but low-speed checkpoints from overwriting clear
-command-following. This is still an RL curriculum; no geometry-level action
-gate is inserted.
+safety are both learnable, but the previous command-agnostic grid encoder could
+let one behavior overwrite the other. The current actor keeps the same
+non-privileged observation contract, but injects the operator's current planar
+command into the grid encoder as directional coordinate channels. This gives the
+CNN direct access to "obstacle along commanded corridor" versus "side wall while
+forward path is open" without using nearest-clearance or collision flags.
 
-The `CNN + GRU` observation contract is intentionally incompatible with older
-`CNN + MLP` checkpoints. Historical checkpoint manifests remain useful for
-record keeping, but this branch needs a fresh training run before a checkpoint
-can be loaded with the current default config.
+The recommended training path is therefore an alternating curriculum: run short
+safety, clear, and balanced phases, scan checkpoints after each phase, and
+continue from the checkpoint with the best behavior coverage before
+phase-specific probe cost. This prevents low-collision but low-speed
+checkpoints from overwriting clear command-following. This is still an RL
+curriculum; no geometry-level action gate is inserted.
+
+The command-conditioned `CNN + GRU` model is intentionally incompatible with
+older `CNN + MLP` checkpoints and earlier command-agnostic `CNN + GRU`
+checkpoints. Historical checkpoint manifests remain useful for record keeping,
+but this branch needs a fresh training run before a checkpoint can be loaded
+with the current default config.
 
 For checkpoint-level behavior gates, run:
 
