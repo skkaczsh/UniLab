@@ -186,6 +186,9 @@ def _apply_scenario(env: Any, wrapped_env: Any, scenario: BehaviorScenario) -> A
 def _empty_record() -> dict[str, list[float]]:
     return {
         "planar_speed": [],
+        "action_vx": [],
+        "action_vy": [],
+        "action_vyaw": [],
         "yaw_abs": [],
         "projection": [],
         "off_axis_abs": [],
@@ -218,6 +221,9 @@ def _record_step(record: dict[str, list[float]], env: Any, step_info: dict[str, 
     off_axis = np.abs(action[:, 0] * direction[:, 1] - action[:, 1] * direction[:, 0])
 
     record["planar_speed"].extend(np.linalg.norm(action[:, :2], axis=1).tolist())
+    record["action_vx"].extend(action[:, 0].tolist())
+    record["action_vy"].extend(action[:, 1].tolist())
+    record["action_vyaw"].extend(action[:, 2].tolist())
     record["yaw_abs"].extend(np.abs(action[:, 2]).tolist())
     record["projection"].extend(projection.tolist())
     record["off_axis_abs"].extend(off_axis.tolist())
@@ -282,6 +288,9 @@ def _summarize_record(
     summary: dict[str, float | str | bool | list[str]] = {
         "scenario": scenario.name,
         "planar_speed_mean": _mean(record["planar_speed"]),
+        "action_vx_mean": _mean(record["action_vx"]),
+        "action_vy_mean": _mean(record["action_vy"]),
+        "action_vyaw_mean": _mean(record["action_vyaw"]),
         "yaw_abs_mean": _mean(record["yaw_abs"]),
         "projection_mean": _mean(record["projection"]),
         "off_axis_abs_mean": _mean(record["off_axis_abs"]),
@@ -365,6 +374,9 @@ def _format_summary(summary: dict[str, Any]) -> str:
         lines.append(
             f"{item['scenario']}: {status} "
             f"planar={item['planar_speed_mean']:.4f} "
+            f"vx={item['action_vx_mean']:.4f} "
+            f"vy={item['action_vy_mean']:.4f} "
+            f"vyaw={item['action_vyaw_mean']:.4f} "
             f"yaw={item['yaw_abs_mean']:.4f} "
             f"proj={item['projection_mean']:.4f} "
             f"off_axis={item['off_axis_abs_mean']:.4f} "

@@ -31,6 +31,9 @@ def test_behavior_summary_reports_threshold_failures() -> None:
         scenario,
         {
             "planar_speed": [0.10, 0.12],
+            "action_vx": [0.08, 0.10],
+            "action_vy": [0.06, -0.02],
+            "action_vyaw": [0.02, -0.04],
             "yaw_abs": [0.02, 0.04],
             "projection": [0.0, 0.0],
             "off_axis_abs": [0.0, 0.0],
@@ -50,6 +53,9 @@ def test_behavior_summary_reports_threshold_failures() -> None:
 
     assert summary["passed"] is False
     assert summary["planar_speed_mean"] == 0.11
+    assert np.isclose(summary["action_vx_mean"], 0.09)
+    assert np.isclose(summary["action_vy_mean"], 0.02)
+    assert np.isclose(summary["action_vyaw_mean"], -0.01)
     assert summary["reward_clearance_motion_mean"] == -1.0
     assert summary["reward_clearance_target_motion_mean"] == -0.5
     assert summary["reward_clearance_opening_mean"] == 1.0
@@ -86,6 +92,9 @@ def test_record_step_uses_step_info_snapshot() -> None:
     module._record_step(record, env, step_info)
 
     assert record["planar_speed"] == [np.hypot(0.25, 0.50)]
+    assert record["action_vx"] == [0.25]
+    assert record["action_vy"] == [0.5]
+    assert record["action_vyaw"] == [0.10000000149011612]
     assert record["yaw_abs"] == [0.10000000149011612]
     assert record["projection"] == [0.25]
     assert record["off_axis_abs"] == [0.5]
