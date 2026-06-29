@@ -149,18 +149,44 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=1.0e-4)
     parser.add_argument("--seed", type=int, default=31)
     parser.add_argument("--device", default=None)
+    parser.add_argument(
+        "--scenario",
+        action="append",
+        choices=tuple(scenario.name for scenario in ORACLE_SCENARIOS),
+        help="Limit BC to one or more oracle scenarios. Defaults to all scenarios.",
+    )
+    parser.add_argument(
+        "--progress-interval",
+        type=int,
+        default=0,
+        help="Print progress every N optimizer iterations. Disabled by default.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args(argv)
 
 
-def _scenario_probabilities() -> np.ndarray:
-    weights = np.asarray([scenario.weight for scenario in ORACLE_SCENARIOS], dtype=np.float64)
+def _selected_scenarios(names: Sequence[str] | None) -> tuple[OracleScenario, ...]:
+    if not names:
+        return ORACLE_SCENARIOS
+    selected_names = set(names)
+    selected = tuple(scenario for scenario in ORACLE_SCENARIOS if scenario.name in selected_names)
+    if len(selected) != len(selected_names):
+        known = {scenario.name for scenario in ORACLE_SCENARIOS}
+        missing = sorted(selected_names - known)
+        raise ValueError(f"Unknown oracle scenario(s): {missing}")
+    return selected
+
+
+def _scenario_probabilities(scenarios: Sequence[OracleScenario]) -> np.ndarray:
+    weights = np.asarray([scenario.weight for scenario in scenarios], dtype=np.float64)
     return weights / np.sum(weights)
 
 
-def _shuffled_scenarios(rng: np.random.Generator) -> list[OracleScenario]:
-    order = rng.permutation(len(ORACLE_SCENARIOS))
-    return [ORACLE_SCENARIOS[int(index)] for index in order]
+def _shuffled_scenarios(
+    rng: np.random.Generator, scenarios: Sequence[OracleScenario]
+) -> list[OracleScenario]:
+    order = rng.permutation(len(scenarios))
+    return [scenarios[int(index)] for index in order]
 
 
 def _target_tensor(
@@ -237,9 +263,10 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
     policy = runner.alg.get_policy()
     policy.train()
     optimizer = torch.optim.Adam(policy.parameters(), lr=float(args.learning_rate))
-    probabilities = _scenario_probabilities()
+    scenarios = _selected_scenarios(args.scenario)
+    probabilities = _scenario_probabilities(scenarios)
     loss_history: list[float] = []
-    scenario_counts = {scenario.name: 0 for scenario in ORACLE_SCENARIOS}
+    scenario_counts = {scenario.name: 0 for scenario in scenarios}
     started_at = time.time()
     try:
         wrapped_env.reset()
@@ -257,12 +284,12 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                 "policy_output_shape": list(output.shape),
                 "rollout_actions": str(args.rollout_actions),
             }
-        for _ in range(int(args.iterations)):
+        for iteration in range(int(args.iterations)):
             if bool(args.balanced_batch):
                 optimizer.zero_grad(set_to_none=True)
-                normalizer = float(sum(scenario.weight for scenario in ORACLE_SCENARIOS))
+                normalizer = float(sum(scenario.weight for scenario in scenarios))
                 normalizer *= float(max(int(args.rollout_steps), 1))
-                for scenario in _shuffled_scenarios(rng):
+                for scenario in _shuffled_scenarios(rng, scenarios):
                     scenario_counts[scenario.name] += 1
                     obs = _apply_scenario(env, wrapped_env, scenario.behavior)
                     target = _target_tensor(scenario, num_envs=env.num_envs, device=device)
@@ -283,11 +310,25 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                                 obs = _apply_scenario(env, wrapped_env, scenario.behavior)
                 torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
                 optimizer.step()
+                if args.progress_interval > 0 and (
+                    (iteration + 1) % int(args.progress_interval) == 0
+                ):
+                    mean_loss = float(np.mean(loss_history[-int(args.rollout_steps) :]))
+                    print(
+                        json.dumps(
+                            {
+                                "iteration": iteration + 1,
+                                "iterations": int(args.iterations),
+                                "loss_recent": mean_loss,
+                                "scenario_counts": scenario_counts,
+                            },
+                            sort_keys=True,
+                        ),
+                        flush=True,
+                    )
                 continue
 
-            scenario = ORACLE_SCENARIOS[
-                int(rng.choice(len(ORACLE_SCENARIOS), p=probabilities))
-            ]
+            scenario = scenarios[int(rng.choice(len(scenarios), p=probabilities))]
             scenario_counts[scenario.name] += 1
             obs = _apply_scenario(env, wrapped_env, scenario.behavior)
             target = _target_tensor(scenario, num_envs=env.num_envs, device=device)
@@ -304,6 +345,21 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                     obs, _rewards, dones, _infos = wrapped_env.step(step_action)
                     if bool(torch.any(dones).item()):
                         obs = _apply_scenario(env, wrapped_env, scenario.behavior)
+            if args.progress_interval > 0 and (
+                (iteration + 1) % int(args.progress_interval) == 0
+            ):
+                print(
+                    json.dumps(
+                        {
+                            "iteration": iteration + 1,
+                            "iterations": int(args.iterations),
+                            "loss_recent": float(loss_history[-1]),
+                            "scenario_counts": scenario_counts,
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
         output = Path(args.output)
         _save_corrected_checkpoint(runner, output)
         return {
@@ -316,6 +372,7 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
             "learning_rate": float(args.learning_rate),
             "rollout_actions": str(args.rollout_actions),
             "balanced_batch": bool(args.balanced_batch),
+            "scenarios": [scenario.name for scenario in scenarios],
             "scenario_counts": scenario_counts,
             "loss_initial": loss_history[0] if loss_history else None,
             "loss_final": loss_history[-1] if loss_history else None,

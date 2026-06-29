@@ -46,11 +46,25 @@ def test_oracle_scenarios_include_directional_follow_slide_and_guards() -> None:
 def test_wall_slide_scenario_probabilities_are_normalized() -> None:
     module = _load_module()
 
-    probabilities = module._scenario_probabilities()
+    probabilities = module._scenario_probabilities(module.ORACLE_SCENARIOS)
 
     assert probabilities.shape == (len(module.ORACLE_SCENARIOS),)
     assert np.isclose(float(np.sum(probabilities)), 1.0)
     assert np.all(probabilities > 0.0)
+
+
+def test_wall_slide_bc_can_filter_oracle_scenarios() -> None:
+    module = _load_module()
+
+    selected = module._selected_scenarios(["front_blocked_stop", "right_wall_slide"])
+    probabilities = module._scenario_probabilities(selected)
+
+    assert [scenario.name for scenario in selected] == [
+        "front_blocked_stop",
+        "right_wall_slide",
+    ]
+    assert probabilities.shape == (2,)
+    assert np.isclose(float(np.sum(probabilities)), 1.0)
 
 
 def test_behavior_correction_rolls_out_policy_actions_by_default() -> None:
@@ -113,6 +127,8 @@ def test_balanced_batch_training_visits_every_oracle_scenario(monkeypatch, tmp_p
             rollout_steps=1,
             rollout_actions="policy",
             balanced_batch=True,
+            scenario=None,
+            progress_interval=0,
             dry_run=False,
             output=str(tmp_path / "corrected.pt"),
         )
