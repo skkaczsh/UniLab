@@ -2256,3 +2256,51 @@ def test_omni_car_cnn_gru_command_skip_initializes_actor_at_command() -> None:
     actor_out = actor(TensorDict({"actor": actor_obs}, batch_size=2))
 
     torch.testing.assert_close(actor_out, commands)
+
+
+def test_omni_car_cnn_gru_command_skip_bounds_residual_action() -> None:
+    cfg = OmniCarGridAvoidanceCfg()
+    actor_obs_dim = (
+        cfg.grid_history_len * cfg.grid.size * cfg.grid.size
+        + 3
+        + 3
+        + 3
+        + cfg.obs_history_len * 9
+    )
+    actor_obs = torch.zeros((2, actor_obs_dim), dtype=torch.float32)
+    commands = torch.tensor([[0.5, -0.25, 0.4], [-0.2, 0.1, -0.3]], dtype=torch.float32)
+    command_start = cfg.grid_history_len * cfg.grid.size * cfg.grid.size
+    actor_obs[:, command_start : command_start + 3] = commands
+    actor = OmniCarGridCNNGRUModel(
+        TensorDict({"actor": actor_obs}, batch_size=2),
+        {"actor": ["actor"]},
+        "actor",
+        3,
+        hidden_dims=[16],
+        grid_history_len=cfg.grid_history_len,
+        grid_cell_size=cfg.grid.cell_size,
+        command_conditioned_grid=True,
+        cnn_feature_dim=8,
+        gru_hidden_dim=8,
+        command_skip_scale=1.0,
+        residual_action_scale=10.0,
+        residual_action_mode="tanh",
+        residual_action_limit=[0.1, 0.2, 0.3],
+        distribution_cfg={
+            "class_name": "rsl_rl.modules.distribution.GaussianDistribution",
+            "init_std": 0.5,
+            "std_type": "scalar",
+        },
+    )
+    for module in reversed(actor.mlp):
+        if isinstance(module, torch.nn.Linear):
+            torch.nn.init.ones_(module.bias)
+            torch.nn.init.zeros_(module.weight)
+            break
+
+    actor_out = actor(TensorDict({"actor": actor_obs}, batch_size=2))
+    delta = actor_out - commands
+
+    assert torch.all(delta[:, 0].abs() <= 0.1001)
+    assert torch.all(delta[:, 1].abs() <= 0.2001)
+    assert torch.all(delta[:, 2].abs() <= 0.3001)

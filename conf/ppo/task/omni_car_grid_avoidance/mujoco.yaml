@@ -28,6 +28,8 @@ algo:
     command_conditioned_grid: true
     command_skip_scale: 0.0
     residual_action_scale: 1.0
+    residual_action_mode: linear
+    residual_action_limit: [1.0, 1.0, 1.0]
     zero_residual_head: false
     cnn_feature_dim: 128
     gru_hidden_dim: 128

@@ -105,6 +105,8 @@ class OmniCarGridCNNGRUModel(MLPModel):
         command_conditioned_grid: bool = False,
         command_skip_scale: float = 0.0,
         residual_action_scale: float = 1.0,
+        residual_action_mode: str = "linear",
+        residual_action_limit: tuple[float, float, float] | list[float] | float = 1.0,
         zero_residual_head: bool = False,
     ) -> None:
         self.grid_size = int(grid_size)
@@ -118,6 +120,8 @@ class OmniCarGridCNNGRUModel(MLPModel):
         self.command_conditioned_grid = bool(command_conditioned_grid)
         self.command_skip_scale = float(command_skip_scale)
         self.residual_action_scale = float(residual_action_scale)
+        self.residual_action_mode = str(residual_action_mode)
+        self.residual_action_limit = residual_action_limit
         self.zero_residual_head = bool(zero_residual_head)
         self.grid_input_channels = 4 if self.command_conditioned_grid else 1
         activation = _normalize_activation_name(activation)
@@ -171,6 +175,19 @@ class OmniCarGridCNNGRUModel(MLPModel):
         )
         if self.zero_residual_head and output_dim == 3:
             self._zero_last_linear()
+        if self.residual_action_mode not in ("linear", "tanh"):
+            raise ValueError(
+                "residual_action_mode must be 'linear' or 'tanh', "
+                f"got {self.residual_action_mode!r}"
+            )
+        limit = torch.as_tensor(self.residual_action_limit, dtype=torch.float32)
+        if limit.ndim == 0:
+            limit = limit.repeat(3)
+        if limit.numel() != 3:
+            raise ValueError("residual_action_limit must be a scalar or a length-3 sequence")
+        if torch.any(limit < 0.0):
+            raise ValueError("residual_action_limit values must be non-negative")
+        self.register_buffer("_residual_action_limit", limit.reshape(1, 3))
 
     def _zero_last_linear(self) -> None:
         for module in reversed(self.mlp):
@@ -236,6 +253,15 @@ class OmniCarGridCNNGRUModel(MLPModel):
             raw_flat.shape[0], 3
         )
 
+    def _residual_action(self, mlp_output: torch.Tensor) -> torch.Tensor:
+        residual = self.residual_action_scale * mlp_output
+        if self.residual_action_mode == "tanh":
+            residual = torch.tanh(residual) * self._residual_action_limit.to(
+                device=residual.device,
+                dtype=residual.dtype,
+            )
+        return residual
+
     def forward(
         self,
         obs: TensorDict,
@@ -250,7 +276,7 @@ class OmniCarGridCNNGRUModel(MLPModel):
             self.command_skip_scale != 0.0 or self.residual_action_scale != 1.0
         ):
             mlp_output = (
-                self.residual_action_scale * mlp_output
+                self._residual_action(mlp_output)
                 + self.command_skip_scale * self._current_command(obs)
             )
         if self.distribution is not None:
