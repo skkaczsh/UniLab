@@ -224,6 +224,30 @@ def select_checkpoint(scan: dict[str, Any], phase: CurriculumPhase) -> dict[str,
     }
 
 
+def archive_key(selection: dict[str, Any]) -> tuple[int, int, float, float]:
+    return (
+        int(bool(selection.get("passed_all_behavior_gates"))),
+        int(selection.get("behavior_pass_count") or 0),
+        -float(selection.get("behavior_cost") or 0.0),
+        -float(selection.get("selection_score") or 0.0),
+    )
+
+
+def choose_continuation_checkpoint(
+    *,
+    selection: dict[str, Any],
+    archive_best: dict[str, Any] | None,
+    allow_coverage_regression: bool,
+) -> tuple[dict[str, Any], bool]:
+    if archive_best is None or allow_coverage_regression:
+        return selection, False
+    selected_count = int(selection.get("behavior_pass_count") or 0)
+    archive_count = int(archive_best.get("behavior_pass_count") or 0)
+    if selected_count < archive_count:
+        return archive_best, True
+    return selection, False
+
+
 def build_train_command(
     *,
     uv_bin: str,
@@ -339,6 +363,7 @@ def run_curriculum(args: argparse.Namespace) -> dict[str, Any]:
     current_load_run = str(args.load_run)
     manifest_path = Path(args.output)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    archive_best: dict[str, Any] | None = None
 
     for round_idx in range(int(args.rounds)):
         for phase_name in phase_names:
@@ -430,7 +455,14 @@ def run_curriculum(args: argparse.Namespace) -> dict[str, Any]:
                 _run(scan_command, dry_run=False)
                 scan_result = json.loads(scan_output.read_text(encoding="utf-8"))
             selection = select_checkpoint(scan_result, phase)
-            current_load_run = str(selection["checkpoint_path"])
+            if archive_best is None or archive_key(selection) > archive_key(archive_best):
+                archive_best = selection
+            continuation, regression_guarded = choose_continuation_checkpoint(
+                selection=selection,
+                archive_best=archive_best,
+                allow_coverage_regression=bool(args.allow_coverage_regression),
+            )
+            current_load_run = str(continuation["checkpoint_path"])
             phase_record = {
                 "index": phase_index,
                 "round": round_idx,
@@ -438,19 +470,32 @@ def run_curriculum(args: argparse.Namespace) -> dict[str, Any]:
                 "run_name": run_name,
                 "run_dir": str(run_dir),
                 "checkpoints": checkpoints,
+                "continued_checkpoint_path": current_load_run,
+                "coverage_regression_guarded": regression_guarded,
                 "selected": {
                     key: value
                     for key, value in selection.items()
                     if key != "row"
                 },
+                "archive_best": {
+                    key: value
+                    for key, value in (archive_best or {}).items()
+                    if key != "row"
+                },
             }
             manifest["phases"].append(phase_record)
             manifest["latest_checkpoint"] = current_load_run
+            manifest["archive_best_checkpoint"] = str(
+                (archive_best or {}).get("checkpoint_path", "")
+            )
             manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
             print(
-                f"[curriculum] selected {current_load_run} "
+                f"[curriculum] selected {selection['checkpoint_path']} "
+                f"continue={current_load_run} "
+                f"pass_count={selection['behavior_pass_count']} "
                 f"cost={selection['behavior_cost']:.4f} "
-                f"passed={selection['passed_all_behavior_gates']}",
+                f"passed={selection['passed_all_behavior_gates']} "
+                f"guarded={regression_guarded}",
                 flush=True,
             )
             if selection["passed_all_behavior_gates"]:
@@ -485,6 +530,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--behavior-seed", type=int, default=17)
     parser.add_argument("--uv-bin", default=DEFAULT_UV_BIN)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--allow-coverage-regression",
+        action="store_true",
+        help="Continue from the phase-selected checkpoint even if it passes fewer behavior gates.",
+    )
     parser.add_argument("overrides", nargs=argparse.REMAINDER)
     return parser.parse_args(argv)
 

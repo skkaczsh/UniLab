@@ -247,3 +247,39 @@ def test_select_checkpoint_prefers_weighted_partial_passes_before_low_speed_coll
     assert selected["checkpoint"] == 2075
     assert selected["behavior_pass_count"] == 4
     assert selected["behavior_pass_score"] > 0
+
+
+def test_choose_continuation_checkpoint_guards_coverage_regression() -> None:
+    module = _load_module()
+    archive = {
+        "checkpoint": 2175,
+        "checkpoint_path": "/tmp/model_2175.pt",
+        "behavior_pass_count": 4,
+        "behavior_cost": 26.0,
+        "selection_score": 0.4,
+        "passed_all_behavior_gates": False,
+    }
+    regressed = {
+        "checkpoint": 2220,
+        "checkpoint_path": "/tmp/model_2220.pt",
+        "behavior_pass_count": 2,
+        "behavior_cost": 9.0,
+        "selection_score": 0.3,
+        "passed_all_behavior_gates": False,
+    }
+
+    continuation, guarded = module.choose_continuation_checkpoint(
+        selection=regressed,
+        archive_best=archive,
+        allow_coverage_regression=False,
+    )
+    allowed, allowed_guarded = module.choose_continuation_checkpoint(
+        selection=regressed,
+        archive_best=archive,
+        allow_coverage_regression=True,
+    )
+
+    assert continuation["checkpoint"] == 2175
+    assert guarded is True
+    assert allowed["checkpoint"] == 2220
+    assert allowed_guarded is False
