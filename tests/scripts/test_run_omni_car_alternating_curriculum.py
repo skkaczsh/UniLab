@@ -86,7 +86,8 @@ def test_build_train_command_includes_phase_and_resume_overrides() -> None:
     assert "algo.max_iterations=75" in command
     assert "algo.save_interval=25" in command
     assert "env.obstacles.front_blocker_fraction=0.55" in command
-    assert "env.reward.blocked_lateral_escape=120.0" in command
+    assert "env.reward.intent_projection=65.0" in command
+    assert "env.reward.blocked_lateral_escape=95.0" in command
     assert "algo.seed=7" in command
 
 
@@ -117,7 +118,7 @@ def test_build_scan_command_enables_behavior_gate() -> None:
     assert "/tmp/scan.json" in command
 
 
-def test_select_checkpoint_uses_phase_specific_behavior_tradeoffs() -> None:
+def test_select_checkpoint_prefers_global_behavior_coverage() -> None:
     module = _load_module()
     clear_good_front_bad = _row(
         100,
@@ -144,8 +145,42 @@ def test_select_checkpoint_uses_phase_specific_behavior_tradeoffs() -> None:
     safety = module.select_checkpoint(scan, module.PHASES["safety"])
     clear = module.select_checkpoint(scan, module.PHASES["clear"])
 
+    assert safety["checkpoint"] == 100
+    assert clear["checkpoint"] == 100
+    assert safety["behavior_pass_count"] == 4
+
+
+def test_select_checkpoint_uses_phase_specific_tradeoffs_after_coverage() -> None:
+    module = _load_module()
+    clear_weighted = _row(
+        100,
+        [
+            _scenario("zero_input_hold", planar=0.02, passed=True),
+            _scenario("clear_forward_follow", projection=0.60, passed=True),
+            _scenario("clear_diagonal_follow", projection=0.50, passed=True),
+            _scenario("front_blocked_stop", projection=0.34, planar=0.34, collision=0.02),
+            _scenario("right_wall_forward", projection=0.08),
+        ],
+    )
+    safety_weighted = _row(
+        200,
+        [
+            _scenario("zero_input_hold", planar=0.02, passed=True),
+            _scenario("clear_forward_follow", projection=0.08),
+            _scenario("clear_diagonal_follow", projection=0.06),
+            _scenario("front_blocked_stop", projection=0.04, planar=0.05, collision=0.0, passed=True),
+            _scenario("right_wall_forward", projection=0.25, passed=True),
+        ],
+    )
+    scan = {"evaluations": [clear_weighted, safety_weighted]}
+
+    safety = module.select_checkpoint(scan, module.PHASES["safety"])
+    clear = module.select_checkpoint(scan, module.PHASES["clear"])
+
     assert safety["checkpoint"] == 200
     assert clear["checkpoint"] == 100
+    assert safety["behavior_pass_count"] == 3
+    assert clear["behavior_pass_count"] == 3
 
 
 def test_select_checkpoint_prefers_all_gate_pass_when_available() -> None:
@@ -210,4 +245,5 @@ def test_select_checkpoint_prefers_weighted_partial_passes_before_low_speed_coll
     )
 
     assert selected["checkpoint"] == 2075
+    assert selected["behavior_pass_count"] == 4
     assert selected["behavior_pass_score"] > 0

@@ -21,6 +21,13 @@ from scripts.scan_omni_car_checkpoints import discover_checkpoint_ids, thin_chec
 
 DEFAULT_UV_BIN = "uv"
 DEFAULT_TASK_DIR = "OmniCarGridAvoidance"
+REQUIRED_SCENARIOS = (
+    "zero_input_hold",
+    "clear_forward_follow",
+    "clear_diagonal_follow",
+    "front_blocked_stop",
+    "right_wall_forward",
+)
 
 
 @dataclass(frozen=True)
@@ -37,15 +44,15 @@ PHASES: dict[str, CurriculumPhase] = {
             "env.obstacles.clear_path_fraction=0.25",
             "env.obstacles.front_blocker_fraction=0.55",
             "env.obstacles.side_wall_fraction=0.10",
-            "env.reward.intent=70.0",
-            "env.reward.intent_projection=35.0",
-            "env.reward.response=30.0",
-            "env.reward.vx_track=18.0",
-            "env.reward.vy_track=18.0",
-            "env.reward.target_collision=260.0",
-            "env.reward.blocked_projection=1500.0",
-            "env.reward.blocked_stop=48.0",
-            "env.reward.blocked_lateral_escape=120.0",
+            "env.reward.intent=105.0",
+            "env.reward.intent_projection=65.0",
+            "env.reward.response=45.0",
+            "env.reward.vx_track=32.0",
+            "env.reward.vy_track=30.0",
+            "env.reward.target_collision=240.0",
+            "env.reward.blocked_projection=1300.0",
+            "env.reward.blocked_stop=42.0",
+            "env.reward.blocked_lateral_escape=95.0",
         ),
         scenario_weights={
             "zero_input_hold": 3.0,
@@ -168,6 +175,15 @@ def behavior_pass_score(row: dict[str, Any], phase: CurriculumPhase) -> float:
     return score
 
 
+def behavior_pass_count(row: dict[str, Any]) -> int:
+    scenarios = _scenario_map(row)
+    return sum(
+        1
+        for name in REQUIRED_SCENARIOS
+        if scenarios.get(name, {}).get("passed") is True
+    )
+
+
 def select_checkpoint(scan: dict[str, Any], phase: CurriculumPhase) -> dict[str, Any]:
     rows = [row for row in scan.get("evaluations", []) if isinstance(row, dict)]
     if not rows:
@@ -177,9 +193,14 @@ def select_checkpoint(scan: dict[str, Any], phase: CurriculumPhase) -> dict[str,
         generic = float(row.get("selection_score") or 0.0)
         return behavior_cost(row, phase), generic
 
-    def partial_gate_key(row: dict[str, Any]) -> tuple[float, float, float]:
+    def partial_gate_key(row: dict[str, Any]) -> tuple[float, float, float, float]:
         generic = float(row.get("selection_score") or 0.0)
-        return -behavior_pass_score(row, phase), behavior_cost(row, phase), generic
+        return (
+            -float(behavior_pass_count(row)),
+            -behavior_pass_score(row, phase),
+            behavior_cost(row, phase),
+            generic,
+        )
 
     all_gates = [
         row
@@ -191,6 +212,7 @@ def select_checkpoint(scan: dict[str, Any], phase: CurriculumPhase) -> dict[str,
     return {
         "checkpoint": int(selected["checkpoint"]),
         "checkpoint_path": selected.get("checkpoint_path"),
+        "behavior_pass_count": behavior_pass_count(selected),
         "behavior_pass_score": behavior_pass_score(selected, phase),
         "behavior_cost": behavior_cost(selected, phase),
         "selection_score": float(selected.get("selection_score") or 0.0),

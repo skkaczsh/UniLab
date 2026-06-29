@@ -228,8 +228,10 @@ safety are both learnable with the current `CNN + GRU + MLP` policy, but a
 single long fine-tune can let one behavior overwrite the other. The recommended
 training path is therefore an alternating curriculum: run short safety, clear,
 and balanced phases, scan checkpoints after each phase, and continue from the
-checkpoint with the best phase-specific behavior probe cost. This is still an
-RL curriculum; no geometry-level action gate is inserted.
+checkpoint with the best behavior coverage before phase-specific probe cost.
+This prevents low-collision but low-speed checkpoints from overwriting clear
+command-following. This is still an RL curriculum; no geometry-level action
+gate is inserted.
 
 The `CNN + GRU` observation contract is intentionally incompatible with older
 `CNN + MLP` checkpoints. Historical checkpoint manifests remain useful for
