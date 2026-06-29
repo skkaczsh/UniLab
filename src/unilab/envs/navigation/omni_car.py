@@ -109,6 +109,10 @@ class OmniCarRewardCfg:
     blocked_lateral_escape: float = 0.0
     blocked_lateral_escape_side_bias_min: float = 0.08
     blocked_lateral_escape_side_bias_width: float = 0.20
+    lateral_drift: float = 0.0
+    lateral_drift_margin_m: float = 0.08
+    lateral_drift_scale_m: float = 0.25
+    lateral_drift_cost_clip: float = 4.0
     target_collision: float = 0.0
     target_collision_margin_m: float = 0.25
     target_collision_speed_mps: float = 0.25
@@ -374,6 +378,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._accel_delta_limit = self._accel_limit * self._cfg.ctrl_dt
         self._raw_commands = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._commands = np.zeros((self._num_envs, 3), dtype=self._dtype)
+        self._command_anchor_pose = np.zeros((self._num_envs, 3), dtype=self._dtype)
         self._command_steps_remaining = np.zeros((self._num_envs,), dtype=np.int32)
         self._human_command_enabled = bool(cfg.human_command.enabled)
         self._human_command_env_id = self._select_human_command_env_id()
@@ -492,6 +497,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 "clearance_opening",
                 "clearance_target_opening",
                 "blocked_lateral_escape",
+                "lateral_drift",
                 "target_collision",
                 "blocked_projection",
                 "blocked_speed",
@@ -714,6 +720,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         sampled_commands = self._sample_commands(env_indices.size)
         self._raw_commands[env_indices] = sampled_commands
         self._commands[env_indices] = sampled_commands.copy()
+        self._command_anchor_pose[env_indices] = self._pose[env_indices]
         self._command_steps_remaining[env_indices] = self._sample_command_hold_steps(
             env_indices.size
         )
@@ -777,6 +784,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             self._raw_commands[resample_mask] = self._sample_commands(
                 int(np.count_nonzero(resample_mask))
             )
+            self._command_anchor_pose[resample_mask] = self._pose[resample_mask]
             self._command_steps_remaining[resample_mask] = self._sample_command_hold_steps(
                 int(np.count_nonzero(resample_mask))
             )
@@ -2444,6 +2452,26 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         side_bias_min = max(float(cfg.blocked_lateral_escape_side_bias_min), 0.0)
         side_bias_width = max(float(cfg.blocked_lateral_escape_side_bias_width), 1e-6)
         side_escape_scale = np.clip((grid_side_bias - side_bias_min) / side_bias_width, 0.0, 1.0)
+        anchor_yaw = self._command_anchor_pose[:, 2]
+        anchor_cos = np.cos(anchor_yaw)
+        anchor_sin = np.sin(anchor_yaw)
+        command_dir_world = np.zeros_like(command_dir)
+        command_dir_world[:, 0] = anchor_cos * command_dir[:, 0] - anchor_sin * command_dir[:, 1]
+        command_dir_world[:, 1] = anchor_sin * command_dir[:, 0] + anchor_cos * command_dir[:, 1]
+        lateral_dir_world = np.stack(
+            [-command_dir_world[:, 1], command_dir_world[:, 0]], axis=1
+        ).astype(self._dtype, copy=False)
+        anchor_delta = self._pose[:, :2] - self._command_anchor_pose[:, :2]
+        lateral_drift = np.abs(np.sum(anchor_delta * lateral_dir_world, axis=1))
+        drift_margin = max(float(cfg.lateral_drift_margin_m), 0.0)
+        drift_scale = max(float(cfg.lateral_drift_scale_m), 1e-6)
+        drift_clip = max(float(cfg.lateral_drift_cost_clip), 0.0)
+        lateral_drift_cost = np.where(
+            active_planar,
+            (1.0 - side_escape_scale)
+            * np.minimum((np.maximum(lateral_drift - drift_margin, 0.0) / drift_scale) ** 2, drift_clip),
+            0.0,
+        )
         opening_intent_scale = blocked_path_risk * side_escape_scale + (
             1.0 - blocked_path_risk
         ) * projection_reward
@@ -2572,6 +2600,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "blocked_lateral_escape": (
                 cfg.blocked_lateral_escape * blocked_lateral_escape_reward
             ).astype(self._dtype),
+            "lateral_drift": (-cfg.lateral_drift * lateral_drift_cost).astype(self._dtype),
             "target_collision": (-cfg.target_collision * target_collision_cost).astype(
                 self._dtype
             ),
@@ -2615,6 +2644,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             + self._reward_components["clearance_opening"]
             + self._reward_components["clearance_target_opening"]
             + self._reward_components["blocked_lateral_escape"]
+            + self._reward_components["lateral_drift"]
             + self._reward_components["target_collision"]
             + self._reward_components["blocked_projection"]
             + self._reward_components["blocked_speed"]
@@ -2885,6 +2915,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "clearance_target_motion",
             "clearance_opening",
             "blocked_lateral_escape",
+            "lateral_drift",
             "target_collision",
             "blocked_projection",
             "blocked_speed",

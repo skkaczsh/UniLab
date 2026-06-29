@@ -189,6 +189,8 @@ def _apply_scenario(env: Any, wrapped_env: Any, scenario: BehaviorScenario) -> A
     env._last_action_delta[env_ids] = 0.0
     env._raw_commands[env_ids] = command
     env._commands[env_ids] = command
+    if hasattr(env, "_command_anchor_pose"):
+        env._command_anchor_pose[env_ids] = env._pose[env_ids]
     env._command_steps_remaining[env_ids] = int(1_000_000)
     env._seed_history(env_ids)
 
