@@ -1354,7 +1354,7 @@ def test_omni_car_clearance_target_opening_rewards_projected_side_escape() -> No
     env.close()
 
 
-def test_omni_car_blocked_lateral_escape_rewards_side_step_when_front_blocked() -> None:
+def test_omni_car_blocked_lateral_escape_ignores_symmetric_front_blocker() -> None:
     env = registry.make(
         "OmniCarGridAvoidance",
         sim_backend="mujoco",
@@ -1446,12 +1446,86 @@ def test_omni_car_blocked_lateral_escape_rewards_side_step_when_front_blocked() 
     clear_escape = float(env._reward_components["blocked_lateral_escape"][0])
 
     assert stop_escape == pytest.approx(0.0)
-    assert side_escape > 1.0
+    assert side_escape == pytest.approx(0.0)
     assert push_escape == pytest.approx(0.0)
     assert clear_escape == pytest.approx(0.0, abs=0.02)
-    assert side_reward[0] > stop_reward[0]
-    assert side_reward[0] > push_reward[0]
+    assert side_reward[0] == pytest.approx(stop_reward[0])
+    assert push_reward[0] == pytest.approx(stop_reward[0])
     assert clear_reward[0] == pytest.approx(clear_escape)
+    env.close()
+
+
+def test_omni_car_blocked_lateral_escape_rewards_biased_side_escape() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 73,
+            "obstacles": {
+                "count": 1,
+                "circle_fraction": 1.0,
+                "box_fraction": 0.0,
+                "wall_fraction": 0.0,
+            },
+            "reward": {
+                "intent": 0.0,
+                "intent_projection": 0.0,
+                "yaw_intent": 0.0,
+                "response": 0.0,
+                "clearance_motion": 0.0,
+                "clearance_target_motion": 0.0,
+                "clearance_opening": 0.0,
+                "blocked_lateral_escape": 20.0,
+                "target_collision": 0.0,
+                "blocked_projection": 0.0,
+                "blocked_stop": 0.0,
+                "idle_stop": 0.0,
+                "yaw_idle_stop": 0.0,
+                "off_axis": 0.0,
+                "reverse": 0.0,
+                "vx_track": 0.0,
+                "vy_track": 0.0,
+                "vyaw_track": 0.0,
+                "vx_diff": 0.0,
+                "vy_diff": 0.0,
+                "vyaw_diff": 0.0,
+                "vx_jerk": 0.0,
+                "vy_jerk": 0.0,
+                "vyaw_jerk": 0.0,
+                "clearance": 0.0,
+                "collision": 0.0,
+            },
+        },
+    )
+    env.init_state()
+    env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
+    env._obstacle_xy[0, 0] = np.asarray([0.52, -0.24], dtype=np.float32)
+    env._obstacle_radius[0, 0] = 0.22
+    env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
+    prev_pose = env._pose.copy()
+    prev_clearance = env._nearest_clearance.copy()
+
+    stop_reward = env._compute_reward(
+        np.zeros((1, 3), dtype=np.float32),
+        prev_clearance=prev_clearance,
+        prev_pose=prev_pose,
+    )
+    stop_escape = float(env._reward_components["blocked_lateral_escape"][0])
+
+    away_action = np.asarray([[0.0, 1.0, 0.0]], dtype=np.float32)
+    env._pose[:] = env._predict_pose_from_action(prev_pose, away_action)
+    env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
+    away_reward = env._compute_reward(
+        away_action,
+        prev_clearance=prev_clearance,
+        prev_pose=prev_pose,
+    )
+    away_escape = float(env._reward_components["blocked_lateral_escape"][0])
+
+    assert stop_escape == pytest.approx(0.0)
+    assert away_escape > 1.0
+    assert away_reward[0] > stop_reward[0]
     env.close()
 
 

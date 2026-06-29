@@ -107,6 +107,8 @@ class OmniCarRewardCfg:
     clearance_opening: float = 0.0
     clearance_target_opening: float = 0.0
     blocked_lateral_escape: float = 0.0
+    blocked_lateral_escape_side_bias_min: float = 0.08
+    blocked_lateral_escape_side_bias_width: float = 0.20
     target_collision: float = 0.0
     target_collision_margin_m: float = 0.25
     target_collision_speed_mps: float = 0.25
@@ -2432,14 +2434,24 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             (self._nearest_clearance - previous_clearance) / max(self._cfg.ctrl_dt, 1e-6),
             0.0,
         )
+        grid_side_bias = np.zeros((self._num_envs,), dtype=self._dtype)
+        if (cfg.clearance_opening != 0.0 or cfg.blocked_lateral_escape != 0.0) and np.any(
+            active_planar
+        ):
+            current_grid = self._occupancy_grid(self._all_env_indices)
+            command_features = self._grid_command_features(self._all_env_indices, current_grid)
+            grid_side_bias = np.abs(command_features[:, 3]).astype(self._dtype, copy=False)
+        side_bias_min = max(float(cfg.blocked_lateral_escape_side_bias_min), 0.0)
+        side_bias_width = max(float(cfg.blocked_lateral_escape_side_bias_width), 1e-6)
+        side_escape_scale = np.clip((grid_side_bias - side_bias_min) / side_bias_width, 0.0, 1.0)
+        opening_intent_scale = blocked_path_risk * side_escape_scale + (
+            1.0 - blocked_path_risk
+        ) * projection_reward
         clearance_opening_reward = np.where(
             active_planar,
             previous_clearance_risk
             * np.tanh(opening_speed / 0.25)
-            * (
-                blocked_path_risk
-                + (1.0 - blocked_path_risk) * projection_reward
-            ),
+            * opening_intent_scale,
             0.0,
         )
         clearance_target_opening_reward = np.where(
@@ -2453,6 +2465,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         blocked_lateral_escape_reward = np.where(
             active_planar,
             blocked_path_risk
+            * side_escape_scale
             * np.clip(
                 lateral_speed / max(float(self._cfg.physical_limits.max_y_speed), 1e-6),
                 0.0,
