@@ -18,13 +18,19 @@ def _load_module():
     return module
 
 
-def test_wall_slide_oracle_scenarios_include_bidirectional_slide_and_guards() -> None:
+def test_oracle_scenarios_include_directional_follow_slide_and_guards() -> None:
     module = _load_module()
 
     scenarios = {scenario.name: scenario for scenario in module.ORACLE_SCENARIOS}
 
     assert scenarios["zero_input_hold"].target_action == (0.0, 0.0, 0.0)
     assert scenarios["front_blocked_stop"].target_action == (0.0, 0.0, 0.0)
+    assert scenarios["clear_forward_follow"].target_action == (1.0, 0.0, 0.0)
+    assert scenarios["clear_left_follow"].target_action == (0.0, 0.7, 0.0)
+    assert scenarios["clear_right_follow"].target_action == (0.0, -0.7, 0.0)
+    assert scenarios["clear_backward_follow"].target_action == (-0.8, 0.0, 0.0)
+    assert scenarios["clear_slow_diagonal_follow"].target_action == (0.35, -0.25, 0.0)
+    assert scenarios["yaw_only_follow"].target_action == (0.0, 0.0, 1.0)
     assert scenarios["right_wall_slide"].target_action[0] > 0.0
     assert scenarios["right_wall_slide"].target_action[1] > 0.0
     assert scenarios["left_wall_slide"].target_action[0] > 0.0

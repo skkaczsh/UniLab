@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Supervised wall-slide correction for OmniCar PPO actor checkpoints."""
+"""Supervised behavior correction for OmniCar PPO actor checkpoints."""
 
 from __future__ import annotations
 
@@ -41,19 +41,52 @@ ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
         name="zero_input_hold",
         behavior=BehaviorScenario(name="zero_input_hold", command=(0.0, 0.0, 0.0)),
         target_action=(0.0, 0.0, 0.0),
-        weight=2.0,
+        weight=3.0,
     ),
     OracleScenario(
         name="clear_forward_follow",
         behavior=BehaviorScenario(name="clear_forward_follow", command=(1.0, 0.0, 0.0)),
         target_action=(1.0, 0.0, 0.0),
-        weight=1.5,
+        weight=3.0,
     ),
     OracleScenario(
         name="clear_diagonal_follow",
         behavior=BehaviorScenario(name="clear_diagonal_follow", command=(0.8, 0.4, 0.0)),
         target_action=(0.8, 0.4, 0.0),
-        weight=1.5,
+        weight=3.0,
+    ),
+    OracleScenario(
+        name="clear_left_follow",
+        behavior=BehaviorScenario(name="clear_left_follow", command=(0.0, 0.7, 0.0)),
+        target_action=(0.0, 0.7, 0.0),
+        weight=3.0,
+    ),
+    OracleScenario(
+        name="clear_right_follow",
+        behavior=BehaviorScenario(name="clear_right_follow", command=(0.0, -0.7, 0.0)),
+        target_action=(0.0, -0.7, 0.0),
+        weight=3.0,
+    ),
+    OracleScenario(
+        name="clear_backward_follow",
+        behavior=BehaviorScenario(name="clear_backward_follow", command=(-0.8, 0.0, 0.0)),
+        target_action=(-0.8, 0.0, 0.0),
+        weight=2.5,
+    ),
+    OracleScenario(
+        name="clear_slow_diagonal_follow",
+        behavior=BehaviorScenario(
+            name="clear_slow_diagonal_follow",
+            command=(0.35, -0.25, 0.0),
+        ),
+        target_action=(0.35, -0.25, 0.0),
+        weight=2.0,
+    ),
+    OracleScenario(
+        name="yaw_only_follow",
+        behavior=BehaviorScenario(name="yaw_only_follow", command=(0.0, 0.0, 1.0)),
+        target_action=(0.0, 0.0, 1.0),
+        weight=2.5,
     ),
     OracleScenario(
         name="front_blocked_stop",
@@ -64,7 +97,7 @@ ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
             obstacle_radius=(0.22,),
         ),
         target_action=(0.0, 0.0, 0.0),
-        weight=2.0,
+        weight=3.0,
     ),
     OracleScenario(
         name="right_wall_slide",
@@ -75,7 +108,7 @@ ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
             obstacle_radius=(0.22, 0.22, 0.22),
         ),
         target_action=(0.65, 0.28, 0.0),
-        weight=4.0,
+        weight=3.5,
     ),
     OracleScenario(
         name="left_wall_slide",
@@ -86,7 +119,7 @@ ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
             obstacle_radius=(0.22, 0.22, 0.22),
         ),
         target_action=(0.65, -0.28, 0.0),
-        weight=4.0,
+        weight=3.5,
     ),
 )
 
