@@ -158,14 +158,28 @@ def behavior_cost(row: dict[str, Any], phase: CurriculumPhase) -> float:
     return total
 
 
+def behavior_pass_score(row: dict[str, Any], phase: CurriculumPhase) -> float:
+    scenarios = _scenario_map(row)
+    score = 0.0
+    for name, weight in phase.scenario_weights.items():
+        item = scenarios.get(name)
+        if item is not None and item.get("passed") is True:
+            score += float(weight)
+    return score
+
+
 def select_checkpoint(scan: dict[str, Any], phase: CurriculumPhase) -> dict[str, Any]:
     rows = [row for row in scan.get("evaluations", []) if isinstance(row, dict)]
     if not rows:
         raise ValueError("scan result contains no evaluations")
 
-    def key(row: dict[str, Any]) -> tuple[float, float]:
+    def all_gate_key(row: dict[str, Any]) -> tuple[float, float]:
         generic = float(row.get("selection_score") or 0.0)
         return behavior_cost(row, phase), generic
+
+    def partial_gate_key(row: dict[str, Any]) -> tuple[float, float, float]:
+        generic = float(row.get("selection_score") or 0.0)
+        return -behavior_pass_score(row, phase), behavior_cost(row, phase), generic
 
     all_gates = [
         row
@@ -173,10 +187,11 @@ def select_checkpoint(scan: dict[str, Any], phase: CurriculumPhase) -> dict[str,
         if isinstance(row.get("behavior_gate"), dict)
         and row["behavior_gate"].get("passed") is True
     ]
-    selected = min(all_gates or rows, key=key)
+    selected = min(all_gates, key=all_gate_key) if all_gates else min(rows, key=partial_gate_key)
     return {
         "checkpoint": int(selected["checkpoint"]),
         "checkpoint_path": selected.get("checkpoint_path"),
+        "behavior_pass_score": behavior_pass_score(selected, phase),
         "behavior_cost": behavior_cost(selected, phase),
         "selection_score": float(selected.get("selection_score") or 0.0),
         "passed_all_behavior_gates": bool(

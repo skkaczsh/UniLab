@@ -26,6 +26,7 @@ def _scenario(
     planar: float = 0.0,
     yaw: float = 0.0,
     collision: float = 0.0,
+    passed: bool = False,
 ) -> dict[str, object]:
     return {
         "scenario": name,
@@ -33,6 +34,7 @@ def _scenario(
         "planar_speed_mean": planar,
         "yaw_abs_mean": yaw,
         "collision_fraction": collision,
+        "passed": passed,
     }
 
 
@@ -120,20 +122,20 @@ def test_select_checkpoint_uses_phase_specific_behavior_tradeoffs() -> None:
     clear_good_front_bad = _row(
         100,
         [
-            _scenario("zero_input_hold", planar=0.02),
-            _scenario("clear_forward_follow", projection=0.60),
-            _scenario("clear_diagonal_follow", projection=0.50),
+            _scenario("zero_input_hold", planar=0.02, passed=True),
+            _scenario("clear_forward_follow", projection=0.60, passed=True),
+            _scenario("clear_diagonal_follow", projection=0.50, passed=True),
             _scenario("front_blocked_stop", projection=0.34, planar=0.34, collision=0.02),
-            _scenario("right_wall_forward", projection=0.55),
+            _scenario("right_wall_forward", projection=0.55, passed=True),
         ],
     )
     front_good_clear_bad = _row(
         200,
         [
-            _scenario("zero_input_hold", planar=0.02),
+            _scenario("zero_input_hold", planar=0.02, passed=True),
             _scenario("clear_forward_follow", projection=0.08),
             _scenario("clear_diagonal_follow", projection=0.06),
-            _scenario("front_blocked_stop", projection=0.04, planar=0.05, collision=0.0),
+            _scenario("front_blocked_stop", projection=0.04, planar=0.05, collision=0.0, passed=True),
             _scenario("right_wall_forward", projection=0.08),
         ],
     )
@@ -151,21 +153,21 @@ def test_select_checkpoint_prefers_all_gate_pass_when_available() -> None:
     almost = _row(
         100,
         [
-            _scenario("zero_input_hold", planar=0.01),
-            _scenario("clear_forward_follow", projection=0.60),
-            _scenario("clear_diagonal_follow", projection=0.50),
+            _scenario("zero_input_hold", planar=0.01, passed=True),
+            _scenario("clear_forward_follow", projection=0.60, passed=True),
+            _scenario("clear_diagonal_follow", projection=0.50, passed=True),
             _scenario("front_blocked_stop", projection=0.10, planar=0.10, collision=0.01),
-            _scenario("right_wall_forward", projection=0.50),
+            _scenario("right_wall_forward", projection=0.50, passed=True),
         ],
     )
     passed = _row(
         200,
         [
-            _scenario("zero_input_hold", planar=0.01),
-            _scenario("clear_forward_follow", projection=0.46),
-            _scenario("clear_diagonal_follow", projection=0.41),
-            _scenario("front_blocked_stop", projection=0.19, planar=0.20, collision=0.0),
-            _scenario("right_wall_forward", projection=0.21),
+            _scenario("zero_input_hold", planar=0.01, passed=True),
+            _scenario("clear_forward_follow", projection=0.46, passed=True),
+            _scenario("clear_diagonal_follow", projection=0.41, passed=True),
+            _scenario("front_blocked_stop", projection=0.19, planar=0.20, collision=0.0, passed=True),
+            _scenario("right_wall_forward", projection=0.21, passed=True),
         ],
         passed=True,
     )
@@ -177,3 +179,35 @@ def test_select_checkpoint_prefers_all_gate_pass_when_available() -> None:
 
     assert selected["checkpoint"] == 200
     assert selected["passed_all_behavior_gates"] is True
+
+
+def test_select_checkpoint_prefers_weighted_partial_passes_before_low_speed_collapse() -> None:
+    module = _load_module()
+    useful_but_front_bad = _row(
+        2075,
+        [
+            _scenario("zero_input_hold", planar=0.07, passed=True),
+            _scenario("clear_forward_follow", projection=0.70, planar=0.72, passed=True),
+            _scenario("clear_diagonal_follow", projection=0.62, planar=0.65, passed=True),
+            _scenario("front_blocked_stop", projection=0.31, planar=0.34, collision=0.07),
+            _scenario("right_wall_forward", projection=0.34, planar=0.40, passed=True),
+        ],
+    )
+    conservative_collapse = _row(
+        2124,
+        [
+            _scenario("zero_input_hold", planar=0.05, passed=True),
+            _scenario("clear_forward_follow", projection=0.07, planar=0.16),
+            _scenario("clear_diagonal_follow", projection=0.16, planar=0.17),
+            _scenario("front_blocked_stop", projection=0.07, planar=0.16, collision=0.0, passed=True),
+            _scenario("right_wall_forward", projection=0.07, planar=0.16),
+        ],
+    )
+
+    selected = module.select_checkpoint(
+        {"evaluations": [useful_but_front_bad, conservative_collapse]},
+        module.PHASES["balanced"],
+    )
+
+    assert selected["checkpoint"] == 2075
+    assert selected["behavior_pass_score"] > 0
