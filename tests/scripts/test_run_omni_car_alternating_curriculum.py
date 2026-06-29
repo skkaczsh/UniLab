@@ -105,6 +105,18 @@ def test_clear_explore_phase_prioritizes_following_recovery() -> None:
     assert phase.scenario_weights["clear_forward_follow"] > phase.scenario_weights["front_blocked_stop"]
 
 
+def test_open_follow_phase_is_sparse_and_command_dominant() -> None:
+    module = _load_module()
+
+    phase = module.PHASES["open_follow"]
+
+    assert "env.obstacles.count=6" in phase.overrides
+    assert "env.large_scene.static_obstacle_count=80" in phase.overrides
+    assert "env.reward.intent=260.0" in phase.overrides
+    assert "env.reward.target_collision=30.0" in phase.overrides
+    assert phase.scenario_weights["clear_forward_follow"] > phase.scenario_weights["zero_input_hold"]
+
+
 def test_build_scan_command_enables_behavior_gate() -> None:
     module = _load_module()
 

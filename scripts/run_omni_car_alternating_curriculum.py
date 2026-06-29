@@ -38,6 +38,45 @@ class CurriculumPhase:
 
 
 PHASES: dict[str, CurriculumPhase] = {
+    "open_follow": CurriculumPhase(
+        name="open_follow",
+        overrides=(
+            "env.command.zero_fraction=0.18",
+            "env.command.long_hold_fraction=0.65",
+            "env.obstacles.count=6",
+            "env.obstacles.clear_path_fraction=0.95",
+            "env.obstacles.front_blocker_fraction=0.00",
+            "env.obstacles.side_wall_fraction=0.00",
+            "env.large_scene.static_obstacle_count=80",
+            "env.large_scene.max_dynamic_agents=4",
+            "env.large_scene.dense_region_fraction=0.25",
+            "env.reward.intent=260.0",
+            "env.reward.intent_projection=200.0",
+            "env.reward.response=140.0",
+            "env.reward.vx_track=95.0",
+            "env.reward.vy_track=85.0",
+            "env.reward.vyaw_track=70.0",
+            "env.reward.target_collision=30.0",
+            "env.reward.clearance_motion=20.0",
+            "env.reward.clearance_target_motion=35.0",
+            "env.reward.clearance_opening=20.0",
+            "env.reward.blocked_projection=120.0",
+            "env.reward.blocked_speed=10.0",
+            "env.reward.blocked_stop=4.0",
+            "env.reward.blocked_lateral_escape=8.0",
+            "env.reward.idle_stop=45.0",
+            "env.reward.yaw_idle_stop=40.0",
+            "env.reward.off_axis=35.0",
+            "env.reward.reverse=60.0",
+        ),
+        scenario_weights={
+            "zero_input_hold": 5.0,
+            "clear_forward_follow": 14.0,
+            "clear_diagonal_follow": 14.0,
+            "front_blocked_stop": 0.5,
+            "right_wall_forward": 3.0,
+        },
+    ),
     "clear_explore": CurriculumPhase(
         name="clear_explore",
         overrides=(
