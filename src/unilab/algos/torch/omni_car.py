@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 from rsl_rl.models import MLPModel
+from rsl_rl.models.mlp_model import HiddenState, unpad_trajectories
 from rsl_rl.utils import resolve_nn_activation
 from tensordict import TensorDict
 
@@ -102,6 +103,9 @@ class OmniCarGridCNNGRUModel(MLPModel):
         gru_hidden_dim: int = 128,
         gru_layers: int = 1,
         command_conditioned_grid: bool = False,
+        command_skip_scale: float = 0.0,
+        residual_action_scale: float = 1.0,
+        zero_residual_head: bool = False,
     ) -> None:
         self.grid_size = int(grid_size)
         self.grid_history_len = int(grid_history_len)
@@ -112,6 +116,9 @@ class OmniCarGridCNNGRUModel(MLPModel):
         self.gru_hidden_dim = int(gru_hidden_dim)
         self.gru_layers = int(gru_layers)
         self.command_conditioned_grid = bool(command_conditioned_grid)
+        self.command_skip_scale = float(command_skip_scale)
+        self.residual_action_scale = float(residual_action_scale)
+        self.zero_residual_head = bool(zero_residual_head)
         self.grid_input_channels = 4 if self.command_conditioned_grid else 1
         activation = _normalize_activation_name(activation)
         super().__init__(
@@ -162,6 +169,16 @@ class OmniCarGridCNNGRUModel(MLPModel):
             num_layers=self.gru_layers,
             batch_first=True,
         )
+        if self.zero_residual_head and output_dim == 3:
+            self._zero_last_linear()
+
+    def _zero_last_linear(self) -> None:
+        for module in reversed(self.mlp):
+            if isinstance(module, nn.Linear):
+                nn.init.zeros_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+                return
 
     def _condition_grid(self, grid: torch.Tensor, command: torch.Tensor) -> torch.Tensor:
         if not self.command_conditioned_grid:
@@ -211,6 +228,37 @@ class OmniCarGridCNNGRUModel(MLPModel):
         _, hidden = self.grid_gru(frame_features)
         grid_features = hidden[-1]
         return torch.cat([grid_features, low_state], dim=-1)
+
+    def _current_command(self, obs: TensorDict) -> torch.Tensor:
+        obs_list = [obs[obs_group] for obs_group in self.obs_groups]
+        raw_flat = torch.cat(obs_list, dim=-1)
+        return raw_flat[..., self.grid_stack_dim : self.grid_stack_dim + 3].reshape(
+            raw_flat.shape[0], 3
+        )
+
+    def forward(
+        self,
+        obs: TensorDict,
+        masks: torch.Tensor | None = None,
+        hidden_state: HiddenState = None,
+        stochastic_output: bool = False,
+    ) -> torch.Tensor:
+        obs = unpad_trajectories(obs, masks) if masks is not None and not self.is_recurrent else obs
+        latent = self.get_latent(obs, masks, hidden_state)
+        mlp_output = self.mlp(latent)
+        if mlp_output.shape[-1] == 3 and (
+            self.command_skip_scale != 0.0 or self.residual_action_scale != 1.0
+        ):
+            mlp_output = (
+                self.residual_action_scale * mlp_output
+                + self.command_skip_scale * self._current_command(obs)
+            )
+        if self.distribution is not None:
+            if stochastic_output:
+                self.distribution.update(mlp_output)
+                return self.distribution.sample()
+            return self.distribution.deterministic_output(mlp_output)
+        return mlp_output
 
     def update_normalization(self, obs: TensorDict) -> None:
         if self.obs_normalization:
