@@ -106,6 +106,7 @@ class OmniCarGridCNNGRUModel(MLPModel):
         command_skip_scale: float = 0.0,
         residual_action_scale: float = 1.0,
         residual_action_mode: str = "linear",
+        residual_action_frame: str = "body",
         residual_action_limit: tuple[float, float, float] | list[float] | float = 1.0,
         zero_residual_head: bool = False,
     ) -> None:
@@ -121,6 +122,7 @@ class OmniCarGridCNNGRUModel(MLPModel):
         self.command_skip_scale = float(command_skip_scale)
         self.residual_action_scale = float(residual_action_scale)
         self.residual_action_mode = str(residual_action_mode)
+        self.residual_action_frame = str(residual_action_frame)
         self.residual_action_limit = residual_action_limit
         self.zero_residual_head = bool(zero_residual_head)
         self.grid_input_channels = 4 if self.command_conditioned_grid else 1
@@ -179,6 +181,11 @@ class OmniCarGridCNNGRUModel(MLPModel):
             raise ValueError(
                 "residual_action_mode must be 'linear' or 'tanh', "
                 f"got {self.residual_action_mode!r}"
+            )
+        if self.residual_action_frame not in ("body", "command"):
+            raise ValueError(
+                "residual_action_frame must be 'body' or 'command', "
+                f"got {self.residual_action_frame!r}"
             )
         limit = torch.as_tensor(self.residual_action_limit, dtype=torch.float32)
         if limit.ndim == 0:
@@ -253,13 +260,36 @@ class OmniCarGridCNNGRUModel(MLPModel):
             raw_flat.shape[0], 3
         )
 
-    def _residual_action(self, mlp_output: torch.Tensor) -> torch.Tensor:
+    def _residual_action(
+        self, mlp_output: torch.Tensor, command: torch.Tensor | None = None
+    ) -> torch.Tensor:
         residual = self.residual_action_scale * mlp_output
         if self.residual_action_mode == "tanh":
             residual = torch.tanh(residual) * self._residual_action_limit.to(
                 device=residual.device,
                 dtype=residual.dtype,
             )
+        if self.residual_action_frame == "command":
+            if command is None:
+                raise ValueError("command is required for command-frame residual actions")
+            planar = command[..., :2]
+            command_norm = torch.linalg.vector_norm(planar, dim=-1, keepdim=True)
+            direction = planar / torch.clamp(command_norm, min=1e-6)
+            direction = torch.where(
+                command_norm > 1e-6,
+                direction,
+                torch.zeros_like(direction),
+            )
+            parallel = residual[..., 0:1]
+            lateral = residual[..., 1:2]
+            body_xy = torch.cat(
+                [
+                    parallel * direction[..., 0:1] - lateral * direction[..., 1:2],
+                    parallel * direction[..., 1:2] + lateral * direction[..., 0:1],
+                ],
+                dim=-1,
+            )
+            residual = torch.cat([body_xy, residual[..., 2:3]], dim=-1)
         return residual
 
     def forward(
@@ -275,9 +305,10 @@ class OmniCarGridCNNGRUModel(MLPModel):
         if mlp_output.shape[-1] == 3 and (
             self.command_skip_scale != 0.0 or self.residual_action_scale != 1.0
         ):
+            command = self._current_command(obs)
             mlp_output = (
-                self._residual_action(mlp_output)
-                + self.command_skip_scale * self._current_command(obs)
+                self._residual_action(mlp_output, command)
+                + self.command_skip_scale * command
             )
         if self.distribution is not None:
             if stochastic_output:
