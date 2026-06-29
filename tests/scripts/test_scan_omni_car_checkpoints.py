@@ -166,8 +166,22 @@ def test_scan_checkpoints_can_require_behavior_gate() -> None:
         "200": _summary(collision=0.02, tracking=0.35, jerk=0.10, ret=20.0),
     }
     behaviors = {
-        "100": {"strict_passed": False, "scenarios": [{"scenario": "zero", "passed": False}]},
-        "200": {"strict_passed": True, "scenarios": [{"scenario": "zero", "passed": True}]},
+        "100": {
+            "strict_passed": False,
+            "scenarios": [{"scenario": "zero", "passed": False}],
+        },
+        "200": {
+            "strict_passed": True,
+            "scenarios": [
+                {
+                    "scenario": "zero",
+                    "passed": True,
+                    "reward_blocked_projection_mean": -1.0,
+                    "reward_blocked_speed_mean": -2.0,
+                    "reward_blocked_stop_mean": 3.0,
+                }
+            ],
+        },
     }
 
     def _fake_evaluator(args: Namespace) -> dict[str, object]:
@@ -205,6 +219,10 @@ def test_scan_checkpoints_can_require_behavior_gate() -> None:
     assert result["best_passing_all_gates"]["checkpoint"] == 200
     assert result["evaluations"][0]["behavior_gate"]["passed"] is False
     assert result["evaluations"][1]["behavior_gate"]["passed"] is True
+    scenario = result["evaluations"][1]["behavior_gate"]["scenarios"][0]
+    assert scenario["reward_blocked_projection_mean"] == -1.0
+    assert scenario["reward_blocked_speed_mean"] == -2.0
+    assert scenario["reward_blocked_stop_mean"] == 3.0
 
 
 def test_scan_checkpoints_suppresses_noisy_evaluator_output_by_default(capsys) -> None:

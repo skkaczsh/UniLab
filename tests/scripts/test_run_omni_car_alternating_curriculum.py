@@ -87,6 +87,7 @@ def test_build_train_command_includes_phase_and_resume_overrides() -> None:
     assert "algo.save_interval=25" in command
     assert "env.obstacles.front_blocker_fraction=0.55" in command
     assert "env.reward.intent_projection=65.0" in command
+    assert "env.reward.blocked_speed=260.0" in command
     assert "env.reward.blocked_lateral_escape=95.0" in command
     assert "algo.seed=7" in command
 

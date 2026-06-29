@@ -213,6 +213,7 @@ def _format_summary(summary: dict[str, float | int | list[float] | None]) -> str
         "omni_car/reward/clearance_motion",
         "omni_car/reward/clearance_target_motion",
         "omni_car/reward/blocked_projection",
+        "omni_car/reward/blocked_speed",
         "omni_car/reward/blocked_stop",
         "omni_car/reward/off_axis",
         "omni_car/reward/reverse",

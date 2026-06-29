@@ -198,6 +198,7 @@ def _empty_record() -> dict[str, list[float]]:
         "reward_blocked_lateral_escape": [],
         "reward_target_collision": [],
         "reward_blocked_projection": [],
+        "reward_blocked_speed": [],
         "reward_blocked_stop": [],
         "reward_idle_stop": [],
         "reward_yaw_idle_stop": [],
@@ -249,6 +250,10 @@ def _record_step(record: dict[str, list[float]], env: Any, step_info: dict[str, 
     if blocked_projection is None:
         blocked_projection = np.zeros_like(reward_components["idle_stop"])
     record["reward_blocked_projection"].extend(np.asarray(blocked_projection).tolist())
+    blocked_speed = reward_components.get("blocked_speed")
+    if blocked_speed is None:
+        blocked_speed = np.zeros_like(reward_components["idle_stop"])
+    record["reward_blocked_speed"].extend(np.asarray(blocked_speed).tolist())
     blocked_stop = reward_components.get("blocked_stop")
     if blocked_stop is None:
         blocked_stop = np.zeros_like(reward_components["idle_stop"])
@@ -288,6 +293,7 @@ def _summarize_record(
         ),
         "reward_target_collision_mean": _mean(record.get("reward_target_collision", [])),
         "reward_blocked_projection_mean": _mean(record.get("reward_blocked_projection", [])),
+        "reward_blocked_speed_mean": _mean(record.get("reward_blocked_speed", [])),
         "reward_blocked_stop_mean": _mean(record.get("reward_blocked_stop", [])),
         "reward_idle_stop_mean": _mean(record["reward_idle_stop"]),
         "reward_yaw_idle_stop_mean": _mean(record["reward_yaw_idle_stop"]),
@@ -360,6 +366,7 @@ def _format_summary(summary: dict[str, Any]) -> str:
             f"r_lat_escape={item['reward_blocked_lateral_escape_mean']:.4f} "
             f"r_target_collision={item['reward_target_collision_mean']:.4f} "
             f"r_blocked_proj={item['reward_blocked_projection_mean']:.4f} "
+            f"r_blocked_speed={item['reward_blocked_speed_mean']:.4f} "
             f"r_blocked_stop={item['reward_blocked_stop_mean']:.4f} "
             f"r_idle={item['reward_idle_stop_mean']:.4f} "
             f"r_yaw_idle={item['reward_yaw_idle_stop_mean']:.4f}"

@@ -149,6 +149,7 @@ env:
     target_collision_margin_m: 0.25
     target_collision_speed_mps: 0.25
     blocked_projection: 1200.0
+    blocked_speed: 180.0
     blocked_stop: 32.0
     idle_stop: 40.0
     yaw_idle_stop: 30.0
@@ -186,6 +187,7 @@ reward:
   target_collision_margin_m: 0.25
   target_collision_speed_mps: 0.25
   blocked_projection: 1200.0
+  blocked_speed: 180.0
   blocked_stop: 32.0
   idle_stop: 40.0
   yaw_idle_stop: 30.0

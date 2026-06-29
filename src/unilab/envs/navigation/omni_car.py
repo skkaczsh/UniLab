@@ -110,6 +110,7 @@ class OmniCarRewardCfg:
     target_collision_margin_m: float = 0.25
     target_collision_speed_mps: float = 0.25
     blocked_projection: float = 0.0
+    blocked_speed: float = 0.0
     blocked_stop: float = 0.0
     idle_stop: float = 4.0
     yaw_idle_stop: float = 0.0
@@ -482,7 +483,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
                 "clearance_target_motion",
                 "clearance_opening",
                 "blocked_lateral_escape",
+                "target_collision",
                 "blocked_projection",
+                "blocked_speed",
                 "blocked_stop",
                 "idle_stop",
                 "yaw_idle_stop",
@@ -2344,6 +2347,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         idle_mask = command_norm <= self._cfg.command.deadband
         target_planar_speed = np.linalg.norm(target_action[:, :2], axis=1)
         target_yaw_speed = np.abs(target_action[:, 2])
+        blocked_speed_action = target_action if policy_action is not None else action
+        blocked_planar_speed = np.linalg.norm(blocked_speed_action[:, :2], axis=1)
         closing_speed = np.maximum(
             (previous_clearance - self._nearest_clearance) / max(self._cfg.ctrl_dt, 1e-6),
             0.0,
@@ -2390,6 +2395,13 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         blocked_projection_cost = np.where(
             active_planar,
             blocked_path_risk * np.maximum(projection, 0.0) ** 2,
+            0.0,
+        )
+        blocked_speed_cost = np.where(
+            active_planar,
+            blocked_path_risk
+            * (blocked_planar_speed / max(float(self._cfg.physical_limits.max_x_speed), 1e-6))
+            ** 2,
             0.0,
         )
         blocked_stop_reward = np.where(
@@ -2451,6 +2463,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "blocked_projection": (
                 -cfg.blocked_projection * blocked_projection_cost
             ).astype(self._dtype),
+            "blocked_speed": (-cfg.blocked_speed * blocked_speed_cost).astype(
+                self._dtype
+            ),
             "blocked_stop": (cfg.blocked_stop * blocked_stop_reward).astype(self._dtype),
             "idle_stop": (-cfg.idle_stop * (idle_action_cost + idle_target_cost)).astype(
                 self._dtype
@@ -2486,6 +2501,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             + self._reward_components["blocked_lateral_escape"]
             + self._reward_components["target_collision"]
             + self._reward_components["blocked_projection"]
+            + self._reward_components["blocked_speed"]
             + self._reward_components["blocked_stop"]
             + self._reward_components["idle_stop"]
             + self._reward_components["yaw_idle_stop"]
@@ -2755,6 +2771,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "blocked_lateral_escape",
             "target_collision",
             "blocked_projection",
+            "blocked_speed",
             "blocked_stop",
             "idle_stop",
             "off_axis",
