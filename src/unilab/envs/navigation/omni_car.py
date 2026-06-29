@@ -353,9 +353,12 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._obs_history_len = int(max(cfg.obs_history_len, 1))
         self._grid_dim = cfg.grid.size * cfg.grid.size
         self._grid_stack_dim = self._grid_history_len * self._grid_dim
+        self._grid_feature_dim = 4
         self._history_block_dim = self._obs_history_len * 3
         self._history_dim = self._history_block_dim * 3
-        self._obs_dim = self._grid_stack_dim + 3 + 3 + 3 + self._history_dim
+        self._obs_dim = (
+            self._grid_stack_dim + 3 + 3 + 3 + self._grid_feature_dim + self._history_dim
+        )
         self._critic_dim = self._obs_dim + 1 + 1 + 3
         self._rng = np.random.default_rng(cfg.seed)
         self._dtype = get_global_dtype()
@@ -1654,6 +1657,7 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         self._fill_occupancy_grid(env_indices, grid_view)
         self._append_grid_history(env_indices, grid_view)
         grid = self._grid_history[env_indices].reshape(count, -1)
+        grid_features = self._grid_command_features(env_indices, grid_view)
         command_hist = self._command_history[env_indices].reshape(env_indices.size, -1)
         velocity_hist = self._velocity_history[env_indices].reshape(env_indices.size, -1)
         action_hist = self._action_history[env_indices].reshape(env_indices.size, -1)
@@ -1670,6 +1674,8 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         col += 3
         obs[:, col : col + 3] = self._last_action[env_indices]
         col += 3
+        obs[:, col : col + self._grid_feature_dim] = grid_features
+        col += self._grid_feature_dim
         obs[:, col : col + self._history_block_dim] = command_hist
         col += self._history_block_dim
         obs[:, col : col + self._history_block_dim] = velocity_hist
@@ -1683,6 +1689,49 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         critic_col += 1
         critic[:, critic_col : critic_col + 3] = self._pose[env_indices]
         return {"obs": obs.copy(), "critic": critic.copy()}
+
+    def _grid_command_features(
+        self, env_indices: np.ndarray, current_grid: np.ndarray
+    ) -> np.ndarray:
+        env_indices = np.asarray(env_indices, dtype=np.int32)
+        features = np.zeros((env_indices.size, self._grid_feature_dim), dtype=self._dtype)
+        if env_indices.size == 0:
+            return features
+        commands = self._commands[env_indices, :2]
+        command_norm = np.linalg.norm(commands, axis=1)
+        active = command_norm > self._cfg.command.deadband
+        if not np.any(active):
+            return features
+        occupied = current_grid.reshape(env_indices.size, -1) > 0.5
+        corridor_half = float(self._cfg.body.width_m) * 0.5 + float(
+            self._cfg.grid.safety_margin_m
+        )
+        side_inner = corridor_half * 0.6
+        side_outer = corridor_half + 0.45
+        lookahead = min(self._grid_extent, 1.35)
+        for row in np.flatnonzero(active):
+            occ = occupied[row]
+            if not np.any(occ):
+                continue
+            direction = commands[row] / max(float(command_norm[row]), 1e-6)
+            longitudinal = direction[0] * self._grid_x + direction[1] * self._grid_y
+            lateral = -direction[1] * self._grid_x + direction[0] * self._grid_y
+            forward = (longitudinal >= 0.0) & (longitudinal <= lookahead) & occ
+            if not np.any(forward):
+                continue
+            longitudinal_weight = np.exp(-np.maximum(longitudinal, 0.0) / 0.45)
+            lateral_abs = np.abs(lateral)
+            corridor = forward & (lateral_abs <= corridor_half)
+            left = forward & (lateral >= side_inner) & (lateral <= side_outer)
+            right = forward & (lateral <= -side_inner) & (lateral >= -side_outer)
+            if np.any(corridor):
+                features[row, 0] = float(np.max(longitudinal_weight[corridor]))
+            if np.any(left):
+                features[row, 1] = float(np.max(longitudinal_weight[left]))
+            if np.any(right):
+                features[row, 2] = float(np.max(longitudinal_weight[right]))
+            features[row, 3] = features[row, 2] - features[row, 1]
+        return features
 
     def _occupancy_grid(self, env_indices: np.ndarray) -> np.ndarray:
         env_indices = np.asarray(env_indices, dtype=np.int32)

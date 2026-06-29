@@ -22,7 +22,7 @@ def test_omni_car_grid_contract() -> None:
     state = env.init_state()
     assert state.obs["obs"].shape == (4, env.obs_groups_spec["obs"])
     assert state.obs["critic"].shape == (4, env.obs_groups_spec["critic"])
-    assert env.obs_groups_spec["obs"] == 10 * 80 * 80 + 3 + 3 + 3 + 24 * 9
+    assert env.obs_groups_spec["obs"] == 10 * 80 * 80 + 3 + 3 + 3 + 4 + 24 * 9
     assert env.obs_groups_spec["critic"] == env.obs_groups_spec["obs"] + 5
     assert env.action_space.shape == (3,)
 
@@ -85,6 +85,7 @@ def test_omni_car_observation_layout_matches_reference_concatenate() -> None:
     command_hist = env._command_history[env_indices].reshape(env_indices.size, -1)
     velocity_hist = env._velocity_history[env_indices].reshape(env_indices.size, -1)
     action_hist = env._action_history[env_indices].reshape(env_indices.size, -1)
+    grid_features = env._grid_command_features(env_indices, env._grid_buffer[: env_indices.size])
     clearance = env._nearest_clearance[env_indices, None]
     collision = env._collision[env_indices, None].astype(env._dtype)
     expected_obs = np.concatenate(
@@ -93,6 +94,7 @@ def test_omni_car_observation_layout_matches_reference_concatenate() -> None:
             env._commands[env_indices],
             env._velocity[env_indices],
             env._last_action[env_indices],
+            grid_features,
             command_hist,
             velocity_hist,
             action_hist,
@@ -126,7 +128,7 @@ def test_omni_car_grid_history_excludes_privileged_actor_inputs() -> None:
     state = env.init_state()
     grid_stack_dim = env._grid_history_len * env._grid_dim
 
-    assert state.obs["obs"].shape[1] == grid_stack_dim + 3 + 3 + 3 + env._history_dim
+    assert state.obs["obs"].shape[1] == grid_stack_dim + 3 + 3 + 3 + 4 + env._history_dim
     assert state.obs["critic"].shape[1] == state.obs["obs"].shape[1] + 5
     np.testing.assert_array_equal(
         state.obs["critic"][:, : state.obs["obs"].shape[1]],
@@ -149,6 +151,45 @@ def test_omni_car_grid_history_excludes_privileged_actor_inputs() -> None:
     assert state.obs["critic"][0, -5] == pytest.approx(env._nearest_clearance[0])
     assert state.obs["critic"][0, -4] == pytest.approx(float(env._collision[0]))
     assert np.count_nonzero(env._grid_history[0, 0] != env._grid_history[0, -1]) > 0
+    env.close()
+
+
+def test_omni_car_grid_command_features_are_sensor_derived() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 44,
+            "obstacles": {
+                "count": 3,
+                "circle_fraction": 1.0,
+                "box_fraction": 0.0,
+                "wall_fraction": 0.0,
+            },
+        },
+    )
+    env.init_state()
+    env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
+    env_ids = np.asarray([0], dtype=np.int32)
+
+    env._obstacle_xy[0] = np.asarray(
+        [[0.70, 0.0], [10.0, 10.0], [10.0, 10.0]], dtype=np.float32
+    )
+    env._obstacle_radius[0] = np.asarray([0.22, 0.10, 0.10], dtype=np.float32)
+    front_grid = env._occupancy_grid(env_ids).reshape(1, env._cfg.grid.size, env._cfg.grid.size)
+    front_features = env._grid_command_features(env_ids, front_grid)
+
+    env._obstacle_xy[0] = np.asarray(
+        [[0.60, -0.34], [1.05, -0.34], [1.50, -0.34]], dtype=np.float32
+    )
+    env._obstacle_radius[0] = np.asarray([0.22, 0.22, 0.22], dtype=np.float32)
+    right_grid = env._occupancy_grid(env_ids).reshape(1, env._cfg.grid.size, env._cfg.grid.size)
+    right_features = env._grid_command_features(env_ids, right_grid)
+
+    assert front_features[0, 0] > 0.0
+    assert right_features[0, 2] > right_features[0, 1]
+    assert right_features[0, 3] > 0.0
     env.close()
 
 
@@ -2170,6 +2211,7 @@ def test_omni_car_cnn_gru_model_forward_actor_and_critic() -> None:
         + 3
         + 3
         + 3
+        + 4
         + cfg.obs_history_len * 9
     )
     critic_obs_dim = actor_obs_dim + 5
@@ -2220,6 +2262,7 @@ def test_omni_car_cnn_gru_model_uses_silu_activation_alias() -> None:
         + 3
         + 3
         + 3
+        + 4
         + cfg.obs_history_len * 9
     )
     actor_obs = torch.zeros((2, actor_obs_dim), dtype=torch.float32)
@@ -2253,6 +2296,7 @@ def test_omni_car_cnn_gru_command_conditioning_adds_directional_grid_channels() 
         + 3
         + 3
         + 3
+        + 4
         + cfg.obs_history_len * 9
     )
     actor_obs = torch.zeros((1, actor_obs_dim), dtype=torch.float32)
@@ -2296,6 +2340,7 @@ def test_omni_car_cnn_gru_command_conditioning_state_dict_roundtrip() -> None:
         + 3
         + 3
         + 3
+        + 4
         + cfg.obs_history_len * 9
     )
     actor_obs = torch.zeros((1, actor_obs_dim), dtype=torch.float32)
@@ -2334,6 +2379,7 @@ def test_omni_car_cnn_gru_command_skip_initializes_actor_at_command() -> None:
         + 3
         + 3
         + 3
+        + 4
         + cfg.obs_history_len * 9
     )
     actor_obs = torch.zeros((2, actor_obs_dim), dtype=torch.float32)
@@ -2373,6 +2419,7 @@ def test_omni_car_cnn_gru_command_skip_bounds_residual_action() -> None:
         + 3
         + 3
         + 3
+        + 4
         + cfg.obs_history_len * 9
     )
     actor_obs = torch.zeros((2, actor_obs_dim), dtype=torch.float32)
@@ -2421,6 +2468,7 @@ def test_omni_car_cnn_gru_command_frame_residual_rotates_with_command() -> None:
         + 3
         + 3
         + 3
+        + 4
         + cfg.obs_history_len * 9
     )
     actor_obs = torch.zeros((3, actor_obs_dim), dtype=torch.float32)

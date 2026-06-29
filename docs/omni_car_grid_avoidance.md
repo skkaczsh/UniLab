@@ -8,9 +8,9 @@ deviating smoothly when obstacles block the path.
 
 - Grid input: `80 x 80`, `0.05 m` per cell, centered on the robot body frame.
 - Policy input: deployable signals only: `10` occupancy-grid frames, current
-  smoothed command, current velocity, last action, command history, velocity
-  history, and action history. Nearest clearance and collision are not actor
-  inputs.
+  smoothed command, current velocity, last action, four command-aligned
+  occupancy-grid risk features, command history, velocity history, and action
+  history. Nearest clearance and collision are not actor inputs.
 - Critic input: policy input plus train-time privileged state: nearest
   clearance, collision flag, and global pose.
 - Action output: body-frame `vx`, `vy`, `vyaw`.
@@ -58,6 +58,11 @@ Current defaults in this branch:
 - Policy architecture: `OmniCarGridCNNGRUModel` with command-conditioned grid
   channels (`occupancy + command longitudinal + |lateral| + command norm` per
   grid frame, then GRU over 10 CNN features + MLP)
+- The four scalar grid-derived risk features summarize command-corridor
+  occupancy, left-side occupancy, right-side occupancy, and right-minus-left
+  imbalance. They are deterministic projections of the same `80 x 80`
+  occupancy grid, so they are deployable perception features rather than
+  privileged simulator clearance or collision flags.
 - The actor can optionally use a command-skip residual form,
   `action = command + residual`. By default the residual is interpreted in body
   axes for checkpoint compatibility; setting `algo.actor.residual_action_frame=command`
