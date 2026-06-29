@@ -223,11 +223,13 @@ clearance loss, and collision expensive enough that sliding into walls or
 pushing through blockers is not a profitable local optimum. Entropy is kept low
 enough that zero-command samples can converge to a stationary mean action.
 
-Recent diagnostics showed that a clear-scene PPO pretrain learns command
-following before the dense obstacle mix does. The recommended training path is
-therefore staged: learn clear command-follow first, then fine-tune with the
-front-blocker and side-wall curriculum. This is still an RL curriculum; no
-geometry-level action gate is inserted.
+Recent diagnostics showed that clear-scene command following and blocked-path
+safety are both learnable with the current `CNN + GRU + MLP` policy, but a
+single long fine-tune can let one behavior overwrite the other. The recommended
+training path is therefore an alternating curriculum: run short safety, clear,
+and balanced phases, scan checkpoints after each phase, and continue from the
+checkpoint with the best phase-specific behavior probe cost. This is still an
+RL curriculum; no geometry-level action gate is inserted.
 
 The `CNN + GRU` observation contract is intentionally incompatible with older
 `CNN + MLP` checkpoints. Historical checkpoint manifests remain useful for
@@ -249,6 +251,23 @@ and diagonal following, front-blocked push, and a near-wall forward command.
 It reports planar speed, yaw drift, command projection, off-axis motion,
 collision fraction, clearance risk, and reward components. A checkpoint should pass this
 probe before being treated as a candidate for manual Xbox fine-tuning.
+
+To automate the alternating PPO phases and checkpoint selection:
+
+```bash
+uv run scripts/run_omni_car_alternating_curriculum.py \
+  --load-run /absolute/path/to/model.pt \
+  --run-prefix remote_auto_curriculum \
+  --output logs/remote_auto_curriculum/manifest.json \
+  --rounds 2 \
+  --phase-iterations 75 \
+  --num-envs 128 \
+  --num-steps-per-env 32
+```
+
+The orchestrator writes a manifest after every phase, including the run
+directory, scanned checkpoints, selected checkpoint path, behavior cost, and
+whether all strict behavior gates passed.
 
 ## Training
 
