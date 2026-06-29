@@ -139,8 +139,12 @@ class OmniCarGridCNNGRUModel(MLPModel):
             - float(self.grid_size) / 2.0
         ) * self.grid_cell_size
         grid_x, grid_y = torch.meshgrid(axis, axis, indexing="ij")
-        self.register_buffer("_grid_x", grid_x.view(1, 1, self.grid_size, self.grid_size))
-        self.register_buffer("_grid_y", grid_y.view(1, 1, self.grid_size, self.grid_size))
+        self.register_buffer(
+            "_grid_x", grid_x.contiguous().view(1, 1, self.grid_size, self.grid_size)
+        )
+        self.register_buffer(
+            "_grid_y", grid_y.contiguous().view(1, 1, self.grid_size, self.grid_size)
+        )
         self.grid_encoder = nn.Sequential(
             nn.Conv2d(self.grid_input_channels, 8, kernel_size=5, stride=2, padding=2),
             _activation(activation),

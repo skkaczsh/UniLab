@@ -1951,3 +1951,41 @@ def test_omni_car_cnn_gru_command_conditioning_adds_directional_grid_channels() 
     assert forward[0, 0, 1, ahead, center] > forward[0, 0, 1, center, center]
     assert lateral[0, 0, 1, center, ahead] > lateral[0, 0, 1, center, center]
     assert torch.allclose(zero[:, :, 1:], torch.zeros_like(zero[:, :, 1:]))
+
+
+def test_omni_car_cnn_gru_command_conditioning_state_dict_roundtrip() -> None:
+    cfg = OmniCarGridAvoidanceCfg()
+    actor_obs_dim = (
+        cfg.grid_history_len * cfg.grid.size * cfg.grid.size
+        + 3
+        + 3
+        + 3
+        + cfg.obs_history_len * 9
+    )
+    actor_obs = torch.zeros((1, actor_obs_dim), dtype=torch.float32)
+
+    def _make_model() -> OmniCarGridCNNGRUModel:
+        return OmniCarGridCNNGRUModel(
+            TensorDict({"actor": actor_obs}, batch_size=1),
+            {"actor": ["actor"]},
+            "actor",
+            3,
+            hidden_dims=[16],
+            grid_history_len=cfg.grid_history_len,
+            grid_cell_size=cfg.grid.cell_size,
+            command_conditioned_grid=True,
+            cnn_feature_dim=8,
+            gru_hidden_dim=8,
+            distribution_cfg={
+                "class_name": "rsl_rl.modules.distribution.GaussianDistribution",
+                "init_std": 0.5,
+                "std_type": "scalar",
+            },
+        )
+
+    source = _make_model()
+    target = _make_model()
+    target.load_state_dict(source.state_dict())
+
+    torch.testing.assert_close(target._grid_x, source._grid_x)
+    torch.testing.assert_close(target._grid_y, source._grid_y)
