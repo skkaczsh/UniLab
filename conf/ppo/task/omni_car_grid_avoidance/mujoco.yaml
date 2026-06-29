@@ -156,6 +156,12 @@ env:
     clearance_opening: 90.0
     clearance_target_opening: 60.0
     blocked_lateral_escape: 70.0
+    blocked_lateral_escape_side_bias_min: 0.08
+    blocked_lateral_escape_side_bias_width: 0.20
+    lateral_drift: 0.0
+    lateral_drift_margin_m: 0.08
+    lateral_drift_scale_m: 0.25
+    lateral_drift_cost_clip: 4.0
     target_collision: 220.0
     target_collision_margin_m: 0.25
     target_collision_speed_mps: 0.25
@@ -197,6 +203,12 @@ reward:
   clearance_opening: 90.0
   clearance_target_opening: 60.0
   blocked_lateral_escape: 70.0
+  blocked_lateral_escape_side_bias_min: 0.08
+  blocked_lateral_escape_side_bias_width: 0.20
+  lateral_drift: 0.0
+  lateral_drift_margin_m: 0.08
+  lateral_drift_scale_m: 0.25
+  lateral_drift_cost_clip: 4.0
   target_collision: 220.0
   target_collision_margin_m: 0.25
   target_collision_speed_mps: 0.25
