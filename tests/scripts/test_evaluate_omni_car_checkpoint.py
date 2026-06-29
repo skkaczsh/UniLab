@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from omegaconf import OmegaConf
 
 
 def _load_module():
@@ -85,3 +86,46 @@ def test_json_cli_suppresses_evaluator_noise(monkeypatch, capsys) -> None:
         "checkpoint_path": "model.pt",
         "collision_fraction": 0.0,
     }
+
+
+def test_compose_cfg_restores_run_config_actor_overrides(tmp_path: Path) -> None:
+    module = _load_module()
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "run_config.json").write_text(
+        json.dumps(
+            {
+                "config": {
+                    "algo": {
+                        "actor": {
+                            "command_skip_scale": 1.0,
+                            "residual_action_scale": 0.6,
+                            "residual_action_mode": "tanh",
+                            "residual_action_limit": [0.45, 0.35, 0.6],
+                            "zero_residual_head": True,
+                        },
+                        "load_run": "-1",
+                    },
+                    "training": {
+                        "play_only": False,
+                        "play_render_mode": "human",
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    cfg = module._compose_cfg(
+        module.argparse.Namespace(load_run=str(run_dir), checkpoint="60")
+    )
+
+    assert OmegaConf.select(cfg, "algo.actor.command_skip_scale") == 1.0
+    assert OmegaConf.select(cfg, "algo.actor.residual_action_scale") == 0.6
+    assert OmegaConf.select(cfg, "algo.actor.residual_action_mode") == "tanh"
+    assert OmegaConf.select(cfg, "algo.actor.residual_action_limit") == [0.45, 0.35, 0.6]
+    assert OmegaConf.select(cfg, "algo.actor.zero_residual_head") is True
+    assert OmegaConf.select(cfg, "algo.load_run") == str(run_dir)
+    assert OmegaConf.select(cfg, "algo.checkpoint") == "60"
+    assert OmegaConf.select(cfg, "training.play_only") is True
+    assert OmegaConf.select(cfg, "training.play_render_mode") == "none"

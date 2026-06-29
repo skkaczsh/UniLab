@@ -16,7 +16,7 @@ import numpy as np
 import torch
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 ROOT_DIR = Path(__file__).parent.parent
 SRC_DIR = ROOT_DIR / "src"
@@ -157,19 +157,52 @@ class OmniCarEvalAccumulator:
         return summary
 
 
+def _run_config_path(load_run: str) -> Path | None:
+    candidates: list[Path] = []
+    raw = Path(str(load_run))
+    for path in (raw, ROOT_DIR / raw):
+        if path.is_file():
+            candidates.append(path.parent / "run_config.json")
+        candidates.append(path / "run_config.json")
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _load_run_config(load_run: str) -> dict | None:
+    path = _run_config_path(load_run)
+    if path is None:
+        return None
+    with path.open("r", encoding="utf-8") as stream:
+        payload = json.load(stream)
+    config = payload.get("config") if isinstance(payload, dict) else None
+    return config if isinstance(config, dict) else None
+
+
 def _compose_cfg(args: argparse.Namespace) -> DictConfig:
     if GlobalHydra.instance().is_initialized():
         GlobalHydra.instance().clear()
     with initialize_config_dir(version_base="1.3", config_dir=str(ROOT_DIR / "conf" / "ppo")):
-        overrides = [
+        base_overrides = [
             "task=omni_car_grid_avoidance/mujoco",
             "training.play_only=true",
             "training.play_render_mode=none",
             f"algo.load_run={args.load_run}",
         ]
         if args.checkpoint is not None:
-            overrides.append(f"algo.checkpoint={args.checkpoint}")
-        return compose(config_name="config", overrides=overrides)
+            base_overrides.append(f"algo.checkpoint={args.checkpoint}")
+        cfg = compose(config_name="config", overrides=base_overrides)
+        run_config = _load_run_config(str(args.load_run))
+        if run_config is None:
+            return cfg
+        cfg = OmegaConf.merge(cfg, OmegaConf.create(run_config))
+        OmegaConf.update(cfg, "training.play_only", True, merge=False)
+        OmegaConf.update(cfg, "training.play_render_mode", "none", merge=False)
+        OmegaConf.update(cfg, "algo.load_run", str(args.load_run), merge=False)
+        if args.checkpoint is not None:
+            OmegaConf.update(cfg, "algo.checkpoint", str(args.checkpoint), merge=False)
+        return cfg
 
 
 def _resolve_device(device: str | None) -> str:
