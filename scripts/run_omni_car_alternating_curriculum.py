@@ -38,6 +38,37 @@ class CurriculumPhase:
 
 
 PHASES: dict[str, CurriculumPhase] = {
+    "clear_explore": CurriculumPhase(
+        name="clear_explore",
+        overrides=(
+            "env.command.zero_fraction=0.10",
+            "env.command.long_hold_fraction=0.55",
+            "env.obstacles.clear_path_fraction=0.85",
+            "env.obstacles.front_blocker_fraction=0.05",
+            "env.obstacles.side_wall_fraction=0.05",
+            "env.reward.intent=220.0",
+            "env.reward.intent_projection=160.0",
+            "env.reward.response=120.0",
+            "env.reward.vx_track=80.0",
+            "env.reward.vy_track=70.0",
+            "env.reward.vyaw_track=55.0",
+            "env.reward.target_collision=120.0",
+            "env.reward.clearance_target_motion=120.0",
+            "env.reward.blocked_projection=700.0",
+            "env.reward.blocked_speed=50.0",
+            "env.reward.blocked_stop=18.0",
+            "env.reward.blocked_lateral_escape=30.0",
+            "env.reward.idle_stop=24.0",
+            "env.reward.yaw_idle_stop=18.0",
+        ),
+        scenario_weights={
+            "zero_input_hold": 2.0,
+            "clear_forward_follow": 10.0,
+            "clear_diagonal_follow": 10.0,
+            "front_blocked_stop": 1.5,
+            "right_wall_forward": 5.0,
+        },
+    ),
     "safety": CurriculumPhase(
         name="safety",
         overrides=(
@@ -261,9 +292,10 @@ def build_train_command(
     num_steps_per_env: int,
     save_interval: int,
     phase: CurriculumPhase,
+    resume_action_std: float | None = None,
     extra_overrides: Sequence[str] = (),
 ) -> list[str]:
-    return [
+    command = [
         uv_bin,
         "run",
         "train",
@@ -282,8 +314,11 @@ def build_train_command(
         f"algo.max_iterations={int(max_iterations)}",
         f"algo.save_interval={int(save_interval)}",
         *phase.overrides,
-        *extra_overrides,
     ]
+    if resume_action_std is not None:
+        command.append(f"algo.resume_action_std={float(resume_action_std)}")
+    command.extend(extra_overrides)
+    return command
 
 
 def build_scan_command(
@@ -382,6 +417,7 @@ def run_curriculum(args: argparse.Namespace) -> dict[str, Any]:
                 num_steps_per_env=int(args.num_steps_per_env),
                 save_interval=int(args.save_interval),
                 phase=phase,
+                resume_action_std=args.resume_action_std,
                 extra_overrides=args.overrides,
             )
             _run(train_command, dry_run=bool(args.dry_run))
@@ -531,6 +567,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--behavior-num-envs", type=int, default=16)
     parser.add_argument("--behavior-num-steps", type=int, default=96)
     parser.add_argument("--behavior-seed", type=int, default=17)
+    parser.add_argument(
+        "--resume-action-std",
+        type=float,
+        default=None,
+        help="Reset Gaussian action std after loading each phase checkpoint.",
+    )
     parser.add_argument("--uv-bin", default=DEFAULT_UV_BIN)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(

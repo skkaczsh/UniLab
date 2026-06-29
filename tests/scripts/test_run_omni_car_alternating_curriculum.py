@@ -67,6 +67,7 @@ def test_build_train_command_includes_phase_and_resume_overrides() -> None:
         num_steps_per_env=32,
         save_interval=25,
         phase=module.PHASES["safety"],
+        resume_action_std=0.35,
         extra_overrides=["algo.seed=7"],
     )
 
@@ -89,7 +90,19 @@ def test_build_train_command_includes_phase_and_resume_overrides() -> None:
     assert "env.reward.intent_projection=65.0" in command
     assert "env.reward.blocked_speed=260.0" in command
     assert "env.reward.blocked_lateral_escape=95.0" in command
+    assert "algo.resume_action_std=0.35" in command
     assert "algo.seed=7" in command
+
+
+def test_clear_explore_phase_prioritizes_following_recovery() -> None:
+    module = _load_module()
+
+    phase = module.PHASES["clear_explore"]
+
+    assert "env.command.zero_fraction=0.10" in phase.overrides
+    assert "env.obstacles.clear_path_fraction=0.85" in phase.overrides
+    assert "env.reward.intent=220.0" in phase.overrides
+    assert phase.scenario_weights["clear_forward_follow"] > phase.scenario_weights["front_blocked_stop"]
 
 
 def test_build_scan_command_enables_behavior_gate() -> None:
