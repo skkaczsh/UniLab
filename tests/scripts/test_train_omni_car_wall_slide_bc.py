@@ -33,6 +33,10 @@ def test_oracle_scenarios_include_directional_follow_slide_and_guards() -> None:
     assert scenarios["clear_backward_follow"].target_action == (-0.8, 0.0, 0.0)
     assert scenarios["clear_slow_diagonal_follow"].target_action == (0.35, -0.25, 0.0)
     assert scenarios["yaw_only_follow"].target_action == (0.0, 0.0, 1.0)
+    assert scenarios["yaw_negative_follow"].target_action == (0.0, 0.0, -1.0)
+    assert scenarios["zero_input_hold"].weight > scenarios["clear_forward_follow"].weight
+    assert scenarios["yaw_only_follow"].weight > scenarios["clear_forward_follow"].weight
+    assert scenarios["yaw_negative_follow"].weight == scenarios["yaw_only_follow"].weight
     assert scenarios["right_wall_slide"].target_action[0] > 0.0
     assert scenarios["right_wall_slide"].target_action[1] > 0.0
     assert scenarios["right_wall_slide"].target_action[1] >= scenarios["right_wall_slide"].target_action[0]

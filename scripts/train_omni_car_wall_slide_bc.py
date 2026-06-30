@@ -84,7 +84,7 @@ BASE_ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
         name="zero_input_hold",
         behavior=BehaviorScenario(name="zero_input_hold", command=(0.0, 0.0, 0.0)),
         target_action=(0.0, 0.0, 0.0),
-        weight=3.0,
+        weight=8.0,
     ),
     OracleScenario(
         name="clear_forward_follow",
@@ -129,7 +129,13 @@ BASE_ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
         name="yaw_only_follow",
         behavior=BehaviorScenario(name="yaw_only_follow", command=(0.0, 0.0, 1.0)),
         target_action=(0.0, 0.0, 1.0),
-        weight=2.5,
+        weight=5.0,
+    ),
+    OracleScenario(
+        name="yaw_negative_follow",
+        behavior=BehaviorScenario(name="yaw_negative_follow", command=(0.0, 0.0, -1.0)),
+        target_action=(0.0, 0.0, -1.0),
+        weight=5.0,
     ),
     OracleScenario(
         name="front_blocked_stop",
