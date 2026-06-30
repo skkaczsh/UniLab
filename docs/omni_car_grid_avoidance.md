@@ -439,6 +439,27 @@ true zero-input windows, long same-direction commands over arbitrary planar
 directions and speeds, yaw-only and yaw-coupled commands, front blockers, side
 walls, and mixed obstacle types.
 
+Once a Transformer teacher checkpoint exists, distill it into the current
+deployable CNN-GRU student with:
+
+```bash
+uv run scripts/distill_omni_car_transformer_teacher.py \
+  --teacher-load-run logs/rsl_rl_ppo/OmniCarGridAvoidance/<teacher_run>/model_<N>.pt \
+  --student-load-run artifacts/omni_car/checkpoints/silu_capacity_v34b_search_c07_full_it500_lr1em05_s372.pt \
+  --output artifacts/omni_car/checkpoints/silu_capacity_vNN_distilled_student.pt \
+  --num-envs 64 \
+  --iterations 2000 \
+  --learning-rate 3e-5 \
+  --rollout-source teacher \
+  --device cuda:0
+```
+
+The distiller loads both checkpoints with their own model configs, rolls out a
+shared non-privileged OmniCar observation stream, and trains only the student
+actor. The default loss combines axis-weighted action imitation, diff
+imitation, jerk imitation, and an explicit zero-command stop term. The output
+checkpoint must still pass the same broad robustness gate before promotion.
+
 Distillation does not replace the safety gate. A distilled student is promoted
 only after passing the broad robustness gate for zero input, clear following,
 front-blocked stop, wall sliding, yaw, and collision behavior.
