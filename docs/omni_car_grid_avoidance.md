@@ -350,6 +350,30 @@ An exact low-LR repair on `directional_left_wall_04` from that checkpoint
 front-blocked regression with a small collision fraction. Do not promote that
 checkpoint.
 
+The wall-slide oracle now uses a projection-dominant target: move along the wall
+at `0.65 m/s` and add only `0.25 m/s` away from the wall. This better matches
+the desired "slide along the wall" behavior than the older equal
+forward/lateral target. For narrow repairs, use `--scenario-weight` to boost the
+failed scenario while keeping zero/front/clear rehearsal active, for example:
+
+```bash
+uv run scripts/train_omni_car_wall_slide_bc.py \
+  --load-run artifacts/omni_car/checkpoints/silu_capacity_v34b_search_c07_full_it500_lr1em05_s372.pt \
+  --output artifacts/omni_car/checkpoints/silu_capacity_v35_leftwall_rehearsal.pt \
+  --num-envs 64 \
+  --iterations 600 \
+  --rollout-steps 2 \
+  --rollout-actions target \
+  --learning-rate 2e-5 \
+  --seed 381 \
+  --scenario-group base \
+  --scenario-group directional_clear \
+  --scenario-group directional_front \
+  --scenario directional_left_wall_04 \
+  --scenario-weight directional_left_wall_04=8 \
+  --device cuda:0
+```
+
 When a two-stage repair run still misses the strict gate, run a bounded
 candidate search instead of manually promoting the latest checkpoint:
 

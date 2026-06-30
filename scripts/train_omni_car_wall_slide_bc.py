@@ -9,7 +9,7 @@ import math
 import sys
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +30,9 @@ from unilab.training.experiment import patch_rsl_rl_resume_state
 
 MAX_X_SPEED = 2.0
 MAX_Y_SPEED = 1.0
+WALL_SLIDE_PARALLEL_SPEED = 0.65
+WALL_SLIDE_LATERAL_AWAY_SPEED = 0.25
+WALL_SLIDE_WEIGHT = 12.0
 
 
 @dataclass(frozen=True)
@@ -156,8 +159,8 @@ BASE_ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
             obstacle_xy=((0.60, -0.34), (1.05, -0.34), (1.50, -0.34)),
             obstacle_radius=(0.22, 0.22, 0.22),
         ),
-        target_action=(0.45, 0.45, 0.0),
-        weight=8.0,
+        target_action=(WALL_SLIDE_PARALLEL_SPEED, WALL_SLIDE_LATERAL_AWAY_SPEED, 0.0),
+        weight=WALL_SLIDE_WEIGHT,
     ),
     OracleScenario(
         name="left_wall_slide",
@@ -167,8 +170,8 @@ BASE_ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
             obstacle_xy=((0.60, 0.34), (1.05, 0.34), (1.50, 0.34)),
             obstacle_radius=(0.22, 0.22, 0.22),
         ),
-        target_action=(0.45, -0.45, 0.0),
-        weight=8.0,
+        target_action=(WALL_SLIDE_PARALLEL_SPEED, -WALL_SLIDE_LATERAL_AWAY_SPEED, 0.0),
+        weight=WALL_SLIDE_WEIGHT,
     ),
 )
 
@@ -216,7 +219,9 @@ def _make_directional_oracle_scenarios(directions: int = 16) -> tuple[OracleScen
             for side_name, side_sign in (("right", -1.0), ("left", 1.0)):
                 lateral_offset = 0.34 * side_sign
                 away = -side_sign
-                target_xy = direction * 0.45 + _lateral(direction) * (0.45 * away)
+                target_xy = direction * WALL_SLIDE_PARALLEL_SPEED + _lateral(direction) * (
+                    WALL_SLIDE_LATERAL_AWAY_SPEED * away
+                )
                 scenarios.append(
                     OracleScenario(
                         name=f"directional_{side_name}_wall_{angle_index:02d}",
@@ -233,7 +238,7 @@ def _make_directional_oracle_scenarios(directions: int = 16) -> tuple[OracleScen
                             obstacle_yaw=(0.0, _yaw_from_direction(direction), 0.0),
                         ),
                         target_action=_clip_target_xy(target_xy),
-                        weight=6.0,
+                        weight=WALL_SLIDE_WEIGHT,
                     )
                 )
     return tuple(scenarios)
@@ -293,6 +298,16 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Add a named oracle scenario group to the selected BC set.",
     )
     parser.add_argument(
+        "--scenario-weight",
+        action="append",
+        default=None,
+        metavar="NAME=MULTIPLIER",
+        help=(
+            "Multiply an oracle scenario's sampling/loss weight after filtering. "
+            "Useful for focused repair while keeping rehearsal scenarios active."
+        ),
+    )
+    parser.add_argument(
         "--progress-interval",
         type=int,
         default=0,
@@ -334,19 +349,49 @@ def _scenario_group_names(groups: Sequence[str] | None) -> set[str]:
     return selected
 
 
+def _scenario_weight_multipliers(raw: Sequence[str] | None) -> dict[str, float]:
+    multipliers: dict[str, float] = {}
+    known = {scenario.name for scenario in ORACLE_SCENARIOS}
+    for item in raw or ():
+        if "=" not in item:
+            raise ValueError(f"scenario weight must be NAME=MULTIPLIER, got {item!r}")
+        name, value = item.split("=", 1)
+        name = name.strip()
+        if name not in known:
+            raise ValueError(f"Unknown oracle scenario for weight multiplier: {name}")
+        multiplier = float(value)
+        if multiplier <= 0.0:
+            raise ValueError("scenario weight multipliers must be positive")
+        multipliers[name] = multiplier
+    return multipliers
+
+
 def _selected_scenarios(
-    names: Sequence[str] | None, groups: Sequence[str] | None = None
+    names: Sequence[str] | None,
+    groups: Sequence[str] | None = None,
+    scenario_weight: Sequence[str] | None = None,
 ) -> tuple[OracleScenario, ...]:
     selected_names = set(names or ())
     selected_names.update(_scenario_group_names(groups))
     if not selected_names:
-        return ORACLE_SCENARIOS
-    selected = tuple(scenario for scenario in ORACLE_SCENARIOS if scenario.name in selected_names)
-    if len(selected) != len(selected_names):
-        known = {scenario.name for scenario in ORACLE_SCENARIOS}
-        missing = sorted(selected_names - known)
-        raise ValueError(f"Unknown oracle scenario(s): {missing}")
-    return selected
+        selected = ORACLE_SCENARIOS
+    else:
+        selected = tuple(scenario for scenario in ORACLE_SCENARIOS if scenario.name in selected_names)
+        if len(selected) != len(selected_names):
+            known = {scenario.name for scenario in ORACLE_SCENARIOS}
+            missing = sorted(selected_names - known)
+            raise ValueError(f"Unknown oracle scenario(s): {missing}")
+    multipliers = _scenario_weight_multipliers(scenario_weight)
+    if not multipliers:
+        return selected
+    selected_lookup = {scenario.name for scenario in selected}
+    unused = sorted(set(multipliers) - selected_lookup)
+    if unused:
+        raise ValueError(f"Scenario weight multipliers were not selected: {unused}")
+    return tuple(
+        replace(scenario, weight=scenario.weight * multipliers.get(scenario.name, 1.0))
+        for scenario in selected
+    )
 
 
 def _scenario_probabilities(scenarios: Sequence[OracleScenario]) -> np.ndarray:
@@ -435,7 +480,7 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
     policy = runner.alg.get_policy()
     policy.train()
     optimizer = torch.optim.Adam(policy.parameters(), lr=float(args.learning_rate))
-    scenarios = _selected_scenarios(args.scenario, args.scenario_group)
+    scenarios = _selected_scenarios(args.scenario, args.scenario_group, args.scenario_weight)
     probabilities = _scenario_probabilities(scenarios)
     loss_history: list[float] = []
     scenario_counts = {scenario.name: 0 for scenario in scenarios}
