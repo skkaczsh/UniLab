@@ -102,7 +102,16 @@ def test_compose_cfg_restores_run_config_actor_overrides(tmp_path: Path) -> None
                             "residual_action_scale": 0.6,
                             "residual_action_mode": "tanh",
                             "residual_action_limit": [0.45, 0.35, 0.6],
+                            "transformer_activation": "gelu",
+                            "transformer_dim": 192,
+                            "transformer_ff_dim": 576,
+                            "transformer_num_heads": 6,
+                            "transformer_num_layers": 3,
                             "zero_residual_head": True,
+                        },
+                        "critic": {
+                            "transformer_dim": 192,
+                            "transformer_num_heads": 6,
                         },
                         "load_run": "-1",
                     },
@@ -124,6 +133,13 @@ def test_compose_cfg_restores_run_config_actor_overrides(tmp_path: Path) -> None
     assert OmegaConf.select(cfg, "algo.actor.residual_action_scale") == 0.6
     assert OmegaConf.select(cfg, "algo.actor.residual_action_mode") == "tanh"
     assert OmegaConf.select(cfg, "algo.actor.residual_action_limit") == [0.45, 0.35, 0.6]
+    assert OmegaConf.select(cfg, "algo.actor.transformer_activation") == "gelu"
+    assert OmegaConf.select(cfg, "algo.actor.transformer_dim") == 192
+    assert OmegaConf.select(cfg, "algo.actor.transformer_ff_dim") == 576
+    assert OmegaConf.select(cfg, "algo.actor.transformer_num_heads") == 6
+    assert OmegaConf.select(cfg, "algo.actor.transformer_num_layers") == 3
+    assert OmegaConf.select(cfg, "algo.critic.transformer_dim") == 192
+    assert OmegaConf.select(cfg, "algo.critic.transformer_num_heads") == 6
     assert OmegaConf.select(cfg, "algo.actor.zero_residual_head") is True
     assert OmegaConf.select(cfg, "algo.load_run") == str(run_dir)
     assert OmegaConf.select(cfg, "algo.checkpoint") == "60"

@@ -196,6 +196,7 @@ def _compose_cfg(args: argparse.Namespace) -> DictConfig:
         run_config = _load_run_config(str(args.load_run))
         if run_config is None:
             return cfg
+        OmegaConf.set_struct(cfg, False)
         cfg = OmegaConf.merge(cfg, OmegaConf.create(run_config))
         OmegaConf.update(cfg, "training.play_only", True, merge=False)
         OmegaConf.update(cfg, "training.play_render_mode", "none", merge=False)
