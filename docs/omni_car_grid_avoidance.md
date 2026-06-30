@@ -338,12 +338,17 @@ uv run scripts/evaluate_omni_car_robustness.py \
 ```
 
 The best current remote checkpoint from this path is
-`artifacts/omni_car/checkpoints/silu_capacity_v33b_front_repair.pt` on the RTX
-5070 Ti host. Its `16` direction, `128` step gate result is not yet complete,
-but is the current best balance: clear `47/48`, front-blocked `14/16`,
-side-wall `14/16`, yaw `2/2`, zero `1/1`, with zero collision in every
-category. The remaining failures are narrow and should be treated as the next
-repair target, not as proof of completion.
+`artifacts/omni_car/checkpoints/silu_capacity_v34b_search_c07_full_it500_lr1em05_s372.pt`
+on the RTX 5070 Ti host. Its `16` direction, `128` step gate result is clear
+`48/48`, front-blocked `16/16`, side-wall `15/16`, yaw `2/2`, zero `1/1`, with
+zero collision in every category. It still misses strict promotion because
+`left_wall_dir_02` has projection `0.153`, below the `0.18` threshold. Treat
+this as the current best candidate, not as proof of completion.
+
+An exact low-LR repair on `directional_left_wall_04` from that checkpoint
+(`silu_capacity_v34d_leftwall_exact.pt`) did not fix the gate and caused a
+front-blocked regression with a small collision fraction. Do not promote that
+checkpoint.
 
 When a two-stage repair run still misses the strict gate, run a bounded
 candidate search instead of manually promoting the latest checkpoint:
