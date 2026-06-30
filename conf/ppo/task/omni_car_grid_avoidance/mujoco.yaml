@@ -39,7 +39,7 @@ algo:
     gru_hidden_dim: 128
     distribution_cfg:
       class_name: rsl_rl.modules.distribution.GaussianDistribution
-      init_std: 0.5
+      init_std: 0.18
       std_type: scalar
   critic:
     class_name: unilab.algos.torch.omni_car:OmniCarGridCNNGRUModel
@@ -57,7 +57,7 @@ algo:
     num_mini_batches: 4
     learning_rate: 5.0e-4
     desired_kl: 0.02
-    entropy_coef: 0.004
+    entropy_coef: 0.002
 
 env:
   max_episode_seconds: 300.0
