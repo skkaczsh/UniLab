@@ -30,6 +30,7 @@ def build_bc_command(
     seed: int,
     device: str | None = None,
     checkpoint: str | None = None,
+    scenarios: Sequence[str] = (),
     scenario_groups: Sequence[str] = (),
     progress_interval: int = 0,
 ) -> list[str]:
@@ -60,6 +61,8 @@ def build_bc_command(
         command.extend(["--device", str(device)])
     if progress_interval > 0:
         command.extend(["--progress-interval", str(int(progress_interval))])
+    for scenario in scenarios:
+        command.extend(["--scenario", str(scenario)])
     for group in scenario_groups:
         command.extend(["--scenario-group", str(group)])
     return command

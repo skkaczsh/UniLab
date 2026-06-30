@@ -345,6 +345,30 @@ side-wall `14/16`, yaw `2/2`, zero `1/1`, with zero collision in every
 category. The remaining failures are narrow and should be treated as the next
 repair target, not as proof of completion.
 
+When a two-stage repair run still misses the strict gate, run a bounded
+candidate search instead of manually promoting the latest checkpoint:
+
+```bash
+uv run scripts/search_omni_car_repair_candidates.py \
+  --load-run artifacts/omni_car/checkpoints/silu_capacity_vNN_init_sgd_bc.pt \
+  --output logs/omni_car_repair_search/vNN_manifest.json \
+  --artifact-dir artifacts/omni_car/checkpoints \
+  --name-prefix silu_capacity_vNN_search \
+  --profiles front,front_wall \
+  --seeds 361,362,363 \
+  --learning-rates 5e-5,3e-5 \
+  --iterations 900,1400 \
+  --device cuda:0 \
+  --gate-device cuda:0
+```
+
+The search runner evaluates every candidate with the same broad robustness gate
+and records a ranked `best` entry in the manifest. The ranking first prefers a
+strict pass, then fewer failed scenarios, then better front-blocked, side-wall,
+clear, zero, and yaw coverage, with collision used as a tie-breaker. A search
+completion is not the same as model completion; only a strict gate pass should
+be promoted to `best.pt`.
+
 For checkpoint-level behavior gates, run:
 
 ```bash
