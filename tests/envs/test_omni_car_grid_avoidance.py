@@ -5,7 +5,11 @@ import pytest
 import torch
 from tensordict import TensorDict
 
-from unilab.algos.torch.omni_car import OmniCarGridCNNGRUModel, OmniCarGridCNNModel
+from unilab.algos.torch.omni_car import (
+    OmniCarGridCNNGRUModel,
+    OmniCarGridCNNModel,
+    OmniCarGridCNNTransformerModel,
+)
 from unilab.base import registry
 from unilab.envs.navigation.omni_car import OmniCarGridAvoidanceCfg
 
@@ -2719,3 +2723,134 @@ def test_omni_car_cnn_gru_command_frame_residual_rotates_with_command() -> None:
         dtype=torch.float32,
     )
     torch.testing.assert_close(actor_out, expected, atol=1e-5, rtol=1e-5)
+
+
+def test_omni_car_cnn_transformer_model_forward_actor_and_critic() -> None:
+    cfg = OmniCarGridAvoidanceCfg()
+    actor_obs_dim = (
+        cfg.grid_history_len * cfg.grid.size * cfg.grid.size
+        + 3
+        + 3
+        + 3
+        + 4
+        + cfg.obs_history_len * 9
+    )
+    critic_obs_dim = actor_obs_dim + 5
+
+    actor_obs = torch.zeros((2, actor_obs_dim), dtype=torch.float32)
+    critic_obs = torch.zeros((2, critic_obs_dim), dtype=torch.float32)
+    actor = OmniCarGridCNNTransformerModel(
+        TensorDict({"actor": actor_obs}, batch_size=2),
+        {"actor": ["actor"]},
+        "actor",
+        3,
+        hidden_dims=[16],
+        activation="silu",
+        grid_history_len=cfg.grid_history_len,
+        grid_cell_size=cfg.grid.cell_size,
+        command_conditioned_grid=True,
+        cnn_feature_dim=8,
+        transformer_dim=16,
+        transformer_heads=4,
+        transformer_layers=1,
+        transformer_ff_dim=32,
+        distribution_cfg={
+            "class_name": "rsl_rl.modules.distribution.GaussianDistribution",
+            "init_std": 0.5,
+            "std_type": "scalar",
+        },
+    )
+    critic = OmniCarGridCNNTransformerModel(
+        TensorDict({"critic": critic_obs}, batch_size=2),
+        {"critic": ["critic"]},
+        "critic",
+        1,
+        hidden_dims=[16],
+        activation="silu",
+        grid_history_len=cfg.grid_history_len,
+        grid_cell_size=cfg.grid.cell_size,
+        command_conditioned_grid=True,
+        cnn_feature_dim=8,
+        transformer_dim=16,
+        transformer_heads=4,
+        transformer_layers=1,
+        transformer_ff_dim=32,
+    )
+
+    actor_out = actor(TensorDict({"actor": actor_obs}, batch_size=2))
+    critic_out = critic(TensorDict({"critic": critic_obs}, batch_size=2))
+
+    assert actor_out.shape == (2, 3)
+    assert critic_out.shape == (2, 1)
+    assert actor.grid_encoder[0].in_channels == 4
+    assert actor.position_embedding.shape == (1, cfg.grid_history_len + 1, 16)
+    assert isinstance(actor.grid_gru, torch.nn.Identity)
+
+
+def test_omni_car_cnn_transformer_rejects_invalid_head_dim() -> None:
+    cfg = OmniCarGridAvoidanceCfg()
+    actor_obs_dim = (
+        cfg.grid_history_len * cfg.grid.size * cfg.grid.size
+        + 3
+        + 3
+        + 3
+        + 4
+        + cfg.obs_history_len * 9
+    )
+    actor_obs = torch.zeros((1, actor_obs_dim), dtype=torch.float32)
+
+    with pytest.raises(ValueError, match="divisible"):
+        OmniCarGridCNNTransformerModel(
+            TensorDict({"actor": actor_obs}, batch_size=1),
+            {"actor": ["actor"]},
+            "actor",
+            3,
+            hidden_dims=[16],
+            grid_history_len=cfg.grid_history_len,
+            cnn_feature_dim=8,
+            transformer_dim=10,
+            transformer_heads=4,
+        )
+
+
+def test_omni_car_cnn_transformer_command_skip_initializes_actor_at_command() -> None:
+    cfg = OmniCarGridAvoidanceCfg()
+    actor_obs_dim = (
+        cfg.grid_history_len * cfg.grid.size * cfg.grid.size
+        + 3
+        + 3
+        + 3
+        + 4
+        + cfg.obs_history_len * 9
+    )
+    actor_obs = torch.zeros((2, actor_obs_dim), dtype=torch.float32)
+    commands = torch.tensor([[1.0, -0.5, 0.8], [-0.4, 0.25, -0.7]], dtype=torch.float32)
+    command_start = cfg.grid_history_len * cfg.grid.size * cfg.grid.size
+    actor_obs[:, command_start : command_start + 3] = commands
+    actor = OmniCarGridCNNTransformerModel(
+        TensorDict({"actor": actor_obs}, batch_size=2),
+        {"actor": ["actor"]},
+        "actor",
+        3,
+        hidden_dims=[16],
+        grid_history_len=cfg.grid_history_len,
+        grid_cell_size=cfg.grid.cell_size,
+        command_conditioned_grid=True,
+        cnn_feature_dim=8,
+        transformer_dim=16,
+        transformer_heads=4,
+        transformer_layers=1,
+        transformer_ff_dim=32,
+        command_skip_scale=1.0,
+        residual_action_scale=0.5,
+        zero_residual_head=True,
+        distribution_cfg={
+            "class_name": "rsl_rl.modules.distribution.GaussianDistribution",
+            "init_std": 0.5,
+            "std_type": "scalar",
+        },
+    )
+
+    actor_out = actor(TensorDict({"actor": actor_obs}, batch_size=2))
+
+    torch.testing.assert_close(actor_out, commands)

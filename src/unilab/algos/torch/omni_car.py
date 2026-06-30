@@ -372,3 +372,137 @@ class OmniCarGridCNNGRUModel(MLPModel):
     def _get_latent_dim(self) -> int:
         low_state_dim = self.obs_dim - self.grid_stack_dim
         return self.gru_hidden_dim + low_state_dim
+
+
+class OmniCarGridCNNTransformerModel(OmniCarGridCNNGRUModel):
+    """Transformer temporal teacher over deployable OmniCar actor observations.
+
+    The input contract intentionally matches :class:`OmniCarGridCNNGRUModel`:
+    stacked occupancy grids plus non-privileged low-state features. The heavier
+    temporal fusion is meant for teacher or ablation runs while preserving the
+    same deployable observation surface.
+    """
+
+    def __init__(
+        self,
+        obs: TensorDict,
+        obs_groups: dict[str, list[str]],
+        obs_set: str,
+        output_dim: int,
+        hidden_dims: tuple[int, ...] | list[int] = (256, 128),
+        activation: str = "elu",
+        obs_normalization: bool = False,
+        distribution_cfg: dict | None = None,
+        grid_size: int = 80,
+        grid_history_len: int = 10,
+        grid_cell_size: float = 0.05,
+        cnn_feature_dim: int = 128,
+        cnn_channels: tuple[int, int, int] | list[int] | None = None,
+        transformer_dim: int | None = None,
+        transformer_heads: int = 4,
+        transformer_layers: int = 2,
+        transformer_ff_dim: int | None = None,
+        transformer_dropout: float = 0.0,
+        transformer_activation: str = "gelu",
+        gru_hidden_dim: int | None = None,
+        command_conditioned_grid: bool = False,
+        command_skip_scale: float = 0.0,
+        residual_action_scale: float = 1.0,
+        residual_action_mode: str = "linear",
+        residual_action_frame: str = "body",
+        residual_action_limit: tuple[float, float, float] | list[float] | float = 1.0,
+        zero_residual_head: bool = False,
+    ) -> None:
+        self.transformer_dim = int(
+            transformer_dim if transformer_dim is not None else gru_hidden_dim or 256
+        )
+        self.transformer_heads = int(transformer_heads)
+        self.transformer_layers = int(transformer_layers)
+        self.transformer_ff_dim = int(transformer_ff_dim or 4 * self.transformer_dim)
+        self.transformer_dropout = float(transformer_dropout)
+        self.transformer_activation = str(transformer_activation).lower()
+        if self.transformer_dim <= 0:
+            raise ValueError("transformer_dim must be positive")
+        if self.transformer_heads <= 0:
+            raise ValueError("transformer_heads must be positive")
+        if self.transformer_layers <= 0:
+            raise ValueError("transformer_layers must be positive")
+        if self.transformer_dim % self.transformer_heads != 0:
+            raise ValueError("transformer_dim must be divisible by transformer_heads")
+        if self.transformer_activation not in ("relu", "gelu"):
+            raise ValueError("transformer_activation must be 'relu' or 'gelu'")
+        super().__init__(
+            obs,
+            obs_groups,
+            obs_set,
+            output_dim,
+            hidden_dims=hidden_dims,
+            activation=activation,
+            obs_normalization=obs_normalization,
+            distribution_cfg=distribution_cfg,
+            grid_size=grid_size,
+            grid_history_len=grid_history_len,
+            grid_cell_size=grid_cell_size,
+            cnn_feature_dim=cnn_feature_dim,
+            cnn_channels=cnn_channels,
+            gru_hidden_dim=self.transformer_dim,
+            gru_layers=1,
+            command_conditioned_grid=command_conditioned_grid,
+            command_skip_scale=command_skip_scale,
+            residual_action_scale=residual_action_scale,
+            residual_action_mode=residual_action_mode,
+            residual_action_frame=residual_action_frame,
+            residual_action_limit=residual_action_limit,
+            zero_residual_head=zero_residual_head,
+        )
+        self.frame_projection: nn.Module
+        if self.cnn_feature_dim == self.transformer_dim:
+            self.frame_projection = nn.Identity()
+        else:
+            self.frame_projection = nn.Linear(self.cnn_feature_dim, self.transformer_dim)
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, self.transformer_dim))
+        self.position_embedding = nn.Parameter(
+            torch.zeros(1, self.grid_history_len + 1, self.transformer_dim)
+        )
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=self.transformer_dim,
+            nhead=self.transformer_heads,
+            dim_feedforward=self.transformer_ff_dim,
+            dropout=self.transformer_dropout,
+            activation=self.transformer_activation,
+            batch_first=True,
+            norm_first=True,
+        )
+        self.grid_transformer = nn.TransformerEncoder(
+            encoder_layer,
+            num_layers=self.transformer_layers,
+        )
+        self.grid_gru = nn.Identity()
+        nn.init.normal_(self.position_embedding, mean=0.0, std=0.02)
+        nn.init.normal_(self.cls_token, mean=0.0, std=0.02)
+
+    def get_latent(self, obs: TensorDict, masks=None, hidden_state=None) -> torch.Tensor:
+        del masks, hidden_state
+        obs_list = [obs[obs_group] for obs_group in self.obs_groups]
+        raw_flat = torch.cat(obs_list, dim=-1)
+        flat = self.obs_normalizer(raw_flat)
+        grid = flat[..., : self.grid_stack_dim].reshape(
+            -1,
+            self.grid_history_len,
+            1,
+            self.grid_size,
+            self.grid_size,
+        )
+        low_state = flat[..., self.grid_stack_dim :].reshape(grid.shape[0], -1)
+        command = raw_flat[..., self.grid_stack_dim : self.grid_stack_dim + 3].reshape(
+            grid.shape[0], 3
+        )
+        conditioned_grid = self._condition_grid(grid, command)
+        frame_features = self.grid_encoder(
+            conditioned_grid.reshape(-1, self.grid_input_channels, self.grid_size, self.grid_size)
+        ).reshape(grid.shape[0], self.grid_history_len, self.cnn_feature_dim)
+        tokens = self.frame_projection(frame_features)
+        cls = self.cls_token.expand(tokens.shape[0], -1, -1)
+        tokens = torch.cat([cls, tokens], dim=1) + self.position_embedding
+        grid_features = self.grid_transformer(tokens)[:, 0]
+        return torch.cat([grid_features, low_state], dim=-1)

@@ -404,6 +404,34 @@ grid history [T, 80, 80]
   -> MLP head for [vx, vy, vyaw]
 ```
 
+This branch provides that deployable teacher as
+`unilab.algos.torch.omni_car:OmniCarGridCNNTransformerModel`. It uses the same
+actor observation contract and the same command-skip residual action head as
+the default student, but replaces the GRU temporal fusion with a Transformer
+encoder. A small smoke run can be launched with:
+
+```bash
+uv run scripts/train_rsl_rl.py \
+  task=omni_car_grid_avoidance/mujoco \
+  training.play_render_mode=none \
+  training.no_play=true \
+  algo.actor.class_name=unilab.algos.torch.omni_car:OmniCarGridCNNTransformerModel \
+  algo.critic.class_name=unilab.algos.torch.omni_car:OmniCarGridCNNTransformerModel \
+  +algo.actor.transformer_dim=256 \
+  +algo.critic.transformer_dim=256 \
+  +algo.actor.transformer_heads=8 \
+  +algo.critic.transformer_heads=8 \
+  +algo.actor.transformer_layers=3 \
+  +algo.critic.transformer_layers=3 \
+  +algo.actor.transformer_ff_dim=768 \
+  +algo.critic.transformer_ff_dim=768
+```
+
+The `+` prefix is required for Transformer-specific Hydra keys because the base
+OmniCar PPO config is structured around the GRU student. Existing
+`gru_hidden_dim` values are accepted as a compatibility alias for
+`transformer_dim` when no explicit Transformer dimension is provided.
+
 The distillation loss should be axis-aware rather than a single scalar MSE:
 Huber or MSE action imitation per `vx`, `vy`, and `vyaw`; per-axis diff and
 jerk imitation; zero-input stop loss; command-direction projection and
