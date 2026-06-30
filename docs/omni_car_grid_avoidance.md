@@ -337,13 +337,30 @@ uv run scripts/evaluate_omni_car_robustness.py \
   --json
 ```
 
-The best current remote checkpoint from this path is
-`artifacts/omni_car/checkpoints/silu_capacity_v34b_search_c07_full_it500_lr1em05_s372.pt`
-on the RTX 5070 Ti host. Its `16` direction, `128` step gate result is clear
-`48/48`, front-blocked `16/16`, side-wall `15/16`, yaw `2/2`, zero `1/1`, with
-zero collision in every category. It still misses strict promotion because
-`left_wall_dir_02` has projection `0.153`, below the `0.18` threshold. Treat
-this as the current best candidate, not as proof of completion.
+The current promoted local checkpoint is
+`artifacts/omni_car/checkpoints/silu_capacity_v42_long_dir19_stop.pt`; local
+`artifacts/omni_car/checkpoints/best.pt` points to it. It was repaired from the
+v35d 16-direction pass through sparse 32-direction front-blocker rehearsal and a
+final long-horizon `directional32_front_stop_19_box` stop rehearsal. The final
+remote gates on the RTX 5070 Ti host are:
+
+- `16` directions, `128` steps: strict pass, clear `48/48`, front-blocked
+  `16/16`, side-wall `16/16`, yaw `2/2`, zero `1/1`, max collision `0.0`.
+- `32` directions, `160` steps: strict pass, clear `96/96`, front-blocked
+  `32/32`, side-wall `16/16`, yaw `2/2`, zero `1/1`, max collision `0.0`.
+- behavior probe, `128` steps: strict pass across zero input, clear follow,
+  yaw-only, front-blocked stop, and right-wall forward.
+
+The final long-horizon repair is important: the last failure looked like a tiny
+residual collision only in the aggregate gate, but a per-step probe showed that
+the policy stayed still for roughly 140 steps and then drifted after the
+CNN-GRU history settled. Short BC rollouts made the one-step loss look solved;
+the fix was a focused `180` step policy rollout on the failed front-blocked
+direction.
+
+Older reference: `silu_capacity_v34b_search_c07_full_it500_lr1em05_s372.pt`
+passed most of the `16` direction gate but missed `left_wall_dir_02`
+projection. Treat it as an obsolete baseline, not as the current best.
 
 An exact low-LR repair on `directional_left_wall_04` from that checkpoint
 (`silu_capacity_v34d_leftwall_exact.pt`) did not fix the gate and caused a
