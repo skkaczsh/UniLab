@@ -19,8 +19,8 @@ algo:
       - critic
   actor:
     class_name: unilab.algos.torch.omni_car:OmniCarGridCNNGRUModel
-    hidden_dims: [256, 128]
-    activation: elu
+    hidden_dims: [384, 192]
+    activation: silu
     obs_normalization: true
     grid_size: 80
     grid_history_len: 10
@@ -35,23 +35,25 @@ algo:
     residual_action_frame: command
     residual_action_limit: [2.0, 1.0, 2.0]
     zero_residual_head: true
-    cnn_feature_dim: 128
-    gru_hidden_dim: 128
+    cnn_channels: [16, 32, 64]
+    cnn_feature_dim: 256
+    gru_hidden_dim: 256
     distribution_cfg:
       class_name: rsl_rl.modules.distribution.GaussianDistribution
       init_std: 0.18
       std_type: scalar
   critic:
     class_name: unilab.algos.torch.omni_car:OmniCarGridCNNGRUModel
-    hidden_dims: [256, 128]
-    activation: elu
+    hidden_dims: [384, 192]
+    activation: silu
     obs_normalization: true
     grid_size: 80
     grid_history_len: 10
     grid_cell_size: 0.05
     command_conditioned_grid: true
-    cnn_feature_dim: 128
-    gru_hidden_dim: 128
+    cnn_channels: [16, 32, 64]
+    cnn_feature_dim: 256
+    gru_hidden_dim: 256
   algorithm:
     num_learning_epochs: 2
     num_mini_batches: 4

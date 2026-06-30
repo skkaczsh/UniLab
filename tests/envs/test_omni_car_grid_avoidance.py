@@ -173,9 +173,7 @@ def test_omni_car_grid_command_features_are_sensor_derived() -> None:
     env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
     env_ids = np.asarray([0], dtype=np.int32)
 
-    env._obstacle_xy[0] = np.asarray(
-        [[0.70, 0.0], [10.0, 10.0], [10.0, 10.0]], dtype=np.float32
-    )
+    env._obstacle_xy[0] = np.asarray([[0.70, 0.0], [10.0, 10.0], [10.0, 10.0]], dtype=np.float32)
     env._obstacle_radius[0] = np.asarray([0.22, 0.10, 0.10], dtype=np.float32)
     front_grid = env._occupancy_grid(env_ids).reshape(1, env._cfg.grid.size, env._cfg.grid.size)
     front_features = env._grid_command_features(env_ids, front_grid)
@@ -280,12 +278,8 @@ def test_omni_car_auto_zero_command_snaps_without_smoothing_tail() -> None:
         },
     )
     env.init_state()
-    env._commands[:] = np.asarray(
-        [[1.0, -0.4, 0.3], [0.8, 0.1, -0.5]], dtype=env._dtype
-    )
-    env._raw_commands[:] = np.asarray(
-        [[0.0, 0.0, 0.0], [0.05, 0.02, 0.01]], dtype=env._dtype
-    )
+    env._commands[:] = np.asarray([[1.0, -0.4, 0.3], [0.8, 0.1, -0.5]], dtype=env._dtype)
+    env._raw_commands[:] = np.asarray([[0.0, 0.0, 0.0], [0.05, 0.02, 0.01]], dtype=env._dtype)
 
     env._update_commands()
     env._seed_history(np.asarray([0, 1], dtype=np.int32))
@@ -319,12 +313,8 @@ def test_omni_car_human_command_overrides_selected_agent() -> None:
     state = env.init_state()
 
     expected_command_rows = np.broadcast_to(command, (env._human_command_env_ids.size, 3))
-    np.testing.assert_allclose(
-        env._raw_commands[env._human_command_env_ids], expected_command_rows
-    )
-    np.testing.assert_allclose(
-        env._commands[env._human_command_env_ids], expected_command_rows
-    )
+    np.testing.assert_allclose(env._raw_commands[env._human_command_env_ids], expected_command_rows)
+    np.testing.assert_allclose(env._commands[env._human_command_env_ids], expected_command_rows)
     for env_id in env._human_command_env_ids:
         np.testing.assert_allclose(env._command_history[env_id], np.broadcast_to(command, (24, 3)))
 
@@ -332,9 +322,7 @@ def test_omni_car_human_command_overrides_selected_agent() -> None:
     env._read_human_command = lambda: next_command.astype(env._dtype)
     state = env.step(np.zeros((4, 3), dtype=np.float32))
 
-    expected_next_command_rows = np.broadcast_to(
-        next_command, (env._human_command_env_ids.size, 3)
-    )
+    expected_next_command_rows = np.broadcast_to(next_command, (env._human_command_env_ids.size, 3))
     np.testing.assert_allclose(
         env._raw_commands[env._human_command_env_ids], expected_next_command_rows
     )
@@ -760,9 +748,7 @@ def test_omni_car_front_obstacle_rewards_stop_over_forward_push() -> None:
         prev_clearance=prev_clearance,
         prev_pose=prev_pose,
     )
-    target_push_clearance_motion = float(
-        env._reward_components["clearance_target_motion"][0]
-    )
+    target_push_clearance_motion = float(env._reward_components["clearance_target_motion"][0])
 
     assert env._clearance_risk[0] > 0.9
     assert stop_reward[0] > push_reward[0]
@@ -1020,9 +1006,7 @@ def test_omni_car_blocked_projection_penalizes_only_blocked_forward_push() -> No
     )
     env.init_state()
     env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
-    env._obstacle_xy[0] = np.asarray(
-        [[0.55, 0.0], [10.0, 10.0], [10.0, 10.0]], dtype=np.float32
-    )
+    env._obstacle_xy[0] = np.asarray([[0.55, 0.0], [10.0, 10.0], [10.0, 10.0]], dtype=np.float32)
     env._obstacle_radius[0] = 0.22
     env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
 
@@ -2032,9 +2016,8 @@ def test_omni_car_grid_and_clearance_match_dense_reference() -> None:
 
     local_xy = env._world_to_body_points(0, env._obstacle_xy[0])
     axis = (
-        (np.arange(env._cfg.grid.size, dtype=np.float32) + 0.5 - env._cfg.grid.size / 2.0)
-        * env._cfg.grid.cell_size
-    )
+        np.arange(env._cfg.grid.size, dtype=np.float32) + 0.5 - env._cfg.grid.size / 2.0
+    ) * env._cfg.grid.cell_size
     grid_x, grid_y = np.meshgrid(axis, axis, indexing="ij")
     pad = env._cfg.grid.cell_size * 0.5
     occupied = np.zeros((env._cfg.grid.size, env._cfg.grid.size), dtype=bool)
@@ -2306,14 +2289,7 @@ def test_omni_car_viewer_xml_loads() -> None:
 
 def test_omni_car_cnn_model_forward_actor_and_critic() -> None:
     cfg = OmniCarGridAvoidanceCfg()
-    obs_dim = (
-        cfg.grid.size * cfg.grid.size
-        + 3
-        + 3
-        + 3
-        + cfg.obs_history_len * 9
-        + 2
-    )
+    obs_dim = cfg.grid.size * cfg.grid.size + 3 + 3 + 3 + cfg.obs_history_len * 9 + 2
     critic_obs_dim = obs_dim + 3
 
     actor_obs = torch.zeros((2, obs_dim), dtype=torch.float32)
@@ -2395,6 +2371,86 @@ def test_omni_car_cnn_gru_model_forward_actor_and_critic() -> None:
     assert actor_out.shape == (2, 3)
     assert critic_out.shape == (2, 1)
     assert actor.grid_encoder[0].in_channels == 4
+
+
+def test_omni_car_cnn_gru_model_accepts_configurable_cnn_channels() -> None:
+    cfg = OmniCarGridAvoidanceCfg()
+    actor_obs_dim = (
+        cfg.grid_history_len * cfg.grid.size * cfg.grid.size
+        + 3
+        + 3
+        + 3
+        + 4
+        + cfg.obs_history_len * 9
+    )
+    actor_obs = torch.zeros((2, actor_obs_dim), dtype=torch.float32)
+    actor = OmniCarGridCNNGRUModel(
+        TensorDict({"actor": actor_obs}, batch_size=2),
+        {"actor": ["actor"]},
+        "actor",
+        3,
+        hidden_dims=[16],
+        grid_history_len=cfg.grid_history_len,
+        grid_cell_size=cfg.grid.cell_size,
+        command_conditioned_grid=True,
+        cnn_channels=[6, 10, 14],
+        cnn_feature_dim=8,
+        gru_hidden_dim=8,
+        distribution_cfg={
+            "class_name": "rsl_rl.modules.distribution.GaussianDistribution",
+            "init_std": 0.5,
+            "std_type": "scalar",
+        },
+    )
+
+    actor_out = actor(TensorDict({"actor": actor_obs}, batch_size=2))
+
+    assert actor_out.shape == (2, 3)
+    assert actor.grid_encoder[0].out_channels == 6
+    assert actor.grid_encoder[2].in_channels == 6
+    assert actor.grid_encoder[2].out_channels == 10
+    assert actor.grid_encoder[4].in_channels == 10
+    assert actor.grid_encoder[4].out_channels == 14
+    assert actor.grid_encoder[7].in_features == 14 * 10 * 10
+
+
+def test_omni_car_cnn_gru_model_rejects_invalid_cnn_channels() -> None:
+    cfg = OmniCarGridAvoidanceCfg()
+    actor_obs_dim = (
+        cfg.grid_history_len * cfg.grid.size * cfg.grid.size
+        + 3
+        + 3
+        + 3
+        + 4
+        + cfg.obs_history_len * 9
+    )
+    actor_obs = torch.zeros((1, actor_obs_dim), dtype=torch.float32)
+
+    with pytest.raises(ValueError, match="exactly three"):
+        OmniCarGridCNNGRUModel(
+            TensorDict({"actor": actor_obs}, batch_size=1),
+            {"actor": ["actor"]},
+            "actor",
+            3,
+            hidden_dims=[16],
+            grid_history_len=cfg.grid_history_len,
+            cnn_channels=[8, 16],
+            cnn_feature_dim=8,
+            gru_hidden_dim=8,
+        )
+
+    with pytest.raises(ValueError, match="positive"):
+        OmniCarGridCNNGRUModel(
+            TensorDict({"actor": actor_obs}, batch_size=1),
+            {"actor": ["actor"]},
+            "actor",
+            3,
+            hidden_dims=[16],
+            grid_history_len=cfg.grid_history_len,
+            cnn_channels=[8, 0, 16],
+            cnn_feature_dim=8,
+            gru_hidden_dim=8,
+        )
 
 
 def test_omni_car_cnn_gru_model_uses_silu_activation_alias() -> None:

@@ -17,6 +17,30 @@ def _activation(activation: str) -> nn.Module:
     return resolve_nn_activation(_normalize_activation_name(activation))
 
 
+def _normalize_cnn_channels(
+    cnn_channels: tuple[int, int, int] | list[int] | None,
+) -> tuple[int, int, int]:
+    if cnn_channels is None:
+        return (8, 16, 32)
+    channels = tuple(int(channel) for channel in cnn_channels)
+    if len(channels) != 3:
+        raise ValueError("cnn_channels must contain exactly three channel counts")
+    if any(channel <= 0 for channel in channels):
+        raise ValueError("cnn_channels values must be positive")
+    return channels
+
+
+def _conv2d_out_size(size: int, *, kernel_size: int, stride: int, padding: int) -> int:
+    return (int(size) + 2 * int(padding) - int(kernel_size)) // int(stride) + 1
+
+
+def _cnn_final_spatial_size(grid_size: int) -> int:
+    size = int(grid_size)
+    for kernel_size, stride, padding in ((5, 2, 2), (3, 2, 1), (3, 2, 1)):
+        size = _conv2d_out_size(size, kernel_size=kernel_size, stride=stride, padding=padding)
+    return size
+
+
 class OmniCarGridCNNModel(MLPModel):
     """CNN encoder for OmniCar occupancy grids plus an MLP low-state head."""
 
@@ -32,10 +56,13 @@ class OmniCarGridCNNModel(MLPModel):
         distribution_cfg: dict | None = None,
         grid_size: int = 80,
         cnn_feature_dim: int = 128,
+        cnn_channels: tuple[int, int, int] | list[int] | None = None,
     ) -> None:
         self.grid_size = int(grid_size)
         self.grid_dim = self.grid_size * self.grid_size
         self.cnn_feature_dim = int(cnn_feature_dim)
+        self.cnn_channels = _normalize_cnn_channels(cnn_channels)
+        self.cnn_final_spatial_size = _cnn_final_spatial_size(self.grid_size)
         activation = _normalize_activation_name(activation)
         super().__init__(
             obs,
@@ -52,14 +79,18 @@ class OmniCarGridCNNModel(MLPModel):
                 f"OmniCarGridCNNModel expects grid plus low-state inputs; got obs_dim={self.obs_dim}"
             )
         self.grid_encoder = nn.Sequential(
-            nn.Conv2d(1, 8, kernel_size=5, stride=2, padding=2),
+            nn.Conv2d(1, self.cnn_channels[0], kernel_size=5, stride=2, padding=2),
             _activation(activation),
-            nn.Conv2d(8, 16, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(
+                self.cnn_channels[0], self.cnn_channels[1], kernel_size=3, stride=2, padding=1
+            ),
             _activation(activation),
-            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(
+                self.cnn_channels[1], self.cnn_channels[2], kernel_size=3, stride=2, padding=1
+            ),
             _activation(activation),
             nn.Flatten(),
-            nn.Linear(32 * 10 * 10, self.cnn_feature_dim),
+            nn.Linear(self.cnn_channels[2] * self.cnn_final_spatial_size**2, self.cnn_feature_dim),
             _activation(activation),
         )
 
@@ -100,6 +131,7 @@ class OmniCarGridCNNGRUModel(MLPModel):
         grid_history_len: int = 10,
         grid_cell_size: float = 0.05,
         cnn_feature_dim: int = 128,
+        cnn_channels: tuple[int, int, int] | list[int] | None = None,
         gru_hidden_dim: int = 128,
         gru_layers: int = 1,
         command_conditioned_grid: bool = False,
@@ -116,6 +148,8 @@ class OmniCarGridCNNGRUModel(MLPModel):
         self.grid_dim = self.grid_size * self.grid_size
         self.grid_stack_dim = self.grid_history_len * self.grid_dim
         self.cnn_feature_dim = int(cnn_feature_dim)
+        self.cnn_channels = _normalize_cnn_channels(cnn_channels)
+        self.cnn_final_spatial_size = _cnn_final_spatial_size(self.grid_size)
         self.gru_hidden_dim = int(gru_hidden_dim)
         self.gru_layers = int(gru_layers)
         self.command_conditioned_grid = bool(command_conditioned_grid)
@@ -147,9 +181,7 @@ class OmniCarGridCNNGRUModel(MLPModel):
                 f"got obs_dim={self.obs_dim}, grid_stack_dim={self.grid_stack_dim}"
             )
         axis = (
-            torch.arange(self.grid_size, dtype=torch.float32)
-            + 0.5
-            - float(self.grid_size) / 2.0
+            torch.arange(self.grid_size, dtype=torch.float32) + 0.5 - float(self.grid_size) / 2.0
         ) * self.grid_cell_size
         grid_x, grid_y = torch.meshgrid(axis, axis, indexing="ij")
         self.register_buffer(
@@ -159,14 +191,32 @@ class OmniCarGridCNNGRUModel(MLPModel):
             "_grid_y", grid_y.contiguous().view(1, 1, self.grid_size, self.grid_size)
         )
         self.grid_encoder = nn.Sequential(
-            nn.Conv2d(self.grid_input_channels, 8, kernel_size=5, stride=2, padding=2),
+            nn.Conv2d(
+                self.grid_input_channels,
+                self.cnn_channels[0],
+                kernel_size=5,
+                stride=2,
+                padding=2,
+            ),
             _activation(activation),
-            nn.Conv2d(8, 16, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(
+                self.cnn_channels[0],
+                self.cnn_channels[1],
+                kernel_size=3,
+                stride=2,
+                padding=1,
+            ),
             _activation(activation),
-            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(
+                self.cnn_channels[1],
+                self.cnn_channels[2],
+                kernel_size=3,
+                stride=2,
+                padding=1,
+            ),
             _activation(activation),
             nn.Flatten(),
-            nn.Linear(32 * 10 * 10, self.cnn_feature_dim),
+            nn.Linear(self.cnn_channels[2] * self.cnn_final_spatial_size**2, self.cnn_feature_dim),
             _activation(activation),
         )
         self.grid_gru = nn.GRU(
@@ -245,9 +295,7 @@ class OmniCarGridCNNGRUModel(MLPModel):
         )
         conditioned_grid = self._condition_grid(grid, command)
         frame_features = self.grid_encoder(
-            conditioned_grid.reshape(
-                -1, self.grid_input_channels, self.grid_size, self.grid_size
-            )
+            conditioned_grid.reshape(-1, self.grid_input_channels, self.grid_size, self.grid_size)
         ).reshape(grid.shape[0], self.grid_history_len, self.cnn_feature_dim)
         _, hidden = self.grid_gru(frame_features)
         grid_features = hidden[-1]
@@ -307,8 +355,7 @@ class OmniCarGridCNNGRUModel(MLPModel):
         ):
             command = self._current_command(obs)
             mlp_output = (
-                self._residual_action(mlp_output, command)
-                + self.command_skip_scale * command
+                self._residual_action(mlp_output, command) + self.command_skip_scale * command
             )
         if self.distribution is not None:
             if stochastic_output:
