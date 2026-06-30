@@ -369,6 +369,49 @@ clear, zero, and yaw coverage, with collision used as a tie-breaker. A search
 completion is not the same as model completion; only a strict gate pass should
 be promoted to `best.pt`.
 
+## Teacher-student distillation path
+
+The current deployable policy should remain a compact non-privileged actor, but
+the teacher used to generate smoother and more globally consistent labels can
+be larger. The clean split is:
+
+- Deployable teacher: uses only actor-available signals: occupancy-grid
+  history, smoothed command and command history, velocity history, and last
+  action/action history. It can use a heavier temporal model such as shared CNN
+  grid encoding followed by a Transformer over grid, command, velocity, and
+  action tokens.
+- Privileged teacher: may also use simulator-only training signals such as
+  nearest clearance, collision state, global pose, or future rollout risk. Its
+  outputs can regularize labels or value targets, but those privileged signals
+  must not become direct student inputs.
+- Student: keeps the deployment contract of the current `CNN + GRU + MLP`
+  actor and is evaluated only through non-privileged observation input plus the
+  broad behavior gates.
+
+A suitable teacher architecture is:
+
+```text
+grid history [T, 80, 80]
+  -> shared CNN grid encoder
+  -> grid feature tokens
+  + command / velocity / action history tokens
+  -> temporal Transformer
+  -> MLP head for [vx, vy, vyaw]
+```
+
+The distillation loss should be axis-aware rather than a single scalar MSE:
+Huber or MSE action imitation per `vx`, `vy`, and `vyaw`; per-axis diff and
+jerk imitation; zero-input stop loss; command-direction projection and
+off-axis penalties; and optional KL if the teacher predicts a Gaussian action
+distribution. The data mix still needs the same coverage guarantees as PPO:
+true zero-input windows, long same-direction commands over arbitrary planar
+directions and speeds, yaw-only and yaw-coupled commands, front blockers, side
+walls, and mixed obstacle types.
+
+Distillation does not replace the safety gate. A distilled student is promoted
+only after passing the broad robustness gate for zero input, clear following,
+front-blocked stop, wall sliding, yaw, and collision behavior.
+
 For checkpoint-level behavior gates, run:
 
 ```bash
