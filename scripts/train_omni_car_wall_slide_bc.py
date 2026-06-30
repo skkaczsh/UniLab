@@ -176,7 +176,11 @@ BASE_ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
 )
 
 
-def _make_directional_oracle_scenarios(directions: int = 16) -> tuple[OracleScenario, ...]:
+def _make_directional_oracle_scenarios(
+    directions: int = 16,
+    *,
+    name_prefix: str = "directional",
+) -> tuple[OracleScenario, ...]:
     scenarios: list[OracleScenario] = []
     angles = [2.0 * math.pi * i / int(directions) for i in range(int(directions))]
     for angle_index, angle in enumerate(angles):
@@ -189,9 +193,9 @@ def _make_directional_oracle_scenarios(directions: int = 16) -> tuple[OracleScen
             command = _directional_command(angle, fraction)
             scenarios.append(
                 OracleScenario(
-                    name=f"directional_clear_{angle_index:02d}_{speed_name}",
+                    name=f"{name_prefix}_clear_{angle_index:02d}_{speed_name}",
                     behavior=BehaviorScenario(
-                        name=f"directional_clear_{angle_index:02d}_{speed_name}",
+                        name=f"{name_prefix}_clear_{angle_index:02d}_{speed_name}",
                         command=command,
                     ),
                     target_action=command,
@@ -201,9 +205,9 @@ def _make_directional_oracle_scenarios(directions: int = 16) -> tuple[OracleScen
         shape = ("circle", "box", "wall")[angle_index % 3]
         scenarios.append(
             OracleScenario(
-                name=f"directional_front_stop_{angle_index:02d}_{shape}",
+                name=f"{name_prefix}_front_stop_{angle_index:02d}_{shape}",
                 behavior=BehaviorScenario(
-                    name=f"directional_front_stop_{angle_index:02d}_{shape}",
+                    name=f"{name_prefix}_front_stop_{angle_index:02d}_{shape}",
                     command=_directional_command(angle, 0.65),
                     obstacle_xy=(_point(direction, 0.70, 0.0),),
                     obstacle_radius=(0.22,),
@@ -224,9 +228,9 @@ def _make_directional_oracle_scenarios(directions: int = 16) -> tuple[OracleScen
                 )
                 scenarios.append(
                     OracleScenario(
-                        name=f"directional_{side_name}_wall_{angle_index:02d}",
+                        name=f"{name_prefix}_{side_name}_wall_{angle_index:02d}",
                         behavior=BehaviorScenario(
-                            name=f"directional_{side_name}_wall_{angle_index:02d}",
+                            name=f"{name_prefix}_{side_name}_wall_{angle_index:02d}",
                             command=_directional_command(angle, 0.65),
                             obstacle_xy=tuple(
                                 _point(direction, forward, lateral_offset)
@@ -245,8 +249,12 @@ def _make_directional_oracle_scenarios(directions: int = 16) -> tuple[OracleScen
 
 
 DIRECTIONAL_ORACLE_SCENARIOS = _make_directional_oracle_scenarios()
+DIRECTIONAL32_ORACLE_SCENARIOS = _make_directional_oracle_scenarios(
+    32,
+    name_prefix="directional32",
+)
 ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
-    BASE_ORACLE_SCENARIOS + DIRECTIONAL_ORACLE_SCENARIOS
+    BASE_ORACLE_SCENARIOS + DIRECTIONAL_ORACLE_SCENARIOS + DIRECTIONAL32_ORACLE_SCENARIOS
 )
 
 
@@ -294,6 +302,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "directional_clear",
             "directional_front",
             "directional_wall",
+            "directional32",
+            "directional32_clear",
+            "directional32_front",
+            "directional32_wall",
         ),
         help="Add a named oracle scenario group to the selected BC set.",
     )
@@ -342,6 +354,26 @@ def _scenario_group_names(groups: Sequence[str] | None) -> set[str]:
             selected.update(
                 scenario.name
                 for scenario in DIRECTIONAL_ORACLE_SCENARIOS
+                if "_wall_" in scenario.name
+            )
+        elif group == "directional32":
+            selected.update(scenario.name for scenario in DIRECTIONAL32_ORACLE_SCENARIOS)
+        elif group == "directional32_clear":
+            selected.update(
+                scenario.name
+                for scenario in DIRECTIONAL32_ORACLE_SCENARIOS
+                if scenario.name.startswith("directional32_clear_")
+            )
+        elif group == "directional32_front":
+            selected.update(
+                scenario.name
+                for scenario in DIRECTIONAL32_ORACLE_SCENARIOS
+                if scenario.name.startswith("directional32_front_stop_")
+            )
+        elif group == "directional32_wall":
+            selected.update(
+                scenario.name
+                for scenario in DIRECTIONAL32_ORACLE_SCENARIOS
                 if "_wall_" in scenario.name
             )
         else:

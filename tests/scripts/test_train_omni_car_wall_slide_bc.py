@@ -54,6 +54,10 @@ def test_oracle_scenarios_include_directional_follow_slide_and_guards() -> None:
         scenarios["directional_left_wall_04"].target_action[0]
     )
     assert scenarios["directional_left_wall_04"].weight == scenarios["left_wall_slide"].weight
+    assert "directional32_clear_03_mid" in scenarios
+    assert "directional32_front_stop_03_circle" in scenarios
+    assert "directional32_left_wall_04" in scenarios
+    assert len(scenarios) == len(module.ORACLE_SCENARIOS)
 
 
 def test_wall_slide_scenario_probabilities_are_normalized() -> None:
@@ -90,6 +94,17 @@ def test_wall_slide_bc_can_filter_oracle_scenario_groups() -> None:
     assert all(name.startswith("directional_front_stop_") for name in names)
     assert any(name.endswith("_box") for name in names)
     assert any(name.endswith("_wall") for name in names)
+
+
+def test_wall_slide_bc_can_filter_dense_directional_scenario_groups() -> None:
+    module = _load_module()
+
+    selected = module._selected_scenarios(None, ["directional32_front"])
+    names = [scenario.name for scenario in selected]
+
+    assert len(names) == 32
+    assert all(name.startswith("directional32_front_stop_") for name in names)
+    assert "directional32_front_stop_03_circle" in names
 
 
 def test_wall_slide_bc_can_weight_selected_repair_scenario() -> None:

@@ -374,6 +374,29 @@ uv run scripts/train_omni_car_wall_slide_bc.py \
   --device cuda:0
 ```
 
+The standard 16-direction broad gate can pass while denser arbitrary-direction
+front blockers still fail. To train the intermediate directions exposed by a
+32-direction gate, include the dense oracle groups:
+
+```bash
+uv run scripts/train_omni_car_wall_slide_bc.py \
+  --load-run artifacts/omni_car/checkpoints/silu_capacity_v35d_front_balanced_rehearsal.pt \
+  --output artifacts/omni_car/checkpoints/silu_capacity_vNN_dense_front_rehearsal.pt \
+  --num-envs 64 \
+  --iterations 16 \
+  --rollout-steps 2 \
+  --rollout-actions target \
+  --balanced-batch \
+  --learning-rate 1e-6 \
+  --scenario-group base \
+  --scenario-group directional_clear \
+  --scenario-group directional32_clear \
+  --scenario-group directional32_front \
+  --scenario directional_left_wall_04 \
+  --scenario-weight directional_left_wall_04=3 \
+  --device cuda:0
+```
+
 When a two-stage repair run still misses the strict gate, run a bounded
 candidate search instead of manually promoting the latest checkpoint:
 
