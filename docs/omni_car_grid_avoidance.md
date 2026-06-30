@@ -283,7 +283,20 @@ the full gate to clear `17/48`, front `1/16`, side-wall `2/16`, while the same
 scenario set trained with ordinary per-scenario SGD from `model_0.pt` reached
 clear `48/48`, front `9/16`, side-wall `15/16`, yaw `2/2`, and zero `1/1`.
 
-The current recommended repair sequence is:
+The current recommended repair sequence is scripted so checkpoint lineage and
+gate results stay in one manifest:
+
+```bash
+uv run scripts/run_omni_car_sgd_bc_curriculum.py \
+  --load-run logs/rsl_rl_ppo/OmniCarGridAvoidance/<run>/model_0.pt \
+  --name-prefix silu_capacity_vNN \
+  --device cuda:0
+```
+
+The launcher runs full-oracle per-scenario SGD BC first, gates that checkpoint
+with `scripts/evaluate_omni_car_robustness.py`, and only runs the second
+front-focused repair stage if the first gate does not pass. The equivalent
+manual commands are:
 
 ```bash
 uv run scripts/train_omni_car_wall_slide_bc.py \
@@ -312,7 +325,7 @@ uv run scripts/train_omni_car_wall_slide_bc.py \
   --progress-interval 200
 ```
 
-Then run the strict robustness gate:
+Use the broad robustness gate for promotion:
 
 ```bash
 uv run scripts/evaluate_omni_car_robustness.py \
