@@ -265,7 +265,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--balanced-batch",
         action="store_true",
-        help="Accumulate one optimizer update across every oracle scenario each iteration.",
+        help=(
+            "Accumulate one optimizer update across every oracle scenario each iteration. "
+            "Useful for diagnostics, but per-scenario SGD is usually better for the "
+            "clear/front/wall oracle mix because full-batch gradients can cancel."
+        ),
     )
     parser.add_argument("--learning-rate", type=float, default=1.0e-4)
     parser.add_argument("--seed", type=int, default=31)

@@ -63,12 +63,11 @@ Current defaults in this branch:
   imbalance. They are deterministic projections of the same `80 x 80`
   occupancy grid, so they are deployable perception features rather than
   privileged simulator clearance or collision flags.
-- The actor can optionally use a command-skip residual form,
-  `action = command + residual`. By default the residual is interpreted in body
-  axes for checkpoint compatibility; setting `algo.actor.residual_action_frame=command`
-  interprets planar residual as `[parallel_to_command, lateral_to_command]`
-  before rotating it back to body axes. This keeps the policy learned while
-  making "slow down along the requested direction" and "sidestep" separate
+- The actor uses a command-skip residual form,
+  `action = command + residual`. In the current default config the planar
+  residual is interpreted in command coordinates as
+  `[parallel_to_command, lateral_to_command]`, then rotated back to body axes.
+  This keeps "slow down along the requested direction" and "sidestep" separate
   outputs.
 - Body footprint: `0.56 m x 0.32 m`; local collision/nearest-clearance uses the
   rectangular footprint, while the `0.05 m` safety margin is applied to
@@ -266,6 +265,72 @@ older `CNN + MLP` checkpoints and earlier command-agnostic `CNN + GRU`
 checkpoints. Historical checkpoint manifests remain useful for record keeping,
 but this branch needs a fresh training run before a checkpoint can be loaded
 with the current default config.
+
+## Supervised obstacle repair
+
+Recent command-frame experiments show a consistent failure mode: PPO from the
+command-skip initialization learns clear-scene command following, zero input,
+and yaw control quickly, but it does not reliably discover the large negative
+parallel residual needed for front blockers or the lateral residual needed for
+wall sliding. The supervised oracle scenarios are useful, but the optimizer
+shape matters.
+
+Do not use `--balanced-batch` as the default repair path for this task. It
+accumulates all clear, front-blocked, and wall-slide scenario gradients into one
+optimizer step. That can make mutually opposed residual targets cancel each
+other. On the `v33b` SiLU capacity model, balanced BC from final PPO degraded
+the full gate to clear `17/48`, front `1/16`, side-wall `2/16`, while the same
+scenario set trained with ordinary per-scenario SGD from `model_0.pt` reached
+clear `48/48`, front `9/16`, side-wall `15/16`, yaw `2/2`, and zero `1/1`.
+
+The current recommended repair sequence is:
+
+```bash
+uv run scripts/train_omni_car_wall_slide_bc.py \
+  --load-run logs/rsl_rl_ppo/OmniCarGridAvoidance/<run>/model_0.pt \
+  --output artifacts/omni_car/checkpoints/silu_capacity_v33b_init_sgd_bc.pt \
+  --num-envs 64 \
+  --iterations 2500 \
+  --rollout-steps 2 \
+  --rollout-actions target \
+  --learning-rate 1e-4 \
+  --device cuda:0 \
+  --progress-interval 250
+
+uv run scripts/train_omni_car_wall_slide_bc.py \
+  --load-run artifacts/omni_car/checkpoints/silu_capacity_v33b_init_sgd_bc.pt \
+  --output artifacts/omni_car/checkpoints/silu_capacity_v33b_front_repair.pt \
+  --num-envs 64 \
+  --iterations 1400 \
+  --rollout-steps 2 \
+  --rollout-actions target \
+  --learning-rate 5e-5 \
+  --scenario-group base \
+  --scenario-group directional_clear \
+  --scenario-group directional_front \
+  --device cuda:0 \
+  --progress-interval 200
+```
+
+Then run the strict robustness gate:
+
+```bash
+uv run scripts/evaluate_omni_car_robustness.py \
+  --load-run artifacts/omni_car/checkpoints/silu_capacity_v33b_front_repair.pt \
+  --num-envs 16 \
+  --num-steps 128 \
+  --directions 16 \
+  --device cuda:0 \
+  --json
+```
+
+The best current remote checkpoint from this path is
+`artifacts/omni_car/checkpoints/silu_capacity_v33b_front_repair.pt` on the RTX
+5070 Ti host. Its `16` direction, `128` step gate result is not yet complete,
+but is the current best balance: clear `47/48`, front-blocked `14/16`,
+side-wall `14/16`, yaw `2/2`, zero `1/1`, with zero collision in every
+category. The remaining failures are narrow and should be treated as the next
+repair target, not as proof of completion.
 
 For checkpoint-level behavior gates, run:
 
