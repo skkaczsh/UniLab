@@ -408,29 +408,27 @@ This branch provides that deployable teacher as
 `unilab.algos.torch.omni_car:OmniCarGridCNNTransformerModel`. It uses the same
 actor observation contract and the same command-skip residual action head as
 the default student, but replaces the GRU temporal fusion with a Transformer
-encoder. A small smoke run can be launched with:
+encoder. Launch it through the checked wrapper rather than hand-writing the
+Hydra override set:
 
 ```bash
-uv run scripts/train_rsl_rl.py \
-  task=omni_car_grid_avoidance/mujoco \
-  training.play_render_mode=none \
-  training.no_play=true \
-  algo.actor.class_name=unilab.algos.torch.omni_car:OmniCarGridCNNTransformerModel \
-  algo.critic.class_name=unilab.algos.torch.omni_car:OmniCarGridCNNTransformerModel \
-  +algo.actor.transformer_dim=256 \
-  +algo.critic.transformer_dim=256 \
-  +algo.actor.transformer_heads=8 \
-  +algo.critic.transformer_heads=8 \
-  +algo.actor.transformer_layers=3 \
-  +algo.critic.transformer_layers=3 \
-  +algo.actor.transformer_ff_dim=768 \
-  +algo.critic.transformer_ff_dim=768
+uv run scripts/train_omni_car_transformer_teacher.py \
+  --run-name transformer_teacher_v01 \
+  --num-envs 128 \
+  --num-steps-per-env 32 \
+  --max-iterations 260 \
+  --transformer-dim 256 \
+  --transformer-heads 8 \
+  --transformer-layers 3 \
+  --transformer-ff-dim 768 \
+  --device cuda:0
 ```
 
-The `+` prefix is required for Transformer-specific Hydra keys because the base
-OmniCar PPO config is structured around the GRU student. Existing
-`gru_hidden_dim` values are accepted as a compatibility alias for
-`transformer_dim` when no explicit Transformer dimension is provided.
+The wrapper expands to the required `class_name` overrides and `+`-prefixed
+Transformer-specific Hydra keys because the base OmniCar PPO config is
+structured around the GRU student. Existing `gru_hidden_dim` values are
+accepted by the model as a compatibility alias for `transformer_dim` when no
+explicit Transformer dimension is provided.
 
 The distillation loss should be axis-aware rather than a single scalar MSE:
 Huber or MSE action imitation per `vx`, `vy`, and `vyaw`; per-axis diff and
