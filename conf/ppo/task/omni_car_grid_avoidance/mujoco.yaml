@@ -26,13 +26,13 @@ algo:
     grid_history_len: 10
     grid_cell_size: 0.05
     command_conditioned_grid: true
-    # Predict a bounded residual around the user's command.  This keeps clear-path
-    # exploration anchored to the operator intent while still allowing PPO to
-    # cancel or bend the command under obstacle risk.
+    # Predict a bounded residual around the user's command.  The planar residual
+    # is expressed in command coordinates: parallel cancels or boosts intent,
+    # lateral bends around asymmetric obstacles.
     command_skip_scale: 1.0
     residual_action_scale: 1.0
     residual_action_mode: tanh
-    residual_action_frame: body
+    residual_action_frame: command
     residual_action_limit: [2.0, 1.0, 2.0]
     zero_residual_head: true
     cnn_feature_dim: 128
