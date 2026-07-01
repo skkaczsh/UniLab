@@ -60,6 +60,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Also open the secondary human-command HUD window from the env.",
     )
     parser.add_argument(
+        "--enable-stagnation-reset",
+        action="store_true",
+        help="Keep large-scene stagnation resets enabled. Disabled by default for manual debugging.",
+    )
+    parser.add_argument(
         "--log-path",
         type=Path,
         default=ROOT_DIR / "logs" / "omni_car_viewer" / "xbox_telemetry.jsonl",
@@ -170,6 +175,14 @@ def _make_policy_and_env(args: argparse.Namespace) -> tuple[Any, Any, Any, Path]
     env_cfg_override.update(
         {
             "seed": int(args.seed),
+            "large_scene": {
+                "stagnation_warmup_steps": (
+                    240 if bool(args.enable_stagnation_reset) else 1_000_000_000
+                ),
+                "stagnation_window_steps": (
+                    420 if bool(args.enable_stagnation_reset) else 1_000_000_000
+                ),
+            },
             "human_command": {
                 "enabled": True,
                 "backend": "pygame",

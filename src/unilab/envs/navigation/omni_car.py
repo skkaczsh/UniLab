@@ -107,6 +107,7 @@ class OmniCarRewardCfg:
     clearance_opening: float = 0.0
     clearance_target_opening: float = 0.0
     blocked_lateral_escape: float = 0.0
+    blocked_lateral_escape_min_scale: float = 0.25
     blocked_lateral_escape_side_bias_min: float = 0.08
     blocked_lateral_escape_side_bias_width: float = 0.20
     lateral_drift: float = 0.0
@@ -117,6 +118,10 @@ class OmniCarRewardCfg:
     target_collision_margin_m: float = 0.25
     target_collision_speed_mps: float = 0.25
     target_collision_cost_clip: float = 1.0
+    safety_stop_margin_m: float = 0.10
+    clearance_risk_scale_m: float = 0.35
+    blocked_path_risk_scale_m: float = 0.30
+    target_lookahead_s: float = 0.45
     speed_cost_clip: float = 4.0
     blocked_projection: float = 0.0
     blocked_speed: float = 0.0
@@ -2306,17 +2311,20 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             self._agent_collision[env_indices] = old_agent_collision
             self._border_collision[env_indices] = old_border_collision
 
-    def _predict_pose_from_action(self, pose: np.ndarray, action: np.ndarray) -> np.ndarray:
+    def _predict_pose_from_action(
+        self, pose: np.ndarray, action: np.ndarray, dt: float | None = None
+    ) -> np.ndarray:
+        step_dt = self._cfg.ctrl_dt if dt is None else float(dt)
         predicted = pose.copy()
         yaw = pose[:, 2]
         cos_yaw = np.cos(yaw)
         sin_yaw = np.sin(yaw)
         vx_body = action[:, 0]
         vy_body = action[:, 1]
-        predicted[:, 0] += (cos_yaw * vx_body - sin_yaw * vy_body) * self._cfg.ctrl_dt
-        predicted[:, 1] += (sin_yaw * vx_body + cos_yaw * vy_body) * self._cfg.ctrl_dt
+        predicted[:, 0] += (cos_yaw * vx_body - sin_yaw * vy_body) * step_dt
+        predicted[:, 1] += (sin_yaw * vx_body + cos_yaw * vy_body) * step_dt
         predicted[:, 2] = self._wrap_angle(
-            predicted[:, 2] + action[:, 2] * self._cfg.ctrl_dt
+            predicted[:, 2] + action[:, 2] * step_dt
         )
         return predicted.astype(self._dtype, copy=False)
 
@@ -2351,8 +2359,21 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             active_planar, None
         ]
         command_clearance = self._compute_command_direction_clearance(cmd)
-        blocked_path_risk = np.exp(-np.maximum(command_clearance, 0.0) / 0.20)
-        blocked_follow_risk = np.exp(-np.maximum(command_clearance, 0.0) / 0.35)
+        max_decel = max(
+            float(min(self._cfg.physical_limits.max_x_accel, self._cfg.physical_limits.max_y_accel)),
+            1e-6,
+        )
+        safety_margin = max(float(cfg.safety_stop_margin_m), 0.0)
+        command_stop_distance = (planar_norm * planar_norm) / (2.0 * max_decel) + safety_margin
+        command_stop_clearance = command_clearance - command_stop_distance
+        blocked_path_risk = np.exp(
+            -np.maximum(command_stop_clearance, 0.0)
+            / max(float(cfg.blocked_path_risk_scale_m), 1e-6)
+        )
+        blocked_follow_risk = np.exp(
+            -np.maximum(command_stop_clearance, 0.0)
+            / max(float(cfg.clearance_risk_scale_m), 1e-6)
+        )
         command_free_scale = np.ones((self._num_envs,), dtype=self._dtype)
         command_free_scale[active_planar] = 1.0 - blocked_follow_risk[active_planar]
         along_speed = np.sum(action[:, :2] * command_dir, axis=1)
@@ -2396,7 +2417,14 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         jerk_weights = np.asarray(
             [cfg.vx_jerk, cfg.vy_jerk, cfg.vyaw_jerk], dtype=self._dtype
         )
-        clearance_risk = np.exp(-np.maximum(self._nearest_clearance, 0.0) / 0.35)
+        action_planar_speed = np.linalg.norm(action[:, :2], axis=1)
+        action_stop_distance = (
+            (action_planar_speed * action_planar_speed) / (2.0 * max_decel) + safety_margin
+        )
+        safety_clearance = self._nearest_clearance - action_stop_distance
+        clearance_risk = np.exp(
+            -np.maximum(safety_clearance, 0.0) / max(float(cfg.clearance_risk_scale_m), 1e-6)
+        )
         track_scale = np.ones_like(track_cost)
         track_scale[:, :2] = command_free_scale[:, None]
         track_penalty = -track_cost * track_weights * track_scale
@@ -2426,18 +2454,32 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             (previous_clearance - self._nearest_clearance) / max(self._cfg.ctrl_dt, 1e-6),
             0.0,
         )
-        target_pose = self._predict_pose_from_action(previous_pose, target_action)
+        lookahead_dt = max(float(cfg.target_lookahead_s), float(self._cfg.ctrl_dt))
+        target_pose = self._predict_pose_from_action(
+            previous_pose, target_action, dt=lookahead_dt
+        )
         target_clearance = self._compute_clearance_at_pose(self._all_env_indices, target_pose)
-        target_risk = np.exp(-np.maximum(target_clearance, 0.0) / 0.35)
+        target_planar_stop_distance = (
+            (target_planar_speed * target_planar_speed) / (2.0 * max_decel) + safety_margin
+        )
+        target_safety_clearance = target_clearance - target_planar_stop_distance
+        target_risk = np.exp(
+            -np.maximum(target_safety_clearance, 0.0)
+            / max(float(cfg.clearance_risk_scale_m), 1e-6)
+        )
         target_closing_speed = np.maximum(
-            (previous_clearance - target_clearance) / max(self._cfg.ctrl_dt, 1e-6),
+            (previous_clearance - target_clearance) / max(lookahead_dt, 1e-6),
             0.0,
         )
         target_opening_speed = np.maximum(
-            (target_clearance - previous_clearance) / max(self._cfg.ctrl_dt, 1e-6),
+            (target_clearance - previous_clearance) / max(lookahead_dt, 1e-6),
             0.0,
         )
-        previous_clearance_risk = np.exp(-np.maximum(previous_clearance, 0.0) / 0.35)
+        previous_safety_clearance = previous_clearance - action_stop_distance
+        previous_clearance_risk = np.exp(
+            -np.maximum(previous_safety_clearance, 0.0)
+            / max(float(cfg.clearance_risk_scale_m), 1e-6)
+        )
         opening_speed = np.maximum(
             (self._nearest_clearance - previous_clearance) / max(self._cfg.ctrl_dt, 1e-6),
             0.0,
@@ -2490,16 +2532,27 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             * np.tanh(target_opening_speed / 0.25),
             0.0,
         )
+        opening_escape_scale = np.maximum(
+            np.clip(opening_speed / 0.25, 0.0, 1.0),
+            np.clip(target_opening_speed / 0.25, 0.0, 1.0),
+        )
+        escape_scale = np.maximum.reduce(
+            (
+                np.full_like(side_escape_scale, max(float(cfg.blocked_lateral_escape_min_scale), 0.0)),
+                side_escape_scale,
+                opening_escape_scale,
+            )
+        )
         blocked_lateral_escape_reward = np.where(
             active_planar,
             blocked_path_risk
-            * side_escape_scale
+            * escape_scale
             * np.clip(
                 lateral_speed / max(float(self._cfg.physical_limits.max_y_speed), 1e-6),
                 0.0,
                 1.0,
             )
-            * np.exp(-(np.maximum(along_speed, 0.0) / 0.20) ** 2)
+            * np.exp(-(np.maximum(along_speed, 0.0) / 0.35) ** 2)
             * np.exp(-(closing_speed / 0.25) ** 2),
             0.0,
         )
@@ -2617,7 +2670,9 @@ class OmniCarGridAvoidanceEnv(ABEnv):
             "yaw_idle_stop": (
                 -cfg.yaw_idle_stop * (yaw_idle_cost + yaw_idle_target_cost)
             ).astype(self._dtype),
-            "off_axis": (-cfg.off_axis * off_axis_cost).astype(self._dtype),
+            "off_axis": (
+                -cfg.off_axis * off_axis_cost * np.where(active_planar, 1.0 - blocked_path_risk, 1.0)
+            ).astype(self._dtype),
             "reverse": (-cfg.reverse * reverse_cost).astype(self._dtype),
             "vx_track": track_penalty[:, 0].astype(self._dtype),
             "vy_track": track_penalty[:, 1].astype(self._dtype),

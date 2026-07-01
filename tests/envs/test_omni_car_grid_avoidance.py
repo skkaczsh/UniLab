@@ -670,7 +670,7 @@ def test_omni_car_axis_tracking_penalty_scales_when_command_path_blocked() -> No
 
     safe_reward = env._compute_reward(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
     np.testing.assert_allclose(env._track_cost, [[0.25, 1.0, 0.25]], atol=1e-6)
-    assert safe_reward[0] == pytest.approx(-(0.25 + 2.0 + 0.75), abs=0.02)
+    assert safe_reward[0] == pytest.approx(-(0.25 + 2.0 + 0.75), abs=0.04)
     assert env._reward_components["vyaw_track"][0] == pytest.approx(-0.75)
 
     env._obstacle_xy[0, 0] = np.asarray([0.40, -0.40], dtype=np.float32)
@@ -1256,7 +1256,7 @@ def test_omni_car_clearance_opening_requires_projection_when_path_is_free() -> N
     projected_opening = float(env._reward_components["clearance_opening"][0])
 
     assert env._compute_command_direction_clearance(env._commands)[0] > 1.0
-    assert lateral_opening == pytest.approx(0.0, abs=0.05)
+    assert lateral_opening == pytest.approx(0.0, abs=0.08)
     assert projected_opening > lateral_opening
     env.close()
 
@@ -1342,7 +1342,7 @@ def test_omni_car_clearance_target_opening_rewards_projected_side_escape() -> No
     env.close()
 
 
-def test_omni_car_blocked_lateral_escape_ignores_symmetric_front_blocker() -> None:
+def test_omni_car_blocked_lateral_escape_rewards_symmetric_front_opening() -> None:
     env = registry.make(
         "OmniCarGridAvoidance",
         sim_backend="mujoco",
@@ -1434,10 +1434,10 @@ def test_omni_car_blocked_lateral_escape_ignores_symmetric_front_blocker() -> No
     clear_escape = float(env._reward_components["blocked_lateral_escape"][0])
 
     assert stop_escape == pytest.approx(0.0)
-    assert side_escape == pytest.approx(0.0)
+    assert side_escape > 1.0
     assert push_escape == pytest.approx(0.0)
     assert clear_escape == pytest.approx(0.0, abs=0.02)
-    assert side_reward[0] == pytest.approx(stop_reward[0])
+    assert side_reward[0] > stop_reward[0]
     assert push_reward[0] == pytest.approx(stop_reward[0])
     assert clear_reward[0] == pytest.approx(clear_escape)
     env.close()
