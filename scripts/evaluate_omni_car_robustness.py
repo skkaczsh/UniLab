@@ -49,11 +49,48 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default="broad",
         help="Scenario suite to run. max_stick focuses on sustained full-stick planar inputs.",
     )
+    parser.add_argument(
+        "--scenario",
+        action="append",
+        default=None,
+        help="Limit evaluation to one or more exact scenario names after suite construction.",
+    )
+    parser.add_argument(
+        "--constant-action",
+        default=None,
+        metavar="VX,VY,VYAW",
+        help="Use a fixed action instead of the loaded policy. Intended for gate reachability probes.",
+    )
     parser.add_argument("--seed", type=int, default=101)
     parser.add_argument("--device", default=None)
     parser.add_argument("--strict", action="store_true")
     parser.add_argument("--json", action="store_true")
     return parser.parse_args(argv)
+
+
+def _parse_action(raw: str | None) -> tuple[float, float, float] | None:
+    if raw is None:
+        return None
+    parts = [part.strip() for part in raw.split(",") if part.strip()]
+    if len(parts) != 3:
+        raise ValueError(f"constant action must be VX,VY,VYAW, got {raw!r}")
+    action = tuple(float(part) for part in parts)
+    limits = (MAX_X_SPEED, MAX_Y_SPEED, 2.0)
+    if any(abs(action[index]) > limits[index] + 1.0e-6 for index in range(3)):
+        raise ValueError(f"constant action exceeds physical limits: {raw!r}")
+    return action
+
+
+def _filter_scenarios(
+    scenarios: Sequence[BehaviorScenario], names: Sequence[str] | None
+) -> tuple[BehaviorScenario, ...]:
+    if not names:
+        return tuple(scenarios)
+    by_name = {scenario.name: scenario for scenario in scenarios}
+    missing = sorted(set(names) - set(by_name))
+    if missing:
+        raise ValueError(f"Unknown scenario(s): {missing}")
+    return tuple(by_name[name] for name in names)
 
 
 def _unit(angle: float) -> np.ndarray:
@@ -273,8 +310,19 @@ def _summarize_categories(scenarios: Sequence[dict[str, Any]]) -> dict[str, dict
 
 
 def evaluate_robustness(args: argparse.Namespace) -> dict[str, Any]:
-    scenarios = build_scenarios(str(args.suite), int(args.directions))
+    scenarios = _filter_scenarios(
+        build_scenarios(str(args.suite), int(args.directions)),
+        args.scenario,
+    )
+    constant_action = _parse_action(args.constant_action)
     policy, env, wrapped_env, checkpoint_path = _load_policy_and_env(args)
+    constant_action_tensor = None
+    if constant_action is not None:
+        constant_action_tensor = torch.tensor(
+            constant_action,
+            dtype=torch.float32,
+            device=wrapped_env.device,
+        ).repeat(int(env.num_envs), 1)
     scenario_summaries: list[dict[str, Any]] = []
     try:
         wrapped_env.reset()
@@ -283,7 +331,11 @@ def evaluate_robustness(args: argparse.Namespace) -> dict[str, Any]:
                 obs = _apply_scenario(env, wrapped_env, scenario)
                 record = _empty_record()
                 for _ in range(int(args.num_steps)):
-                    actions = policy(obs)
+                    actions = (
+                        constant_action_tensor
+                        if constant_action_tensor is not None
+                        else policy(obs)
+                    )
                     obs, _rewards, dones, _infos = wrapped_env.step(actions)
                     if env.state is None:
                         raise RuntimeError("Environment state is unavailable after step.")
@@ -300,6 +352,8 @@ def evaluate_robustness(args: argparse.Namespace) -> dict[str, Any]:
         "num_steps": int(args.num_steps),
         "directions": int(args.directions),
         "suite": str(args.suite),
+        "action_mode": "constant" if constant_action is not None else "policy",
+        "constant_action": constant_action,
         "scenario_count": len(scenario_summaries),
         "strict_passed": all(bool(item["passed"]) for item in scenario_summaries),
         "category_summary": categories,

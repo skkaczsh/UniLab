@@ -63,6 +63,28 @@ def test_build_scenarios_selects_max_stick_suite() -> None:
     assert all(scenario.name.startswith("max_stick_") for scenario in scenarios)
 
 
+def test_filter_scenarios_selects_exact_names() -> None:
+    module = _load_module()
+
+    scenarios = module.build_max_stick_scenarios(directions=8)
+    selected = module._filter_scenarios(scenarios, ["max_stick_right_wall_dir_07"])
+
+    assert [scenario.name for scenario in selected] == ["max_stick_right_wall_dir_07"]
+
+
+def test_parse_constant_action_validates_limits() -> None:
+    module = _load_module()
+
+    assert module._parse_action("0.4,-0.08,0") == (0.4, -0.08, 0.0)
+
+    try:
+        module._parse_action("3.0,0,0")
+    except ValueError as exc:
+        assert "physical limits" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected ValueError")
+
+
 def test_robustness_category_summary_counts_passes() -> None:
     module = _load_module()
 
