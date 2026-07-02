@@ -415,11 +415,33 @@ promoted:
 - later checkpoints `1450` and `1475` regressed. Evidence:
   `artifacts/omni_car/fullstick_v46_scan_1475.json`.
 
-The remaining failures are concentrated enough that the next repair should be
-targeted curriculum or BC on `max_stick_front_blocked_dir_00_circle`,
-`max_stick_front_blocked_dir_04_box`, and `max_stick_left_wall_dir_04`, followed
-by PPO fine-tuning and the same max-stick scan. Continuing broad PPO from v46 is
-not the right lever.
+The v47 BC experiments added exact max-stick oracle scenarios to
+`scripts/train_omni_car_wall_slide_bc.py` and taught the search/curriculum tools
+to gate with `--suite max_stick`. Evidence is stored in:
+
+- `artifacts/omni_car/maxstick_v47_targeted_manifest.json`
+- `artifacts/omni_car/maxstick_v47_full_manifest.json`
+- `artifacts/omni_car/maxstick_v47_policy_manifest.json`
+- `artifacts/omni_car/maxstick_v47_long_horizon_bc_gate.json`
+- `artifacts/omni_car/maxstick_v47_long_wall_repair_gate.json`
+
+The important result is that short exact-scenario BC overfits: it fixes the
+named failures but breaks other front-blocked directions. Policy-rollout BC is
+worse. Long-horizon target-rollout BC is the best direction because it exposes
+the GRU/grid-history settling behavior that appears after many control steps:
+
+- `maxstick_v47_long_horizon_bc.pt`: clear `8/8`, front-blocked `6/8`,
+  side-wall `13/16`.
+- Remaining long-horizon failures: `max_stick_front_blocked_dir_00_circle`,
+  `max_stick_front_blocked_dir_04_box`, `max_stick_right_wall_dir_05`,
+  `max_stick_right_wall_dir_06`, and `max_stick_right_wall_dir_07`.
+- A follow-up wall-only repair restored wall projection but increased collision
+  sharply, so it is rejected.
+
+The next repair should start from `maxstick_v47_long_horizon_bc.pt`, keep the
+long rollout length, and balance front safety with wall collision control. Do
+not continue short BC or broad PPO from v46; both were already tested and are the
+wrong lever.
 
 For the next run, scan candidates with:
 
