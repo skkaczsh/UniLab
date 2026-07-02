@@ -457,6 +457,43 @@ initialization and run a short PPO safety callback with collision/target
 collision weights high, full-stick command sampling active, and the max-stick
 gate as the promotion criterion.
 
+The v49 follow-up tested that plan and several surgical BC repairs. None are
+promoted. Evidence is stored in:
+
+- `artifacts/omni_car/maxstick_v49_front_micro_bc_gate.json`
+- `artifacts/omni_car/maxstick_v49_final_micro_bc_gate.json`
+- `artifacts/omni_car/maxstick_v49_rightwall07_safe_target_gate.json`
+- `artifacts/omni_car/maxstick_v49_policy_surgical_gate.json`
+- `artifacts/omni_car/maxstick_v49_policy_surgical2_gate.json`
+
+The safety-callback PPO run from `maxstick_v47_long_horizon_bc.pt` regressed the
+max-stick gate, so it is rejected. The best non-PPO starting point remains the
+front-micro BC candidate:
+
+- `maxstick_v49_front_micro_bc.pt`: clear `8/8`, front-blocked `7/8`,
+  side-wall `14/16`.
+- Remaining failures: `max_stick_front_blocked_dir_00_circle`,
+  `max_stick_right_wall_dir_06`, and `max_stick_right_wall_dir_07`.
+
+Adding per-scenario target overrides to the BC tool made the repair experiments
+more controlled, but also exposed the main failure mode:
+
+- Target-rollout BC can reduce training loss without changing the closed-loop
+  gate because the evaluator follows policy-induced history, not teacher
+  history.
+- Policy-rollout surgical BC improved `max_stick_right_wall_dir_06` projection
+  enough to pass it, but increased `max_stick_right_wall_dir_07` collision.
+- `max_stick_clear_dir_07` and `max_stick_right_wall_dir_07` create a hard
+  conditional conflict for the current CNN-GRU actor: the same full-stick
+  command must stay fast in free space but move away from a nearby right wall.
+
+Do not promote `maxstick_v49_final_micro_bc.pt`,
+`maxstick_v49_rightwall07_safe_target.pt`,
+`maxstick_v49_policy_surgical.pt`, or `maxstick_v49_policy_surgical2.pt`. The
+next useful step is no longer another hand-tuned BC patch. Use DAgger-style
+policy-rollout data aggregation or revise the reward/curriculum so the model
+sees many paired free-space versus wall-near histories for the same command.
+
 For the next run, scan candidates with:
 
 ```bash
