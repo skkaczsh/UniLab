@@ -740,6 +740,52 @@ target on policy-induced histories until the future collision risk is gone.
 That target generation can still be implemented as offline teacher data for RL
 distillation, without adding a runtime geometry gate.
 
+The next tool step implements this as `--teacher-mode rollout_clearance` in
+`scripts/train_omni_car_wall_slide_bc.py`. For front-blocked and side-wall
+oracle scenarios it builds a small candidate action set from stop, command
+following, scaled command following, and lateral escape actions. Each candidate
+is rolled forward through the same velocity / acceleration limits used by the
+environment for several control steps, while `_compute_clearance_at_pose`
+measures the predicted minimum and final clearance. Front-blocked examples are
+scored toward stopping and avoiding clearance loss; side-wall examples are
+scored toward preserving clearance while keeping useful projection along the
+user command. Clear, yaw-only, and zero-input examples keep their static target
+so the teacher does not rewrite normal command following.
+
+The v64-v65 remote follow-up tested that rollout-aware teacher from the v62
+branch-only checkpoint. Evidence is stored in:
+
+- `artifacts/omni_car/maxstick_v64_rollout_teacher_gate_dir8.json`
+- `artifacts/omni_car/maxstick_v64_rollout_teacher_broad_gate.json`
+- `artifacts/omni_car/maxstick_v64_rollout_teacher_branch_diag.json`
+- `artifacts/omni_car/maxstick_v65_broad_front_teacher_gate_dir8.json`
+- `artifacts/omni_car/maxstick_v65_broad_front_teacher_broad_gate.json`
+- `artifacts/omni_car/maxstick_v65_broad_front_teacher_branch_diag.json`
+
+These checkpoints are also not promoted:
+
+- v64 kept the strong branch separation from v62 while replacing the static
+  wall teacher with rollout-aware clearance scoring. Max-stick improved to
+  `27/32`: clear `8/8`, front-blocked `8/8`, side-wall `11/16`. The broad
+  suite was `73/83`, with all clear, side-wall, yaw, and zero cases passing,
+  but only `6/16` front-blocked cases passing.
+- v65 continued from v64 and mixed in `directional_front` rehearsal. It nudged
+  max-stick to `28/32` by improving side-wall to `12/16`, but the broad suite
+  regressed to `72/83` because front-blocked broad cases fell to `5/16`.
+- Branch diagnostics stayed healthy rather than capacity-limited: front gate
+  stayed near `0.0`, clear near `0.98`, and right-wall near `1.0`. The observed
+  failures are therefore target-distribution and teacher-objective failures,
+  not evidence that the CNN-GRU/gated-head policy cannot represent the desired
+  behavior.
+
+The practical conclusion is that rollout-aware labels improved the extreme
+max-stick front/side tradeoff, but still did not solve sustained full-stick
+translation into clutter. The next repair should not add a runtime geometric
+gate. It should split teacher data more deliberately: a medium-speed
+broad-front curriculum with stricter stop targets until repeated rollout risk
+is gone, and a side-wall candidate scorer that penalizes lateral clearance loss
+more aggressively for diagonal directions `01/03/05/07`.
+
 For the next run, scan candidates with:
 
 ```bash
