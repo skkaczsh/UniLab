@@ -34,6 +34,10 @@ def build_bc_command(
     scenario_groups: Sequence[str] = (),
     scenario_weight: Sequence[str] = (),
     scenario_target: Sequence[str] = (),
+    dagger_replay_epochs: int = 0,
+    dagger_replay_batch_size: int = 512,
+    dagger_replay_max_samples: int = 8192,
+    dagger_samples_per_step: int = 2,
     progress_interval: int = 0,
 ) -> list[str]:
     command = [
@@ -63,6 +67,11 @@ def build_bc_command(
         command.extend(["--device", str(device)])
     if progress_interval > 0:
         command.extend(["--progress-interval", str(int(progress_interval))])
+    if dagger_replay_epochs > 0:
+        command.extend(["--dagger-replay-epochs", str(int(dagger_replay_epochs))])
+        command.extend(["--dagger-replay-batch-size", str(int(dagger_replay_batch_size))])
+        command.extend(["--dagger-replay-max-samples", str(int(dagger_replay_max_samples))])
+        command.extend(["--dagger-samples-per-step", str(int(dagger_samples_per_step))])
     for scenario in scenarios:
         command.extend(["--scenario", str(scenario)])
     for group in scenario_groups:

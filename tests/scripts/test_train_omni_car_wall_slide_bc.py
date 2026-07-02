@@ -228,6 +228,27 @@ def test_wall_slide_target_tensor_repeats_action() -> None:
     )
 
 
+def test_dagger_replay_buffer_caps_and_samples() -> None:
+    module = _load_module()
+    rng = np.random.default_rng(3)
+    replay = module.DaggerReplayBuffer(max_samples=3)
+
+    replay.append(
+        torch.arange(12, dtype=torch.float32).reshape(4, 3),
+        torch.ones((4, 3), dtype=torch.float32),
+        weight=2.0,
+        rng=rng,
+        samples_per_step=4,
+    )
+
+    assert replay.size == 3
+    obs, target, weight = replay.sample(rng=rng, batch_size=2, device="cpu")
+    assert obs.shape == (2, 3)
+    assert target.shape == (2, 3)
+    assert weight.shape == (2,)
+    torch.testing.assert_close(weight, torch.full((2,), 2.0))
+
+
 def test_balanced_batch_training_visits_every_oracle_scenario(monkeypatch, tmp_path: Path) -> None:
     module = _load_module()
     policy = torch.nn.Linear(3, 3)
@@ -280,3 +301,62 @@ def test_balanced_batch_training_visits_every_oracle_scenario(monkeypatch, tmp_p
     assert summary["balanced_batch"] is True
     assert summary["loss_initial"] is not None
     assert all(count == 1 for count in summary["scenario_counts"].values())
+
+
+def test_dagger_replay_training_reports_replay_updates(monkeypatch, tmp_path: Path) -> None:
+    module = _load_module()
+    policy = torch.nn.Linear(3, 3)
+    env = SimpleNamespace(num_envs=2, close=lambda: None)
+
+    class _WrappedEnv:
+        def reset(self):  # type: ignore[no-untyped-def]
+            return None
+
+        def step(self, action):  # type: ignore[no-untyped-def]
+            return (
+                torch.zeros((2, 3), dtype=torch.float32),
+                torch.zeros((2,), dtype=torch.float32),
+                torch.zeros((2,), dtype=torch.bool),
+                {},
+            )
+
+    runner = SimpleNamespace(alg=SimpleNamespace(get_policy=lambda: policy))
+
+    def _fake_make_runner(_args):  # type: ignore[no-untyped-def]
+        return runner, env, _WrappedEnv(), tmp_path / "load.pt", "cpu"
+
+    monkeypatch.setattr(module, "_make_runner", _fake_make_runner)
+    monkeypatch.setattr(
+        module,
+        "_apply_scenario",
+        lambda _env, _wrapped, _scenario: torch.zeros((2, 3), dtype=torch.float32),
+    )
+    monkeypatch.setattr(module, "_save_corrected_checkpoint", lambda _runner, output: output.touch())
+
+    summary = module.train_wall_slide_bc(
+        SimpleNamespace(
+            seed=1,
+            learning_rate=1.0e-3,
+            num_envs=2,
+            iterations=1,
+            rollout_steps=1,
+            rollout_actions="policy",
+            balanced_batch=True,
+            dagger_replay_epochs=1,
+            dagger_replay_batch_size=4,
+            dagger_replay_max_samples=8,
+            dagger_samples_per_step=1,
+            scenario=["zero_input_hold", "front_blocked_stop"],
+            scenario_group=None,
+            scenario_weight=None,
+            scenario_target=None,
+            progress_interval=0,
+            dry_run=False,
+            output=str(tmp_path / "corrected.pt"),
+        )
+    )
+
+    assert summary["status"] == "completed"
+    assert summary["replay_size"] == 2
+    assert summary["replay_updates"] == 1
+    assert summary["replay_loss_final"] is not None

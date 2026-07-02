@@ -119,6 +119,35 @@ def test_build_bc_command_can_forward_scenario_targets() -> None:
     assert "max_stick_right_wall_dir_07=0.42,0.07,0.0" in command
 
 
+def test_build_bc_command_can_forward_dagger_replay_options() -> None:
+    module = _load_module()
+
+    command = module.build_bc_command(
+        uv_bin="uv",
+        load_run="/tmp/init.pt",
+        output="/tmp/repair.pt",
+        num_envs=64,
+        iterations=1400,
+        rollout_steps=2,
+        rollout_actions="policy",
+        learning_rate=5.0e-5,
+        seed=361,
+        dagger_replay_epochs=2,
+        dagger_replay_batch_size=128,
+        dagger_replay_max_samples=2048,
+        dagger_samples_per_step=4,
+    )
+
+    assert "--dagger-replay-epochs" in command
+    assert "2" in command
+    assert "--dagger-replay-batch-size" in command
+    assert "128" in command
+    assert "--dagger-replay-max-samples" in command
+    assert "2048" in command
+    assert "--dagger-samples-per-step" in command
+    assert "4" in command
+
+
 def test_build_gate_command_uses_broad_json_gate() -> None:
     module = _load_module()
 

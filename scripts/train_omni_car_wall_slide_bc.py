@@ -43,6 +43,77 @@ class OracleScenario:
     weight: float = 1.0
 
 
+@dataclass
+class DaggerReplayBuffer:
+    max_samples: int
+    obs: Any | None = None
+    target: torch.Tensor | None = None
+    weight: torch.Tensor | None = None
+
+    @property
+    def size(self) -> int:
+        return 0 if self.obs is None else int(self.obs.shape[0])
+
+    def append(
+        self,
+        obs: torch.Tensor,
+        target: torch.Tensor,
+        *,
+        weight: float,
+        rng: np.random.Generator,
+        samples_per_step: int,
+    ) -> None:
+        if self.max_samples <= 0 or samples_per_step <= 0:
+            return
+        count = min(int(samples_per_step), int(obs.shape[0]))
+        if count <= 0:
+            return
+        indices = rng.choice(int(obs.shape[0]), size=count, replace=False)
+        index_tensor = torch.as_tensor(indices, dtype=torch.long, device=obs.device)
+        obs_cpu = _index_batch(obs, index_tensor).detach().cpu()
+        target_cpu = target.index_select(0, index_tensor).detach().cpu()
+        weight_cpu = torch.full((count,), float(weight), dtype=torch.float32)
+        if self.obs is None:
+            self.obs = obs_cpu
+            self.target = target_cpu
+            self.weight = weight_cpu
+        else:
+            assert self.target is not None and self.weight is not None
+            self.obs = torch.cat((self.obs, obs_cpu), dim=0)
+            self.target = torch.cat((self.target, target_cpu), dim=0)
+            self.weight = torch.cat((self.weight, weight_cpu), dim=0)
+        if self.size > self.max_samples:
+            start = self.size - self.max_samples
+            assert self.target is not None and self.weight is not None
+            self.obs = self.obs[start:]
+            self.target = self.target[start:]
+            self.weight = self.weight[start:]
+
+    def sample(
+        self,
+        *,
+        rng: np.random.Generator,
+        batch_size: int,
+        device: str | torch.device,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if self.obs is None or self.target is None or self.weight is None:
+            raise ValueError("Cannot sample an empty DAgger replay buffer")
+        count = min(int(batch_size), self.size)
+        indices = rng.choice(self.size, size=count, replace=False)
+        index_tensor = torch.as_tensor(indices, dtype=torch.long)
+        return (
+            _index_batch(self.obs, index_tensor).to(device),
+            self.target.index_select(0, index_tensor).to(device),
+            self.weight.index_select(0, index_tensor).to(device),
+        )
+
+
+def _index_batch(batch: Any, index: torch.Tensor) -> Any:
+    if hasattr(batch, "index_select"):
+        return batch.index_select(0, index)
+    return batch[index]
+
+
 def _unit(angle: float) -> np.ndarray:
     return np.asarray([math.cos(angle), math.sin(angle)], dtype=np.float64)
 
@@ -409,6 +480,33 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=0,
         help="Print progress every N optimizer iterations. Disabled by default.",
     )
+    parser.add_argument(
+        "--dagger-replay-epochs",
+        type=int,
+        default=0,
+        help=(
+            "Extra supervised epochs over a bounded replay buffer of policy-induced "
+            "states after each collection iteration. Disabled by default."
+        ),
+    )
+    parser.add_argument(
+        "--dagger-replay-batch-size",
+        type=int,
+        default=512,
+        help="Mini-batch size for DAgger replay updates.",
+    )
+    parser.add_argument(
+        "--dagger-replay-max-samples",
+        type=int,
+        default=8192,
+        help="Maximum CPU samples kept in the DAgger replay buffer.",
+    )
+    parser.add_argument(
+        "--dagger-samples-per-step",
+        type=int,
+        default=2,
+        help="Number of env rows sampled into replay from each rollout step.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args(argv)
 
@@ -639,6 +737,44 @@ def _save_corrected_checkpoint(runner: Any, output: Path) -> None:
     torch.save(payload, output)
 
 
+def _weighted_action_mse(
+    prediction: torch.Tensor, target: torch.Tensor, weight: torch.Tensor
+) -> torch.Tensor:
+    per_sample = torch.mean((prediction - target) ** 2, dim=1)
+    return torch.sum(per_sample * weight) / torch.clamp(torch.sum(weight), min=1.0e-6)
+
+
+def _train_dagger_replay(
+    *,
+    policy: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    replay: DaggerReplayBuffer,
+    rng: np.random.Generator,
+    device: str | torch.device,
+    epochs: int,
+    batch_size: int,
+) -> list[float]:
+    losses: list[float] = []
+    if epochs <= 0 or replay.size <= 0:
+        return losses
+    updates_per_epoch = max(1, math.ceil(replay.size / max(int(batch_size), 1)))
+    for _epoch in range(int(epochs)):
+        for _update in range(updates_per_epoch):
+            obs_batch, target_batch, weight_batch = replay.sample(
+                rng=rng,
+                batch_size=int(batch_size),
+                device=device,
+            )
+            prediction = policy(obs_batch)
+            loss = _weighted_action_mse(prediction, target_batch, weight_batch)
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
+            optimizer.step()
+            losses.append(float(loss.detach().cpu().item()))
+    return losses
+
+
 def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
     torch.manual_seed(int(args.seed))
     rng = np.random.default_rng(int(args.seed))
@@ -654,7 +790,14 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
     )
     probabilities = _scenario_probabilities(scenarios)
     loss_history: list[float] = []
+    replay_loss_history: list[float] = []
     scenario_counts = {scenario.name: 0 for scenario in scenarios}
+    dagger_replay_epochs = int(getattr(args, "dagger_replay_epochs", 0))
+    dagger_replay_batch_size = int(getattr(args, "dagger_replay_batch_size", 512))
+    dagger_replay_samples_per_step = int(getattr(args, "dagger_samples_per_step", 2))
+    replay = DaggerReplayBuffer(
+        max_samples=int(getattr(args, "dagger_replay_max_samples", 8192))
+    )
     started_at = time.time()
     try:
         wrapped_env.reset()
@@ -688,6 +831,17 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                         raw_loss = torch.nn.functional.mse_loss(prediction, target)
                         loss = raw_loss * float(scenario.weight) / normalizer
                         loss.backward()
+                        replay.append(
+                            obs,
+                            target,
+                            weight=float(scenario.weight),
+                            rng=rng,
+                            samples_per_step=(
+                                dagger_replay_samples_per_step
+                                if dagger_replay_epochs > 0
+                                else 0
+                            ),
+                        )
                         raw_loss_value = float(raw_loss.detach().cpu().item())
                         iteration_losses.append(raw_loss_value)
                         loss_history.append(raw_loss_value)
@@ -702,6 +856,16 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                                 obs = _apply_scenario(env, wrapped_env, scenario.behavior)
                 torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
                 optimizer.step()
+                replay_losses = _train_dagger_replay(
+                    policy=policy,
+                    optimizer=optimizer,
+                    replay=replay,
+                    rng=rng,
+                    device=device,
+                    epochs=dagger_replay_epochs,
+                    batch_size=dagger_replay_batch_size,
+                )
+                replay_loss_history.extend(replay_losses)
                 if args.progress_interval > 0 and (
                     (iteration + 1) % int(args.progress_interval) == 0
                 ):
@@ -714,6 +878,11 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                                 "iterations": int(args.iterations),
                                 "loss_iteration_mean": mean_loss,
                                 "loss_iteration_max": max_loss,
+                                "replay_loss_recent": (
+                                    replay_loss_history[-1] if replay_loss_history else None
+                                ),
+                                "replay_size": replay.size,
+                                "replay_updates": len(replay_loss_history),
                                 "scenario_counts": scenario_counts,
                             },
                             sort_keys=True,
@@ -733,12 +902,31 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
                 optimizer.step()
+                replay.append(
+                    obs,
+                    target,
+                    weight=float(scenario.weight),
+                    rng=rng,
+                    samples_per_step=(
+                        dagger_replay_samples_per_step if dagger_replay_epochs > 0 else 0
+                    ),
+                )
                 loss_history.append(float(loss.detach().cpu().item()))
                 with torch.no_grad():
                     step_action = prediction.detach() if args.rollout_actions == "policy" else target
                     obs, _rewards, dones, _infos = wrapped_env.step(step_action)
                     if bool(torch.any(dones).item()):
                         obs = _apply_scenario(env, wrapped_env, scenario.behavior)
+            replay_losses = _train_dagger_replay(
+                policy=policy,
+                optimizer=optimizer,
+                replay=replay,
+                rng=rng,
+                device=device,
+                epochs=dagger_replay_epochs,
+                batch_size=dagger_replay_batch_size,
+            )
+            replay_loss_history.extend(replay_losses)
             if args.progress_interval > 0 and (
                 (iteration + 1) % int(args.progress_interval) == 0
             ):
@@ -748,6 +936,11 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                             "iteration": iteration + 1,
                             "iterations": int(args.iterations),
                             "loss_recent": float(loss_history[-1]),
+                            "replay_loss_recent": (
+                                replay_loss_history[-1] if replay_loss_history else None
+                            ),
+                            "replay_size": replay.size,
+                            "replay_updates": len(replay_loss_history),
                             "scenario_counts": scenario_counts,
                         },
                         sort_keys=True,
@@ -766,6 +959,13 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
             "learning_rate": float(args.learning_rate),
             "rollout_actions": str(args.rollout_actions),
             "balanced_batch": bool(args.balanced_batch),
+            "dagger_replay_epochs": dagger_replay_epochs,
+            "dagger_replay_batch_size": dagger_replay_batch_size,
+            "dagger_replay_max_samples": int(getattr(args, "dagger_replay_max_samples", 8192)),
+            "dagger_samples_per_step": dagger_replay_samples_per_step,
+            "replay_size": replay.size,
+            "replay_updates": len(replay_loss_history),
+            "replay_loss_final": replay_loss_history[-1] if replay_loss_history else None,
             "scenarios": [scenario.name for scenario in scenarios],
             "scenario_counts": scenario_counts,
             "loss_initial": loss_history[0] if loss_history else None,
