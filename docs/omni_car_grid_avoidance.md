@@ -645,6 +645,47 @@ conditional separation: larger or branched actor head, explicit front-vs-side
 paired distillation, or a teacher/student dataset with balanced hard examples
 and a gate that simultaneously requires front-stop and right-wall-07.
 
+The v57-v59 follow-up added and tested a gated two-head actor path. The shared
+CNN-GRU encoder is reused, then the actor can split into `stop` and `escape`
+heads mixed by a learned scalar gate. The repair script can partially load the
+competent single-head actor, initialize both branches from the old shared head,
+and add branch / gate supervision for front-blocked stop versus side-wall escape
+examples. Evidence is stored in:
+
+- `artifacts/omni_car/maxstick_v57_branched_bc_gate.json`
+- `artifacts/omni_car/maxstick_v57_branched_bc_broad_gate.json`
+- `artifacts/omni_car/maxstick_v58_branch_strong_gate.json`
+- `artifacts/omni_car/maxstick_v59_branch_hardpair_gate.json`
+- `artifacts/omni_car/maxstick_v57_v59_branch_diagnostics.json`
+
+These runs are also not promoted:
+
+- v57 started from `maxstick_v50_dagger_wall07_escape.pt` with a gated actor,
+  partial actor load, and mild branch supervision. The max-stick gate still
+  failed `2/32`: `max_stick_front_blocked_dir_00_circle` collided at
+  `0.010416666666666666`, and `max_stick_right_wall_dir_07` collided at
+  `0.03125`. The broad gate failed `2/83`: `left_wall_dir_04`
+  under-projection and `right_wall_dir_07` collision.
+- v58 increased branch supervision to `5.0` and gate supervision to `20.0`.
+  It remained at the same `2/32` max-stick failures; right-wall-07 still
+  collided at `0.03125`.
+- v59 trained a harder paired subset with `lr=1e-5`, branch supervision `8.0`,
+  and gate supervision `30.0`. It increased right-wall-07 speed
+  (`vx=0.463`, `vy=-0.277`, projection `0.524`) but worsened collision to
+  `0.052083333333333336`.
+
+The branch diagnostic shows why the architectural split alone did not help:
+the learned gate stayed effectively fixed at `0.5` across front-blocked,
+right-wall, and clear cases, and the two heads stayed nearly identical. v59
+only nudged both heads together, so it produced more speed into the wall rather
+than a cleaner conditional policy. The next useful repair should train a real
+state classifier / teacher signal for the gate or the branch labels, preferably
+from grid-derived front-vs-side geometry and closed-loop safe trajectory targets
+instead of static per-scenario action targets. A good next experiment is to
+freeze the competent shared encoder briefly, train gate and branch heads on a
+larger paired front/side/clear dataset until the gate separates, then unfreeze
+for a low-LR RL or DAgger pass.
+
 For the next run, scan candidates with:
 
 ```bash

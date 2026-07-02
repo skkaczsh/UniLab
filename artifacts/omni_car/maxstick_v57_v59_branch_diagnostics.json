@@ -1,0 +1,238 @@
+{
+  "diagnostics": [
+    {
+      "checkpoint": "artifacts/omni_car/checkpoints/maxstick_v57_branched_bc.pt",
+      "checkpoint_label": "v57",
+      "combined_mean": [
+        0.05578160285949707,
+        0.01991884596645832,
+        0.001312323147431016
+      ],
+      "escape_mean": [
+        0.05572974681854248,
+        0.021139979362487793,
+        -0.0016793065005913377
+      ],
+      "gate_mean": 0.5000476837158203,
+      "scenario": "max_stick_front_blocked_dir_00_circle",
+      "stop_mean": [
+        0.05583345890045166,
+        0.01869741827249527,
+        0.004304517991840839
+      ],
+      "target": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "checkpoint": "artifacts/omni_car/checkpoints/maxstick_v57_branched_bc.pt",
+      "checkpoint_label": "v57",
+      "combined_mean": [
+        0.2955167293548584,
+        -0.19742023944854736,
+        -0.005584795493632555
+      ],
+      "escape_mean": [
+        0.2954702377319336,
+        -0.19672226905822754,
+        -0.006566731724888086
+      ],
+      "gate_mean": 0.5000808238983154,
+      "scenario": "max_stick_right_wall_dir_07",
+      "stop_mean": [
+        0.295563280582428,
+        -0.19811850786209106,
+        -0.004602538887411356
+      ],
+      "target": [
+        0.6363961030678927,
+        -0.2828427124746191,
+        0.0
+      ]
+    },
+    {
+      "checkpoint": "artifacts/omni_car/checkpoints/maxstick_v57_branched_bc.pt",
+      "checkpoint_label": "v57",
+      "combined_mean": [
+        1.045395851135254,
+        -1.0086359977722168,
+        -0.00689937686547637
+      ],
+      "escape_mean": [
+        1.0453885793685913,
+        -1.0085780620574951,
+        -0.006873577833175659
+      ],
+      "gate_mean": 0.5000656843185425,
+      "scenario": "max_stick_clear_dir_07",
+      "stop_mean": [
+        1.045403242111206,
+        -1.008694052696228,
+        -0.006925183814018965
+      ],
+      "target": [
+        0.9999999999999996,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "checkpoint": "artifacts/omni_car/checkpoints/maxstick_v58_branch_strong.pt",
+      "checkpoint_label": "v58",
+      "combined_mean": [
+        0.0572887659072876,
+        0.014468252658843994,
+        -0.0009296279749833047
+      ],
+      "escape_mean": [
+        0.05729973316192627,
+        0.016687855124473572,
+        -0.0061142719350755215
+      ],
+      "gate_mean": 0.500100314617157,
+      "scenario": "max_stick_front_blocked_dir_00_circle",
+      "stop_mean": [
+        0.057277679443359375,
+        0.012247615493834019,
+        0.0042571090161800385
+      ],
+      "target": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "checkpoint": "artifacts/omni_car/checkpoints/maxstick_v58_branch_strong.pt",
+      "checkpoint_label": "v58",
+      "combined_mean": [
+        0.3276299834251404,
+        -0.22890669107437134,
+        -0.006113273557275534
+      ],
+      "escape_mean": [
+        0.32825541496276855,
+        -0.22818255424499512,
+        -0.007748945150524378
+      ],
+      "gate_mean": 0.5001766085624695,
+      "scenario": "max_stick_right_wall_dir_07",
+      "stop_mean": [
+        0.3270041346549988,
+        -0.22963136434555054,
+        -0.00447643781080842
+      ],
+      "target": [
+        0.6363961030678927,
+        -0.2828427124746191,
+        0.0
+      ]
+    },
+    {
+      "checkpoint": "artifacts/omni_car/checkpoints/maxstick_v58_branch_strong.pt",
+      "checkpoint_label": "v58",
+      "combined_mean": [
+        1.0454751253128052,
+        -1.009658932685852,
+        -0.00582273630425334
+      ],
+      "escape_mean": [
+        1.0455656051635742,
+        -1.0095983743667603,
+        -0.005777637008577585
+      ],
+      "gate_mean": 0.5001210570335388,
+      "scenario": "max_stick_clear_dir_07",
+      "stop_mean": [
+        1.0453845262527466,
+        -1.0097194910049438,
+        -0.005867856554687023
+      ],
+      "target": [
+        0.9999999999999996,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "checkpoint": "artifacts/omni_car/checkpoints/maxstick_v59_branch_hardpair.pt",
+      "checkpoint_label": "v59",
+      "combined_mean": [
+        0.0587766170501709,
+        -0.0021400568075478077,
+        0.0004041797947138548
+      ],
+      "escape_mean": [
+        0.06062591075897217,
+        0.005412363447248936,
+        0.00028631649911403656
+      ],
+      "gate_mean": 0.49881500005722046,
+      "scenario": "max_stick_front_blocked_dir_00_circle",
+      "stop_mean": [
+        0.0569913387298584,
+        -0.009656522423028946,
+        0.0005214856937527657
+      ],
+      "target": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "checkpoint": "artifacts/omni_car/checkpoints/maxstick_v59_branch_hardpair.pt",
+      "checkpoint_label": "v59",
+      "combined_mean": [
+        0.41408467292785645,
+        -0.24207019805908203,
+        -0.0035863653756678104
+      ],
+      "escape_mean": [
+        0.42118197679519653,
+        -0.2393220067024231,
+        -0.005559341050684452
+      ],
+      "gate_mean": 0.49903935194015503,
+      "scenario": "max_stick_right_wall_dir_07",
+      "stop_mean": [
+        0.4070103168487549,
+        -0.2448204755783081,
+        -0.0016209498280659318
+      ],
+      "target": [
+        0.6363961030678927,
+        -0.2828427124746191,
+        0.0
+      ]
+    },
+    {
+      "checkpoint": "artifacts/omni_car/checkpoints/maxstick_v59_branch_hardpair.pt",
+      "checkpoint_label": "v59",
+      "combined_mean": [
+        1.0541208982467651,
+        -1.0134828090667725,
+        -0.004069897346198559
+      ],
+      "escape_mean": [
+        1.0540378093719482,
+        -1.009899616241455,
+        -0.005136800464242697
+      ],
+      "gate_mean": 0.4994221329689026,
+      "scenario": "max_stick_clear_dir_07",
+      "stop_mean": [
+        1.0542035102844238,
+        -1.0170578956604004,
+        -0.003005454782396555
+      ],
+      "target": [
+        0.9999999999999996,
+        -1.0,
+        0.0
+      ]
+    }
+  ]
+}
