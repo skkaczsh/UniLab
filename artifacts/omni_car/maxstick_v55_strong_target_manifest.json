@@ -1,0 +1,398 @@
+{
+  "best": {
+    "checkpoint": "artifacts/omni_car/checkpoints/maxstick_v55_strong_target_c00_right_wall07_target_sweep_it16_lr3em06_s575.pt",
+    "gate": {
+      "category_summary": {
+        "max_stick_clear": {
+          "collision_fraction_max": 0.0,
+          "count": 8,
+          "off_axis_abs_max": 0.05540101469679053,
+          "passed": 8,
+          "planar_speed_max": 1.8915669536167155,
+          "projection_mean_min": 0.9501753730388979,
+          "projection_ratio_min": 0.9139504169579595
+        },
+        "max_stick_front_blocked": {
+          "collision_fraction_max": 0.010416666666666666,
+          "count": 8,
+          "off_axis_abs_max": 0.14760652910141894,
+          "passed": 6,
+          "planar_speed_max": 0.3096644921523717,
+          "projection_mean_min": -0.0071026909610881215,
+          "projection_ratio_min": -0.005022360943257808
+        },
+        "max_stick_side_wall": {
+          "collision_fraction_max": 0.041666666666666664,
+          "count": 16,
+          "off_axis_abs_max": 0.1447715767591962,
+          "passed": 15,
+          "planar_speed_max": 1.5239586072737648,
+          "projection_mean_min": 0.2424575979821384,
+          "projection_ratio_min": 0.21511838934384286
+        }
+      },
+      "command": [
+        "uv",
+        "run",
+        "scripts/evaluate_omni_car_robustness.py",
+        "--load-run",
+        "artifacts/omni_car/checkpoints/maxstick_v55_strong_target_c00_right_wall07_target_sweep_it16_lr3em06_s575.pt",
+        "--num-envs",
+        "4",
+        "--num-steps",
+        "96",
+        "--directions",
+        "8",
+        "--suite",
+        "max_stick",
+        "--seed",
+        "73",
+        "--json",
+        "--device",
+        "cuda"
+      ],
+      "failed_count": 3,
+      "failed_scenarios": [
+        "max_stick_front_blocked_dir_04_box",
+        "max_stick_front_blocked_dir_07_box",
+        "max_stick_right_wall_dir_07"
+      ],
+      "output": "logs/omni_car_repair_search/maxstick_v55_strong_target_c00_right_wall07_target_sweep_it16_lr3em06_s575_gate.json",
+      "scenario_count": 32,
+      "strict_passed": false
+    },
+    "name": "maxstick_v55_strong_target_c00_right_wall07_target_sweep_it16_lr3em06_s575",
+    "score": [
+      0.0,
+      -3.0,
+      29.0,
+      6.0,
+      15.0,
+      8.0,
+      0.0,
+      0.0,
+      -0.05208333333333333,
+      -0.0071026909610881215,
+      0.2424575979821384,
+      0.9501753730388979
+    ]
+  },
+  "candidate_count": 2,
+  "candidates": [
+    {
+      "checkpoint": "artifacts/omni_car/checkpoints/maxstick_v55_strong_target_c00_right_wall07_target_sweep_it16_lr3em06_s575.pt",
+      "gate": {
+        "category_summary": {
+          "max_stick_clear": {
+            "collision_fraction_max": 0.0,
+            "count": 8,
+            "off_axis_abs_max": 0.05540101469679053,
+            "passed": 8,
+            "planar_speed_max": 1.8915669536167155,
+            "projection_mean_min": 0.9501753730388979,
+            "projection_ratio_min": 0.9139504169579595
+          },
+          "max_stick_front_blocked": {
+            "collision_fraction_max": 0.010416666666666666,
+            "count": 8,
+            "off_axis_abs_max": 0.14760652910141894,
+            "passed": 6,
+            "planar_speed_max": 0.3096644921523717,
+            "projection_mean_min": -0.0071026909610881215,
+            "projection_ratio_min": -0.005022360943257808
+          },
+          "max_stick_side_wall": {
+            "collision_fraction_max": 0.041666666666666664,
+            "count": 16,
+            "off_axis_abs_max": 0.1447715767591962,
+            "passed": 15,
+            "planar_speed_max": 1.5239586072737648,
+            "projection_mean_min": 0.2424575979821384,
+            "projection_ratio_min": 0.21511838934384286
+          }
+        },
+        "command": [
+          "uv",
+          "run",
+          "scripts/evaluate_omni_car_robustness.py",
+          "--load-run",
+          "artifacts/omni_car/checkpoints/maxstick_v55_strong_target_c00_right_wall07_target_sweep_it16_lr3em06_s575.pt",
+          "--num-envs",
+          "4",
+          "--num-steps",
+          "96",
+          "--directions",
+          "8",
+          "--suite",
+          "max_stick",
+          "--seed",
+          "73",
+          "--json",
+          "--device",
+          "cuda"
+        ],
+        "failed_count": 3,
+        "failed_scenarios": [
+          "max_stick_front_blocked_dir_04_box",
+          "max_stick_front_blocked_dir_07_box",
+          "max_stick_right_wall_dir_07"
+        ],
+        "output": "logs/omni_car_repair_search/maxstick_v55_strong_target_c00_right_wall07_target_sweep_it16_lr3em06_s575_gate.json",
+        "scenario_count": 32,
+        "strict_passed": false
+      },
+      "index": 0,
+      "iterations": 16,
+      "learning_rate": 3e-06,
+      "name": "maxstick_v55_strong_target_c00_right_wall07_target_sweep_it16_lr3em06_s575",
+      "profile": "right_wall07_target_sweep",
+      "scenario_groups": [
+        "base"
+      ],
+      "scenario_targets": [
+        "max_stick_right_wall_dir_07=0.4,-0.08,0"
+      ],
+      "scenario_weights": [
+        "max_stick_right_wall_dir_07=2.0",
+        "max_stick_clear_dir_07=1.0",
+        "max_stick_left_wall_dir_04=1.0"
+      ],
+      "scenarios": [
+        "max_stick_clear_dir_07",
+        "max_stick_right_wall_dir_07",
+        "max_stick_left_wall_dir_04"
+      ],
+      "score": [
+        0.0,
+        -3.0,
+        29.0,
+        6.0,
+        15.0,
+        8.0,
+        0.0,
+        0.0,
+        -0.05208333333333333,
+        -0.0071026909610881215,
+        0.2424575979821384,
+        0.9501753730388979
+      ],
+      "seed": 575,
+      "train_command": [
+        "uv",
+        "run",
+        "scripts/train_omni_car_wall_slide_bc.py",
+        "--load-run",
+        "artifacts/omni_car/checkpoints/maxstick_v50_dagger_wall07_escape.pt",
+        "--output",
+        "artifacts/omni_car/checkpoints/maxstick_v55_strong_target_c00_right_wall07_target_sweep_it16_lr3em06_s575.pt",
+        "--num-envs",
+        "16",
+        "--iterations",
+        "16",
+        "--rollout-steps",
+        "24",
+        "--rollout-actions",
+        "policy",
+        "--learning-rate",
+        "3e-06",
+        "--seed",
+        "575",
+        "--balanced-batch",
+        "--device",
+        "cuda",
+        "--progress-interval",
+        "4",
+        "--dagger-replay-epochs",
+        "2",
+        "--dagger-replay-batch-size",
+        "512",
+        "--dagger-replay-max-samples",
+        "4096",
+        "--dagger-samples-per-step",
+        "2",
+        "--scenario-jitter-xy-std",
+        "0.02",
+        "--scenario-jitter-radius-std",
+        "0.004",
+        "--scenario-jitter-yaw-std",
+        "0.02",
+        "--scenario",
+        "max_stick_clear_dir_07",
+        "--scenario",
+        "max_stick_right_wall_dir_07",
+        "--scenario",
+        "max_stick_left_wall_dir_04",
+        "--scenario-group",
+        "base",
+        "--scenario-weight",
+        "max_stick_right_wall_dir_07=2.0",
+        "--scenario-weight",
+        "max_stick_clear_dir_07=1.0",
+        "--scenario-weight",
+        "max_stick_left_wall_dir_04=1.0",
+        "--scenario-target",
+        "max_stick_right_wall_dir_07=0.4,-0.08,0"
+      ]
+    },
+    {
+      "checkpoint": "artifacts/omni_car/checkpoints/maxstick_v55_strong_target_c01_right_wall07_target_sweep_it16_lr1em05_s575.pt",
+      "gate": {
+        "category_summary": {
+          "max_stick_clear": {
+            "collision_fraction_max": 0.0,
+            "count": 8,
+            "off_axis_abs_max": 0.07684574127284705,
+            "passed": 8,
+            "planar_speed_max": 1.846932552398367,
+            "projection_mean_min": 0.9165939951005081,
+            "projection_ratio_min": 0.8770403310966989
+          },
+          "max_stick_front_blocked": {
+            "collision_fraction_max": 0.020833333333333332,
+            "count": 8,
+            "off_axis_abs_max": 0.1867789613483677,
+            "passed": 4,
+            "planar_speed_max": 0.38168325157504096,
+            "projection_mean_min": 0.0002863342740115431,
+            "projection_ratio_min": 0.00020246890683968855
+          },
+          "max_stick_side_wall": {
+            "collision_fraction_max": 0.0,
+            "count": 16,
+            "off_axis_abs_max": 0.1516531398892752,
+            "passed": 16,
+            "planar_speed_max": 1.4764260184519902,
+            "projection_mean_min": 0.27391580305993557,
+            "projection_ratio_min": 0.24021515933175883
+          }
+        },
+        "command": [
+          "uv",
+          "run",
+          "scripts/evaluate_omni_car_robustness.py",
+          "--load-run",
+          "artifacts/omni_car/checkpoints/maxstick_v55_strong_target_c01_right_wall07_target_sweep_it16_lr1em05_s575.pt",
+          "--num-envs",
+          "4",
+          "--num-steps",
+          "96",
+          "--directions",
+          "8",
+          "--suite",
+          "max_stick",
+          "--seed",
+          "73",
+          "--json",
+          "--device",
+          "cuda"
+        ],
+        "failed_count": 4,
+        "failed_scenarios": [
+          "max_stick_front_blocked_dir_00_circle",
+          "max_stick_front_blocked_dir_01_box",
+          "max_stick_front_blocked_dir_04_box",
+          "max_stick_front_blocked_dir_07_box"
+        ],
+        "output": "logs/omni_car_repair_search/maxstick_v55_strong_target_c01_right_wall07_target_sweep_it16_lr1em05_s575_gate.json",
+        "scenario_count": 32,
+        "strict_passed": false
+      },
+      "index": 1,
+      "iterations": 16,
+      "learning_rate": 1e-05,
+      "name": "maxstick_v55_strong_target_c01_right_wall07_target_sweep_it16_lr1em05_s575",
+      "profile": "right_wall07_target_sweep",
+      "scenario_groups": [
+        "base"
+      ],
+      "scenario_targets": [
+        "max_stick_right_wall_dir_07=0.4,-0.08,0"
+      ],
+      "scenario_weights": [
+        "max_stick_right_wall_dir_07=2.0",
+        "max_stick_clear_dir_07=1.0",
+        "max_stick_left_wall_dir_04=1.0"
+      ],
+      "scenarios": [
+        "max_stick_clear_dir_07",
+        "max_stick_right_wall_dir_07",
+        "max_stick_left_wall_dir_04"
+      ],
+      "score": [
+        0.0,
+        -4.0,
+        28.0,
+        4.0,
+        16.0,
+        8.0,
+        0.0,
+        0.0,
+        -0.020833333333333332,
+        0.0002863342740115431,
+        0.27391580305993557,
+        0.9165939951005081
+      ],
+      "seed": 575,
+      "train_command": [
+        "uv",
+        "run",
+        "scripts/train_omni_car_wall_slide_bc.py",
+        "--load-run",
+        "artifacts/omni_car/checkpoints/maxstick_v50_dagger_wall07_escape.pt",
+        "--output",
+        "artifacts/omni_car/checkpoints/maxstick_v55_strong_target_c01_right_wall07_target_sweep_it16_lr1em05_s575.pt",
+        "--num-envs",
+        "16",
+        "--iterations",
+        "16",
+        "--rollout-steps",
+        "24",
+        "--rollout-actions",
+        "policy",
+        "--learning-rate",
+        "1e-05",
+        "--seed",
+        "575",
+        "--balanced-batch",
+        "--device",
+        "cuda",
+        "--progress-interval",
+        "4",
+        "--dagger-replay-epochs",
+        "2",
+        "--dagger-replay-batch-size",
+        "512",
+        "--dagger-replay-max-samples",
+        "4096",
+        "--dagger-samples-per-step",
+        "2",
+        "--scenario-jitter-xy-std",
+        "0.02",
+        "--scenario-jitter-radius-std",
+        "0.004",
+        "--scenario-jitter-yaw-std",
+        "0.02",
+        "--scenario",
+        "max_stick_clear_dir_07",
+        "--scenario",
+        "max_stick_right_wall_dir_07",
+        "--scenario",
+        "max_stick_left_wall_dir_04",
+        "--scenario-group",
+        "base",
+        "--scenario-weight",
+        "max_stick_right_wall_dir_07=2.0",
+        "--scenario-weight",
+        "max_stick_clear_dir_07=1.0",
+        "--scenario-weight",
+        "max_stick_left_wall_dir_04=1.0",
+        "--scenario-target",
+        "max_stick_right_wall_dir_07=0.4,-0.08,0"
+      ]
+    }
+  ],
+  "completed": false,
+  "completed_at": "2026-07-02T19:05:37+0800",
+  "load_run": "artifacts/omni_car/checkpoints/maxstick_v50_dagger_wall07_escape.pt",
+  "started_at": "2026-07-02T18:34:25+0800"
+}

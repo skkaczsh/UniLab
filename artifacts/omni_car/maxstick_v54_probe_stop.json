@@ -1,0 +1,58 @@
+{
+  "action_mode": "constant",
+  "category_summary": {
+    "max_stick_side_wall": {
+      "collision_fraction_max": 0.0,
+      "count": 1,
+      "off_axis_abs_max": 0.0,
+      "passed": 0,
+      "planar_speed_max": 0.0,
+      "projection_mean_min": 0.0,
+      "projection_ratio_min": 0.0
+    }
+  },
+  "checkpoint_path": "artifacts/omni_car/checkpoints/maxstick_v50_dagger_wall07_escape.pt",
+  "constant_action": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "directions": 8,
+  "num_envs": 4,
+  "num_steps": 96,
+  "scenario_count": 1,
+  "scenarios": [
+    {
+      "action_vx_mean": 0.0,
+      "action_vy_mean": 0.0,
+      "action_vyaw_mean": 0.0,
+      "clearance_risk_mean": 0.6526965498924255,
+      "collision_fraction": 0.0,
+      "failures": [
+        "projection_mean < 0.2"
+      ],
+      "off_axis_abs_mean": 0.0,
+      "passed": false,
+      "planar_speed_mean": 0.0,
+      "projection_mean": 0.0,
+      "projection_ratio_mean": 0.0,
+      "reward_blocked_lateral_escape_mean": 0.0,
+      "reward_blocked_projection_mean": 0.0,
+      "reward_blocked_speed_mean": 0.0,
+      "reward_blocked_stop_mean": 0.14730994403362274,
+      "reward_clearance_motion_mean": 0.0,
+      "reward_clearance_opening_mean": 0.0,
+      "reward_clearance_target_motion_mean": 0.0,
+      "reward_clearance_target_opening_mean": 0.0,
+      "reward_idle_stop_mean": 0.0,
+      "reward_target_collision_mean": 0.0,
+      "reward_total_mean": -31.4908447265625,
+      "reward_yaw_idle_stop_mean": 0.0,
+      "scenario": "max_stick_right_wall_dir_07",
+      "yaw_abs_mean": 0.0,
+      "yaw_projection_mean": 0.0
+    }
+  ],
+  "strict_passed": false,
+  "suite": "max_stick"
+}

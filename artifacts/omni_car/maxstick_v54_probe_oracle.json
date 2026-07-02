@@ -1,0 +1,56 @@
+{
+  "action_mode": "constant",
+  "category_summary": {
+    "max_stick_side_wall": {
+      "collision_fraction_max": 0.0,
+      "count": 1,
+      "off_axis_abs_max": 0.2444658124595375,
+      "passed": 1,
+      "planar_speed_max": 0.6881337182870163,
+      "projection_mean_min": 0.6428771574723363,
+      "projection_ratio_min": 0.4545827975186209
+    }
+  },
+  "checkpoint_path": "artifacts/omni_car/checkpoints/maxstick_v50_dagger_wall07_escape.pt",
+  "constant_action": [
+    0.6363961030678927,
+    -0.2828427124746191,
+    0.0
+  ],
+  "directions": 8,
+  "num_envs": 4,
+  "num_steps": 96,
+  "scenario_count": 1,
+  "scenarios": [
+    {
+      "action_vx_mean": 0.6274462312770387,
+      "action_vy_mean": -0.2817193637602031,
+      "action_vyaw_mean": 0.0,
+      "clearance_risk_mean": 0.48834689224410494,
+      "collision_fraction": 0.0,
+      "failures": [],
+      "off_axis_abs_mean": 0.2444658124595375,
+      "passed": true,
+      "planar_speed_mean": 0.6881337182870163,
+      "projection_mean": 0.6428771574723363,
+      "projection_ratio_mean": 0.4545827975186209,
+      "reward_blocked_lateral_escape_mean": 0.002212899074947927,
+      "reward_blocked_projection_mean": -1.147414879097293,
+      "reward_blocked_speed_mean": -0.10046998411417007,
+      "reward_blocked_stop_mean": 0.00010107015643455221,
+      "reward_clearance_motion_mean": -16.45646642272671,
+      "reward_clearance_opening_mean": 9.545124071029326,
+      "reward_clearance_target_motion_mean": -30.400018014013767,
+      "reward_clearance_target_opening_mean": 7.283259188135465,
+      "reward_idle_stop_mean": 0.0,
+      "reward_target_collision_mean": -14.451879646008214,
+      "reward_total_mean": -15.634695877631506,
+      "reward_yaw_idle_stop_mean": 0.0,
+      "scenario": "max_stick_right_wall_dir_07",
+      "yaw_abs_mean": 0.0,
+      "yaw_projection_mean": 0.0
+    }
+  ],
+  "strict_passed": true,
+  "suite": "max_stick"
+}

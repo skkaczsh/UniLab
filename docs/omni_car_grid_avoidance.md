@@ -601,6 +601,50 @@ repair should avoid another broad blind BC sweep and instead isolate the
 right-wall-07 failure with richer closed-loop trajectories or an explicit
 student target distribution that preserves the v52 broad-gate improvement.
 
+The v54-v56 follow-up isolated that right-wall-07 corner and added two repair
+tooling features:
+
+- `scripts/search_omni_car_repair_candidates.py` can now run named target
+  sweeps, forward DAgger replay / scenario jitter options, and use balanced
+  oracle batches.
+- `scripts/evaluate_omni_car_robustness.py` can now filter exact scenarios and
+  run a fixed `--constant-action` for gate reachability probes.
+
+Evidence is stored in:
+
+- `artifacts/omni_car/maxstick_v54_target_sweep_manifest.json`
+- `artifacts/omni_car/maxstick_v54_target_sweep_c*_gate.json`
+- `artifacts/omni_car/maxstick_v54_probe_*.json`
+- `artifacts/omni_car/maxstick_v55_strong_target_manifest.json`
+- `artifacts/omni_car/maxstick_v55_strong_target_c*_gate.json`
+- `artifacts/omni_car/maxstick_v56_rebalance_manifest.json`
+- `artifacts/omni_car/maxstick_v56_rebalance_c00_max_stick_it6_lr1em06_s576_gate.json`
+
+Main findings:
+
+- The gate is physically reachable. Constant actions `(0.4, -0.08, 0.0)` and
+  the oracle default `(0.6364, -0.2828, 0.0)` both pass
+  `max_stick_right_wall_dir_07` with zero collision.
+- v54 swept right-wall-07 targets from `vx=0.28..0.40` and `vy=-0.08..0.08`
+  at low learning rate. All `9/9` candidates still failed only
+  `max_stick_right_wall_dir_07`, and the policy output barely moved
+  (`vx ~= 0.29`, `vy ~= -0.17`, collision `0.03125`).
+- v55 increased the update strength. `lr=3e-6` still failed right-wall-07 and
+  added two front-blocked collision failures. `lr=1e-5` fixed right-wall-07
+  (`vx=0.593`, `vy=-0.445`, collision `0.0`) but regressed four
+  front-blocked scenarios.
+- v56 started from the v55 `lr=1e-5` checkpoint and replayed all max-stick
+  scenarios with the safer right-wall-07 target. It kept all side-wall cases
+  passing but still failed four front-blocked stop cases.
+
+Do not promote v54, v55, or v56. The repeated failure mode is now sharper:
+right-wall-07 can be solved, but the current shared actor update entangles that
+solution with front-blocked stop behavior. Further single-scenario target
+tweaks are unlikely to be efficient. The next useful work should improve
+conditional separation: larger or branched actor head, explicit front-vs-side
+paired distillation, or a teacher/student dataset with balanced hard examples
+and a gate that simultaneously requires front-stop and right-wall-07.
+
 For the next run, scan candidates with:
 
 ```bash
