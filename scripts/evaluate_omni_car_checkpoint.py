@@ -50,7 +50,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=7, help="Evaluation seed override.")
     parser.add_argument(
         "--actor-action-head-mode",
-        choices=("single", "gated_two_head"),
+        choices=("single", "gated_two_head", "risk_gated_two_head"),
         default=None,
         help="Optional actor head override for checkpoints trained with alternate heads.",
     )

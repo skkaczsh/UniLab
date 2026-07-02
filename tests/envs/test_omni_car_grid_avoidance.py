@@ -2833,6 +2833,78 @@ def test_omni_car_cnn_gru_gated_head_mixes_stop_and_escape_outputs() -> None:
     torch.testing.assert_close(actor._head_output(latent), torch.full((1, 3), 0.5))
 
 
+def test_omni_car_cnn_gru_risk_gated_head_uses_grid_risk_features() -> None:
+    cfg = OmniCarGridAvoidanceCfg()
+    actor_obs_dim = (
+        cfg.grid_history_len * cfg.grid.size * cfg.grid.size
+        + 3
+        + 3
+        + 3
+        + 4
+        + cfg.obs_history_len * 9
+    )
+    actor_obs = torch.zeros((2, actor_obs_dim), dtype=torch.float32)
+    risk_start = cfg.grid_history_len * cfg.grid.size * cfg.grid.size + 3 + 3 + 3
+    actor_obs[1, risk_start] = 1.0
+    actor = OmniCarGridCNNGRUModel(
+        TensorDict({"actor": actor_obs}, batch_size=2),
+        {"actor": ["actor"]},
+        "actor",
+        3,
+        hidden_dims=[16],
+        activation="silu",
+        grid_history_len=cfg.grid_history_len,
+        grid_cell_size=cfg.grid.cell_size,
+        command_conditioned_grid=True,
+        cnn_feature_dim=8,
+        gru_hidden_dim=8,
+        action_head_mode="risk_gated_two_head",
+        branch_hidden_dims=[1],
+    )
+    assert actor.stop_action_head is not None
+    assert actor.escape_action_head is not None
+    assert actor.action_gate_head is not None
+    first_gate_linear = next(
+        module for module in actor.action_gate_head.modules() if isinstance(module, torch.nn.Linear)
+    )
+    assert first_gate_linear.in_features == 4
+
+    def _constant_head(head: torch.nn.Module, value: float) -> None:
+        for module in head.modules():
+            if isinstance(module, torch.nn.Linear):
+                torch.nn.init.zeros_(module.weight)
+                torch.nn.init.zeros_(module.bias)
+        for module in reversed(list(head.modules())):
+            if isinstance(module, torch.nn.Linear):
+                module.bias.data.fill_(float(value))
+                return
+
+    _constant_head(actor.stop_action_head, 0.0)
+    _constant_head(actor.escape_action_head, 1.0)
+    linears = [
+        module for module in actor.action_gate_head.modules() if isinstance(module, torch.nn.Linear)
+    ]
+    torch.nn.init.zeros_(linears[0].weight)
+    torch.nn.init.zeros_(linears[0].bias)
+    linears[0].weight.data[0, 0] = 5.0
+    torch.nn.init.zeros_(linears[-1].weight)
+    torch.nn.init.zeros_(linears[-1].bias)
+    linears[-1].weight.data[0, 0] = 5.0
+    linears[-1].bias.data.fill_(-10.0)
+
+    stop_action, escape_action, gate = actor.branch_action_outputs(
+        TensorDict({"actor": actor_obs}, batch_size=2)
+    )
+    actor_out = actor(TensorDict({"actor": actor_obs}, batch_size=2))
+
+    assert gate[0, 0] < 0.01
+    assert gate[1, 0] > 0.99
+    torch.testing.assert_close(stop_action, torch.zeros((2, 3)), atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(escape_action, torch.ones((2, 3)), atol=1e-5, rtol=1e-5)
+    assert torch.all(actor_out[0] < 0.01)
+    assert torch.all(actor_out[1] > 0.99)
+
+
 def test_omni_car_cnn_transformer_model_forward_actor_and_critic() -> None:
     cfg = OmniCarGridAvoidanceCfg()
     actor_obs_dim = (

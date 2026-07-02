@@ -240,23 +240,25 @@ class OmniCarGridCNNGRUModel(MLPModel):
         )
         if self.zero_residual_head and output_dim == 3:
             self._zero_last_linear()
-        if self.action_head_mode not in ("single", "gated_two_head"):
+        if self.action_head_mode not in ("single", "gated_two_head", "risk_gated_two_head"):
             raise ValueError(
-                "action_head_mode must be 'single' or 'gated_two_head', "
+                "action_head_mode must be 'single', 'gated_two_head', or "
+                "'risk_gated_two_head', "
                 f"got {self.action_head_mode!r}"
             )
         self.stop_action_head: nn.Module | None = None
         self.escape_action_head: nn.Module | None = None
         self.action_gate_head: nn.Module | None = None
-        if self.action_head_mode == "gated_two_head":
+        if self.action_head_mode in ("gated_two_head", "risk_gated_two_head"):
             if output_dim != 3:
-                raise ValueError("gated_two_head is only supported for 3D action actors")
+                raise ValueError("gated action heads are only supported for 3D action actors")
             branch_dims = self.branch_hidden_dims or tuple(hidden_dims)
             mlp_output_dim = _last_linear_out_features(self.mlp)
             latent_dim = self._get_latent_dim()
             self.stop_action_head = MLP(latent_dim, mlp_output_dim, branch_dims, activation)
             self.escape_action_head = MLP(latent_dim, mlp_output_dim, branch_dims, activation)
-            self.action_gate_head = MLP(latent_dim, 1, branch_dims, activation)
+            gate_input_dim = 4 if self.action_head_mode == "risk_gated_two_head" else latent_dim
+            self.action_gate_head = MLP(gate_input_dim, 1, branch_dims, activation)
             self.initialize_branches_from_shared_head()
             self._set_action_gate_bias(self.action_gate_init_bias)
         if self.residual_action_mode not in ("linear", "tanh"):
@@ -396,7 +398,24 @@ class OmniCarGridCNNGRUModel(MLPModel):
             residual = torch.cat([body_xy, residual[..., 2:3]], dim=-1)
         return residual
 
-    def _head_output(self, latent: torch.Tensor) -> torch.Tensor:
+    def _risk_features(self, obs: TensorDict) -> torch.Tensor:
+        obs_list = [obs[obs_group] for obs_group in self.obs_groups]
+        raw_flat = torch.cat(obs_list, dim=-1)
+        start = self.grid_stack_dim + 3 + 3 + 3
+        end = start + 4
+        if raw_flat.shape[-1] < end:
+            raise ValueError(
+                "risk_gated_two_head requires four grid-derived risk features "
+                "after command, velocity, and last action in the actor observation"
+            )
+        return raw_flat[..., start:end].reshape(raw_flat.shape[0], 4)
+
+    def _gate_input(self, obs: TensorDict, latent: torch.Tensor) -> torch.Tensor:
+        if self.action_head_mode == "risk_gated_two_head":
+            return self._risk_features(obs).to(device=latent.device, dtype=latent.dtype)
+        return latent
+
+    def _head_output(self, latent: torch.Tensor, obs: TensorDict | None = None) -> torch.Tensor:
         if self.action_head_mode == "single":
             return self.mlp(latent)
         if (
@@ -404,10 +423,16 @@ class OmniCarGridCNNGRUModel(MLPModel):
             or self.escape_action_head is None
             or self.action_gate_head is None
         ):
-            raise RuntimeError("gated_two_head action heads are not initialized")
+            raise RuntimeError("gated action heads are not initialized")
+        if obs is None:
+            if self.action_head_mode == "risk_gated_two_head":
+                raise ValueError("obs is required for risk_gated_two_head gate inputs")
+            gate_input = latent
+        else:
+            gate_input = self._gate_input(obs, latent)
         stop_output = self.stop_action_head(latent)
         escape_output = self.escape_action_head(latent)
-        gate = torch.sigmoid(self.action_gate_head(latent))
+        gate = torch.sigmoid(self.action_gate_head(gate_input))
         return stop_output * (1.0 - gate) + escape_output * gate
 
     def _postprocess_action_output(
@@ -435,7 +460,7 @@ class OmniCarGridCNNGRUModel(MLPModel):
         self, obs: TensorDict, masks=None, hidden_state=None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None:
         if (
-            self.action_head_mode != "gated_two_head"
+            self.action_head_mode not in ("gated_two_head", "risk_gated_two_head")
             or self.stop_action_head is None
             or self.escape_action_head is None
             or self.action_gate_head is None
@@ -443,7 +468,7 @@ class OmniCarGridCNNGRUModel(MLPModel):
             return None
         obs = unpad_trajectories(obs, masks) if masks is not None and not self.is_recurrent else obs
         latent = self.get_latent(obs, masks, hidden_state)
-        gate = torch.sigmoid(self.action_gate_head(latent))
+        gate = torch.sigmoid(self.action_gate_head(self._gate_input(obs, latent)))
         stop_action = self._postprocess_action_output(obs, self.stop_action_head(latent))
         escape_action = self._postprocess_action_output(obs, self.escape_action_head(latent))
         return stop_action, escape_action, gate
@@ -457,7 +482,7 @@ class OmniCarGridCNNGRUModel(MLPModel):
     ) -> torch.Tensor:
         obs = unpad_trajectories(obs, masks) if masks is not None and not self.is_recurrent else obs
         latent = self.get_latent(obs, masks, hidden_state)
-        mlp_output = self._head_output(latent)
+        mlp_output = self._head_output(latent, obs)
         return self._postprocess_action_output(
             obs,
             mlp_output,

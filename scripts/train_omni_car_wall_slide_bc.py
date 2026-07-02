@@ -503,7 +503,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--device", default=None)
     parser.add_argument(
         "--actor-action-head-mode",
-        choices=("single", "gated_two_head"),
+        choices=("single", "gated_two_head", "risk_gated_two_head"),
         default=None,
         help="Optional actor head override, e.g. gated_two_head for branch separation tests.",
     )
@@ -517,8 +517,9 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--partial-actor-load",
         action="store_true",
         help=(
-            "Load only matching actor parameters with strict=False. Use when migrating "
-            "a single-head checkpoint into a branched actor architecture."
+            "Load only actor parameters with matching names and tensor shapes. Use when "
+            "migrating a single-head checkpoint into a branched actor architecture or "
+            "when changing gated-head internals."
         ),
     )
     parser.add_argument(
@@ -1046,6 +1047,26 @@ def _teacher_target_tensor(
     return torch.as_tensor(actions, dtype=torch.float32, device=device)
 
 
+def _load_matching_actor_state(
+    policy: torch.nn.Module,
+    load_path: Path,
+    *,
+    map_location: str | torch.device,
+) -> set[str]:
+    checkpoint = torch.load(load_path, map_location=map_location, weights_only=False)
+    actor_state = checkpoint.get("actor_state_dict")
+    if not isinstance(actor_state, dict):
+        raise KeyError(f"Checkpoint does not contain actor_state_dict: {load_path}")
+    current_state = policy.state_dict()
+    filtered = {
+        key: value
+        for key, value in actor_state.items()
+        if key in current_state and tuple(value.shape) == tuple(current_state[key].shape)
+    }
+    policy.load_state_dict(filtered, strict=False)
+    return set(filtered)
+
+
 def _make_runner(args: argparse.Namespace) -> tuple[Any, Any, Any, Path, str]:
     train_rsl_rl.ensure_registries()
     cfg = checkpoint_eval._compose_cfg(args)
@@ -1086,21 +1107,14 @@ def _make_runner(args: argparse.Namespace) -> tuple[Any, Any, Any, Path, str]:
         algo_name="ppo",
     ):
         if bool(getattr(args, "partial_actor_load", False)):
-            runner.load(
-                str(load_path),
-                load_cfg={
-                    "actor": True,
-                    "critic": False,
-                    "optimizer": False,
-                    "iteration": False,
-                    "rnd": False,
-                },
-                strict=False,
-                map_location=device,
-            )
             policy = runner.alg.get_policy()
+            loaded_keys = _load_matching_actor_state(policy, load_path, map_location=device)
             initializer = getattr(policy, "initialize_branches_from_shared_head", None)
-            if callable(initializer):
+            loaded_branch = any(
+                key.startswith(("stop_action_head.", "escape_action_head."))
+                for key in loaded_keys
+            )
+            if callable(initializer) and not loaded_branch:
                 initializer()
         else:
             runner.load(str(load_path), map_location=device)
