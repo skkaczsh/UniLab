@@ -494,6 +494,39 @@ next useful step is no longer another hand-tuned BC patch. Use DAgger-style
 policy-rollout data aggregation or revise the reward/curriculum so the model
 sees many paired free-space versus wall-near histories for the same command.
 
+The v50 DAgger replay tool implements that first option in
+`scripts/train_omni_car_wall_slide_bc.py`: policy-rollout samples can be kept in
+a bounded CPU replay buffer and trained for extra supervised epochs. Evidence is
+stored in:
+
+- `artifacts/omni_car/maxstick_v50_dagger_light_gate.json`
+- `artifacts/omni_car/maxstick_v50_dagger_wall07_gate.json`
+- `artifacts/omni_car/maxstick_v50_dagger_wall07_escape_gate.json`
+- `artifacts/omni_car/maxstick_v50_dagger_wall07_slow_gate.json`
+- `artifacts/omni_car/maxstick_v50_dagger_clear07_soft_gate.json`
+- `artifacts/omni_car/maxstick_v50_dagger_wall07_escape_random_eval.json`
+- `artifacts/omni_car/maxstick_v50_dagger_wall07_escape_broad_gate.json`
+
+The best v50 max-stick candidate is `maxstick_v50_dagger_wall07_escape.pt`.
+It improves the exact max-stick gate but is still not promoted:
+
+- max-stick gate: clear `8/8`, front-blocked `8/8`, side-wall `15/16`.
+- remaining max-stick failure: `max_stick_right_wall_dir_07`, collision
+  `0.03125` with projection `0.327`.
+- random eval: `collision_fraction=0.0003662109375`,
+  `omni_car/tracking_error=0.20528098137583584`.
+- broad gate: `81/83` scenarios pass; failures are `right_wall_dir_07`
+  collision and a new `left_wall_dir_04` under-projection.
+
+Compared with `maxstick_v49_front_micro_bc.pt`, v50 fixes the front-blocked and
+right-wall-06 max-stick failures, but it slightly worsens random tracking and
+adds one broad-gate under-projection. Do not update `best.pt` to v50. The next
+useful improvement should increase conditional separation for the same command
+under different grid contexts, for example with richer paired clear-vs-wall
+data, a teacher/student pass over a larger policy-rollout dataset, or an actor
+capacity change. Continuing to tweak the single `right_wall_dir_07` target did
+not move the closed-loop action or collision rate.
+
 For the next run, scan candidates with:
 
 ```bash
