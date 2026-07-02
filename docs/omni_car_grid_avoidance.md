@@ -825,6 +825,62 @@ best intermediate checkpoint with wall targets constrained to keep
 `projection_mean >= 0.20` while reducing collision. Treat v67/v68 as diagnostic
 checkpoints, not deployment candidates.
 
+The v69-v75 search tested that two-stage idea. Evidence is stored in:
+
+- `artifacts/omni_car/maxstick_v69_front_gate_only_gate_dir8.json`
+- `artifacts/omni_car/maxstick_v69_front_gate_only_broad_gate.json`
+- `artifacts/omni_car/maxstick_v69_front_gate_only_branch_diag.json`
+- `artifacts/omni_car/maxstick_v70_targeted_front_gate_gate_dir8.json`
+- `artifacts/omni_car/maxstick_v70_targeted_front_gate_broad_gate.json`
+- `artifacts/omni_car/maxstick_v70_targeted_front_gate_branch_diag.json`
+- `artifacts/omni_car/maxstick_v71_wall_clear_restore_gate_dir8.json`
+- `artifacts/omni_car/maxstick_v71_wall_clear_restore_broad_gate.json`
+- `artifacts/omni_car/maxstick_v71_wall_clear_restore_branch_diag.json`
+- `artifacts/omni_car/maxstick_v72_mild_front_gate_gate_dir8.json`
+- `artifacts/omni_car/maxstick_v72_mild_front_gate_broad_gate.json`
+- `artifacts/omni_car/maxstick_v72_mild_front_gate_branch_diag.json`
+- `artifacts/omni_car/maxstick_v73_sidewall_restore_gate_dir8.json`
+- `artifacts/omni_car/maxstick_v73_sidewall_restore_broad_gate.json`
+- `artifacts/omni_car/maxstick_v73_sidewall_restore_branch_diag.json`
+- `artifacts/omni_car/maxstick_v74_front_mid_repair_gate_dir8.json`
+- `artifacts/omni_car/maxstick_v74_front_mid_repair_broad_gate.json`
+- `artifacts/omni_car/maxstick_v74_front_mid_repair_branch_diag.json`
+- `artifacts/omni_car/maxstick_v75_sidewall_after_front_gate_dir8.json`
+- `artifacts/omni_car/maxstick_v75_sidewall_after_front_broad_gate.json`
+- `artifacts/omni_car/maxstick_v75_sidewall_after_front_branch_diag.json`
+
+Results:
+
+- v69 trained only directional-front gates from v67. It improved broad to
+  `78/83`, but max-stick dropped to `22/32`, so front-only head training was
+  still too global.
+- v70 targeted only the broad-front failure directions with high gate weight.
+  It solved broad front-blocked (`16/16`) but collapsed wall/clear routing:
+  max-stick fell to `17/32`, broad side-wall to `9/16`.
+- v71 restored wall/clear after v70 and reached broad `80/83`, but max-stick
+  fell further to `15/32`. This is not a usable tradeoff.
+- v72 used a low-dose targeted front repair from v67. It reached max-stick
+  `26/32` and broad `78/83`: better broad than v67 with only a small max-stick
+  regression.
+- v73 then lightly restored the specific side-wall failures from v72. This is
+  the current best combined checkpoint in this repair line:
+  `artifacts/omni_car/checkpoints/maxstick_v73_sidewall_restore.pt`. It reached
+  max-stick `28/32` and broad `78/83`; broad side-wall is `16/16`, clear/yaw/zero
+  all pass, but broad front-blocked is still `11/16`, max-stick front-blocked
+  `6/8`, and max-stick side-wall `14/16`.
+- v74 pushed front harder from v73 and improved broad to `79/83`, but side-wall
+  regressed and max-stick fell to `25/32`.
+- v75 tried to restore side-wall after v74, but broad fell to `77/83` while
+  max-stick stayed `25/32`.
+
+The important lesson is that the current gate head is very non-local: enough
+front-gate pressure to solve broad front-blocked cases can collapse unrelated
+clear/wall routing. The next architectural repair should make the gate less
+global, for example by adding separate front-risk and wall-risk gate logits or
+by supervising a small deployable risk feature head before mixing stop/escape.
+Continue using v73 as the best local checkpoint for viewer/debugging, not as a
+final promoted model.
+
 For the next run, scan candidates with:
 
 ```bash
