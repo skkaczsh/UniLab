@@ -170,6 +170,27 @@ def test_behavior_correction_rolls_out_policy_actions_by_default() -> None:
     args = module._parse_args(["--load-run", "model.pt", "--output", "corrected.pt"])
 
     assert args.rollout_actions == "policy"
+    assert args.teacher_score_profile == "default"
+
+
+def test_behavior_correction_accepts_aggressive_teacher_score_profile() -> None:
+    module = _load_module()
+
+    args = module._parse_args(
+        [
+            "--load-run",
+            "model.pt",
+            "--output",
+            "corrected.pt",
+            "--teacher-score-profile",
+            "aggressive_safety",
+        ]
+    )
+    config = module._teacher_score_config(args.teacher_score_profile)
+
+    assert config.profile == "aggressive_safety"
+    assert config.front_projection_penalty > module._teacher_score_config().front_projection_penalty
+    assert config.wall_gate_projection_on_closing is True
 
 
 def test_dry_run_reports_filtered_scenarios(monkeypatch, tmp_path: Path) -> None:
@@ -286,6 +307,31 @@ def test_rollout_clearance_teacher_moves_away_from_right_wall() -> None:
     assert target.shape == (1, 3)
     assert float(target[0, 1]) > 0.0
     assert float(target[0, 0]) >= 0.0
+
+
+def test_aggressive_rollout_teacher_prioritizes_wall_clearance_over_projection() -> None:
+    module = _load_module()
+    scenario = {item.name: item for item in module.ORACLE_SCENARIOS}[
+        "max_stick_right_wall_dir_00"
+    ]
+    default_env = _FakeTeacherEnv(command=scenario.behavior.command, clearance_mode="right_wall")
+    aggressive_env = _FakeTeacherEnv(command=scenario.behavior.command, clearance_mode="right_wall")
+
+    default_target = module._rollout_clearance_teacher_actions(
+        default_env,
+        scenario,
+        horizon_steps=8,
+        score_config=module._teacher_score_config("default"),
+    )
+    aggressive_target = module._rollout_clearance_teacher_actions(
+        aggressive_env,
+        scenario,
+        horizon_steps=8,
+        score_config=module._teacher_score_config("aggressive_safety"),
+    )
+
+    assert float(aggressive_target[0, 1]) > 0.0
+    assert float(aggressive_target[0, 0]) < float(default_target[0, 0])
 
 
 def test_rollout_clearance_teacher_keeps_clear_scenarios_static() -> None:

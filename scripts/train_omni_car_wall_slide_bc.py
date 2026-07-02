@@ -43,6 +43,28 @@ class OracleScenario:
     weight: float = 1.0
 
 
+@dataclass(frozen=True)
+class TeacherScoreConfig:
+    profile: str = "default"
+    front_collision_penalty: float = 220.0
+    front_projection_penalty: float = 35.0
+    front_speed_penalty: float = 10.0
+    front_closing_penalty: float = 5.0
+    front_opening_reward: float = 1.5
+    front_clearance_floor: float = 0.05
+    front_clearance_floor_penalty: float = 0.0
+    front_lateral_penalty: float = 0.0
+    wall_collision_penalty: float = 260.0
+    wall_closing_penalty: float = 14.0
+    wall_projection_reward: float = 3.0
+    wall_opening_reward: float = 2.0
+    wall_lateral_penalty: float = 0.7
+    wall_speed_penalty: float = 0.10
+    wall_clearance_floor: float = 0.05
+    wall_clearance_floor_penalty: float = 0.0
+    wall_gate_projection_on_closing: bool = False
+
+
 @dataclass
 class DaggerReplayBuffer:
     max_samples: int
@@ -553,6 +575,17 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Prediction horizon in control steps for rollout_clearance teacher scoring.",
     )
     parser.add_argument(
+        "--teacher-score-profile",
+        choices=("default", "aggressive_safety"),
+        default="default",
+        help=(
+            "Scoring weights for rollout_clearance. default preserves the previous "
+            "teacher; aggressive_safety makes front-blocked labels prefer stopping "
+            "earlier and only rewards wall-parallel progress when clearance is not "
+            "being consumed."
+        ),
+    )
+    parser.add_argument(
         "--scenario",
         action="append",
         choices=tuple(scenario.name for scenario in ORACLE_SCENARIOS),
@@ -863,6 +896,33 @@ def _teacher_candidate_actions(scenario: OracleScenario) -> np.ndarray:
     return _dedupe_actions(actions)
 
 
+def _teacher_score_config(profile: str = "default") -> TeacherScoreConfig:
+    if profile == "default":
+        return TeacherScoreConfig(profile="default")
+    if profile == "aggressive_safety":
+        return TeacherScoreConfig(
+            profile="aggressive_safety",
+            front_collision_penalty=420.0,
+            front_projection_penalty=80.0,
+            front_speed_penalty=22.0,
+            front_closing_penalty=24.0,
+            front_opening_reward=2.0,
+            front_clearance_floor=0.14,
+            front_clearance_floor_penalty=55.0,
+            front_lateral_penalty=1.2,
+            wall_collision_penalty=520.0,
+            wall_closing_penalty=42.0,
+            wall_projection_reward=2.2,
+            wall_opening_reward=4.0,
+            wall_lateral_penalty=1.2,
+            wall_speed_penalty=0.16,
+            wall_clearance_floor=0.12,
+            wall_clearance_floor_penalty=85.0,
+            wall_gate_projection_on_closing=True,
+        )
+    raise ValueError(f"Unknown teacher score profile: {profile!r}")
+
+
 def _predict_repeated_action_metrics(
     env: Any, candidates: np.ndarray, horizon_steps: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -902,11 +962,16 @@ def _predict_repeated_action_metrics(
 
 
 def _rollout_clearance_teacher_actions(
-    env: Any, scenario: OracleScenario, *, horizon_steps: int
+    env: Any,
+    scenario: OracleScenario,
+    *,
+    horizon_steps: int,
+    score_config: TeacherScoreConfig | None = None,
 ) -> np.ndarray:
     role = _branch_role(scenario.name)
     if role is None:
         return np.asarray([scenario.target_action] * env.num_envs, dtype=np.float32)
+    cfg = score_config or _teacher_score_config("default")
     candidates = _teacher_candidate_actions(scenario)
     if candidates.shape[0] == 0:
         return np.asarray([scenario.target_action] * env.num_envs, dtype=np.float32)
@@ -930,22 +995,30 @@ def _rollout_clearance_teacher_actions(
     opening = np.maximum(final_clearance - prev_clearance, 0.0)
     collision_depth = np.maximum(0.05 - min_clearance, 0.0)
     if role == 0.0:
+        floor_depth = np.maximum(float(cfg.front_clearance_floor) - min_clearance, 0.0)
         score = (
-            -220.0 * collision_depth
-            - 35.0 * np.maximum(projection, 0.0) ** 2
-            - 10.0 * speed**2
-            - 5.0 * closing
-            + 1.5 * opening
+            -float(cfg.front_collision_penalty) * collision_depth
+            - float(cfg.front_clearance_floor_penalty) * floor_depth
+            - float(cfg.front_projection_penalty) * np.maximum(projection, 0.0) ** 2
+            - float(cfg.front_speed_penalty) * speed**2
+            - float(cfg.front_closing_penalty) * closing
+            - float(cfg.front_lateral_penalty) * lateral
+            + float(cfg.front_opening_reward) * opening
         )
     else:
         normalized_projection = projection / np.maximum(planar_norm[:, None], 1.0e-6)
+        projection_credit = np.clip(normalized_projection, 0.0, 1.0)
+        if bool(cfg.wall_gate_projection_on_closing):
+            projection_credit *= np.clip((0.015 - closing) / 0.015, 0.0, 1.0)
+        floor_depth = np.maximum(float(cfg.wall_clearance_floor) - min_clearance, 0.0)
         score = (
-            -260.0 * collision_depth
-            - 14.0 * closing
-            + 3.0 * np.clip(normalized_projection, 0.0, 1.0)
-            + 2.0 * opening
-            - 0.7 * lateral
-            - 0.10 * speed**2
+            -float(cfg.wall_collision_penalty) * collision_depth
+            - float(cfg.wall_clearance_floor_penalty) * floor_depth
+            - float(cfg.wall_closing_penalty) * closing
+            + float(cfg.wall_projection_reward) * projection_credit
+            + float(cfg.wall_opening_reward) * opening
+            - float(cfg.wall_lateral_penalty) * lateral
+            - float(cfg.wall_speed_penalty) * speed**2
         )
     chosen = np.argmax(score, axis=1)
     return candidates[chosen].astype(np.float32, copy=False)
@@ -958,13 +1031,17 @@ def _teacher_target_tensor(
     device: str | torch.device,
     mode: str,
     horizon_steps: int,
+    score_config: TeacherScoreConfig | None = None,
 ) -> torch.Tensor:
     if str(mode) == "static":
         return _target_tensor(scenario, num_envs=env.num_envs, device=device)
     if str(mode) != "rollout_clearance":
         raise ValueError(f"Unknown teacher mode: {mode!r}")
     actions = _rollout_clearance_teacher_actions(
-        env, scenario, horizon_steps=int(horizon_steps)
+        env,
+        scenario,
+        horizon_steps=int(horizon_steps),
+        score_config=score_config,
     )
     return torch.as_tensor(actions, dtype=torch.float32, device=device)
 
@@ -1233,6 +1310,8 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
     teacher_horizon_steps = int(getattr(args, "teacher_horizon_steps", 8))
     if teacher_horizon_steps <= 0:
         raise ValueError("--teacher-horizon-steps must be positive")
+    teacher_score_profile = str(getattr(args, "teacher_score_profile", "default"))
+    teacher_score_config = _teacher_score_config(teacher_score_profile)
     replay = DaggerReplayBuffer(
         max_samples=int(getattr(args, "dagger_replay_max_samples", 8192))
     )
@@ -1256,6 +1335,7 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                 device=device,
                 mode=teacher_mode,
                 horizon_steps=teacher_horizon_steps,
+                score_config=teacher_score_config,
             )
             loss = torch.nn.functional.mse_loss(output, target)
             return {
@@ -1265,6 +1345,8 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                 "loss": float(loss.detach().cpu().item()),
                 "policy_output_shape": list(output.shape),
                 "rollout_actions": str(args.rollout_actions),
+                "teacher_mode": teacher_mode,
+                "teacher_score_profile": teacher_score_profile,
                 "scenarios": [scenario.name for scenario in scenarios],
             }
         for iteration in range(int(args.iterations)):
@@ -1291,6 +1373,7 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                             device=device,
                             mode=teacher_mode,
                             horizon_steps=teacher_horizon_steps,
+                            score_config=teacher_score_config,
                         )
                         raw_loss = _supervised_loss(
                             policy=policy,
@@ -1391,6 +1474,7 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                     device=device,
                     mode=teacher_mode,
                     horizon_steps=teacher_horizon_steps,
+                    score_config=teacher_score_config,
                 )
                 loss = _supervised_loss(
                     policy=policy,
@@ -1486,6 +1570,7 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
             "action_loss_weight": action_loss_weight,
             "teacher_mode": teacher_mode,
             "teacher_horizon_steps": teacher_horizon_steps,
+            "teacher_score_profile": teacher_score_profile,
             "trainable_param_count": (
                 int(trainable_param_count)
                 if trainable_param_count is not None
