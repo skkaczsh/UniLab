@@ -686,6 +686,60 @@ freeze the competent shared encoder briefly, train gate and branch heads on a
 larger paired front/side/clear dataset until the gate separates, then unfreeze
 for a low-LR RL or DAgger pass.
 
+The v60-v63 follow-up added that missing branch-pretrain mode to
+`scripts/train_omni_car_wall_slide_bc.py` and added
+`scripts/diagnose_omni_car_branches.py` for direct `combined`, `stop`,
+`escape`, and `gate` inspection. Evidence is stored in:
+
+- `artifacts/omni_car/maxstick_v60_branch_only_gate_dir8.json`
+- `artifacts/omni_car/maxstick_v60_branch_only_broad_gate.json`
+- `artifacts/omni_car/maxstick_v60_branch_only_branch_diag.json`
+- `artifacts/omni_car/maxstick_v61_branch_rebalance_gate_dir8.json`
+- `artifacts/omni_car/maxstick_v61_branch_rebalance_broad_gate.json`
+- `artifacts/omni_car/maxstick_v61_branch_rebalance_branch_diag.json`
+- `artifacts/omni_car/maxstick_v62_branch_only_long_gate_dir8.json`
+- `artifacts/omni_car/maxstick_v62_branch_only_long_broad_gate.json`
+- `artifacts/omni_car/maxstick_v62_branch_only_long_branch_diag.json`
+- `artifacts/omni_car/maxstick_v63_closed_loop_rebalance_gate_dir8.json`
+- `artifacts/omni_car/maxstick_v63_closed_loop_rebalance_broad_gate.json`
+- `artifacts/omni_car/maxstick_v63_closed_loop_rebalance_branch_diag.json`
+
+These runs are not promoted, but they isolate the next bottleneck more clearly:
+
+- v60 froze the shared encoder/body and trained only `stop`, `escape`, and
+  `gate` heads from v50 with `action_loss_weight=0`, branch supervision `8`,
+  gate supervision `30`, and clear-scenario supervision on both heads. This
+  produced the first broad strict pass in this branch line (`83/83`), and the
+  diagnostic showed the gate beginning to separate:
+  front `0.4957`, clear `0.5229`, right-wall-07 `0.6123`. The comparable
+  8-direction max-stick gate remained `25/32`, with front `4/8` and side-wall
+  `13/16`.
+- v61 unfroze the full policy from v60 for a short low-LR rebalance. It kept
+  broad `83/83` but did not move the max-stick result (`25/32`), so the update
+  was too weak to repair the hard cases.
+- v62 continued branch-only training until the teacher loss nearly converged.
+  The diagnostic confirmed clean branch separation: front gate `0.0`, clear
+  gate `0.9831`, right-wall-07 gate `1.0`. Max-stick front-blocked improved to
+  `8/8`, but side-wall regressed to `9/16`, and broad regressed to `74/83`.
+  This proves the gate can be trained, but static branch targets overfit and
+  are not a closed-loop safety policy.
+- v63 started from v62 and used policy-rollout DAgger plus conservative targets
+  for a few high-collision wall cases. It improved side-wall on the broad gate
+  back to `16/16`, but broad front-blocked fell to `6/16`, and max-stick was
+  only `24/32`. Do not promote it.
+
+The current interpretation is that architecture capacity is no longer the
+primary blocker: a frozen encoder can support strong gate separation. The
+remaining issue is teacher quality. Static per-scenario wall targets can make
+the branch classifier look correct while still producing closed-loop wall
+collisions or front-blocked drift after several policy steps. The next useful
+repair should replace per-scenario constant action targets with rollout-aware
+teacher trajectories: for side-wall cases, target only actions that increase or
+preserve clearance over several steps; for front-blocked cases, keep the stop
+target on policy-induced histories until the future collision risk is gone.
+That target generation can still be implemented as offline teacher data for RL
+distillation, without adding a runtime geometry gate.
+
 For the next run, scan candidates with:
 
 ```bash
