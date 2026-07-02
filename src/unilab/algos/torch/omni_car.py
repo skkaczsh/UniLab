@@ -410,16 +410,13 @@ class OmniCarGridCNNGRUModel(MLPModel):
         gate = torch.sigmoid(self.action_gate_head(latent))
         return stop_output * (1.0 - gate) + escape_output * gate
 
-    def forward(
+    def _postprocess_action_output(
         self,
         obs: TensorDict,
-        masks: torch.Tensor | None = None,
-        hidden_state: HiddenState = None,
+        mlp_output: torch.Tensor,
+        *,
         stochastic_output: bool = False,
     ) -> torch.Tensor:
-        obs = unpad_trajectories(obs, masks) if masks is not None and not self.is_recurrent else obs
-        latent = self.get_latent(obs, masks, hidden_state)
-        mlp_output = self._head_output(latent)
         if mlp_output.shape[-1] == 3 and (
             self.command_skip_scale != 0.0 or self.residual_action_scale != 1.0
         ):
@@ -433,6 +430,39 @@ class OmniCarGridCNNGRUModel(MLPModel):
                 return self.distribution.sample()
             return self.distribution.deterministic_output(mlp_output)
         return mlp_output
+
+    def branch_action_outputs(
+        self, obs: TensorDict, masks=None, hidden_state=None
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None:
+        if (
+            self.action_head_mode != "gated_two_head"
+            or self.stop_action_head is None
+            or self.escape_action_head is None
+            or self.action_gate_head is None
+        ):
+            return None
+        obs = unpad_trajectories(obs, masks) if masks is not None and not self.is_recurrent else obs
+        latent = self.get_latent(obs, masks, hidden_state)
+        gate = torch.sigmoid(self.action_gate_head(latent))
+        stop_action = self._postprocess_action_output(obs, self.stop_action_head(latent))
+        escape_action = self._postprocess_action_output(obs, self.escape_action_head(latent))
+        return stop_action, escape_action, gate
+
+    def forward(
+        self,
+        obs: TensorDict,
+        masks: torch.Tensor | None = None,
+        hidden_state: HiddenState = None,
+        stochastic_output: bool = False,
+    ) -> torch.Tensor:
+        obs = unpad_trajectories(obs, masks) if masks is not None and not self.is_recurrent else obs
+        latent = self.get_latent(obs, masks, hidden_state)
+        mlp_output = self._head_output(latent)
+        return self._postprocess_action_output(
+            obs,
+            mlp_output,
+            stochastic_output=stochastic_output,
+        )
 
     def update_normalization(self, obs: TensorDict) -> None:
         if self.obs_normalization:

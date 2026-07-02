@@ -228,6 +228,54 @@ def test_wall_slide_target_tensor_repeats_action() -> None:
     )
 
 
+def test_branch_supervision_targets_front_stop_and_wall_escape() -> None:
+    module = _load_module()
+
+    class _Policy(torch.nn.Module):
+        def branch_action_outputs(self, obs):  # type: ignore[no-untyped-def]
+            batch = obs.shape[0]
+            return (
+                torch.zeros((batch, 3), dtype=torch.float32),
+                torch.ones((batch, 3), dtype=torch.float32),
+                torch.full((batch, 1), 0.5, dtype=torch.float32),
+            )
+
+    obs = torch.zeros((2, 4), dtype=torch.float32)
+    stop_target = torch.zeros((2, 3), dtype=torch.float32)
+    escape_target = torch.ones((2, 3), dtype=torch.float32)
+
+    front_loss = module._branch_supervision_loss(
+        policy=_Policy(),
+        obs=obs,
+        target=stop_target,
+        scenario_name="max_stick_front_blocked_dir_00_circle",
+        action_weight=1.0,
+        gate_weight=1.0,
+    )
+    wall_loss = module._branch_supervision_loss(
+        policy=_Policy(),
+        obs=obs,
+        target=escape_target,
+        scenario_name="max_stick_right_wall_dir_07",
+        action_weight=1.0,
+        gate_weight=1.0,
+    )
+    clear_loss = module._branch_supervision_loss(
+        policy=_Policy(),
+        obs=obs,
+        target=escape_target,
+        scenario_name="max_stick_clear_dir_07",
+        action_weight=1.0,
+        gate_weight=1.0,
+    )
+
+    assert front_loss is not None
+    assert wall_loss is not None
+    assert clear_loss is None
+    assert float(front_loss) > 0.0
+    assert float(wall_loss) > 0.0
+
+
 def test_dagger_replay_buffer_caps_and_samples() -> None:
     module = _load_module()
     rng = np.random.default_rng(3)

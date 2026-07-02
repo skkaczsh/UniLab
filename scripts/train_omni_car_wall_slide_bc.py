@@ -500,6 +500,18 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--branch-supervision-weight",
+        type=float,
+        default=0.0,
+        help="Extra branch-head action loss for front-stop vs side-wall specialization.",
+    )
+    parser.add_argument(
+        "--branch-gate-weight",
+        type=float,
+        default=0.0,
+        help="Binary gate supervision weight: front-blocked -> stop head, wall -> escape head.",
+    )
+    parser.add_argument(
         "--scenario",
         action="append",
         choices=tuple(scenario.name for scenario in ORACLE_SCENARIOS),
@@ -851,6 +863,47 @@ def _weighted_action_mse(
     return torch.sum(per_sample * weight) / torch.clamp(torch.sum(weight), min=1.0e-6)
 
 
+def _branch_role(scenario_name: str) -> float | None:
+    if "front_blocked" in scenario_name or scenario_name == "front_blocked_stop":
+        return 0.0
+    if "_wall_" in scenario_name or scenario_name in {"right_wall_slide", "left_wall_slide"}:
+        return 1.0
+    return None
+
+
+def _branch_supervision_loss(
+    *,
+    policy: torch.nn.Module,
+    obs: Any,
+    target: torch.Tensor,
+    scenario_name: str,
+    action_weight: float,
+    gate_weight: float,
+) -> torch.Tensor | None:
+    role = _branch_role(scenario_name)
+    if role is None or (action_weight <= 0.0 and gate_weight <= 0.0):
+        return None
+    branch_outputs = getattr(policy, "branch_action_outputs", None)
+    if not callable(branch_outputs):
+        return None
+    outputs = branch_outputs(obs)
+    if outputs is None:
+        return None
+    stop_action, escape_action, gate = outputs
+    selected = stop_action if role == 0.0 else escape_action
+    loss = target.new_zeros(())
+    if action_weight > 0.0:
+        loss = loss + float(action_weight) * torch.nn.functional.mse_loss(selected, target)
+    if gate_weight > 0.0:
+        gate_target = torch.full_like(gate, float(role))
+        gate_clamped = torch.clamp(gate, min=1.0e-6, max=1.0 - 1.0e-6)
+        loss = loss + float(gate_weight) * torch.nn.functional.binary_cross_entropy(
+            gate_clamped,
+            gate_target,
+        )
+    return loss
+
+
 def _train_dagger_replay(
     *,
     policy: torch.nn.Module,
@@ -905,6 +958,8 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
     scenario_jitter_xy_std = float(getattr(args, "scenario_jitter_xy_std", 0.0))
     scenario_jitter_radius_std = float(getattr(args, "scenario_jitter_radius_std", 0.0))
     scenario_jitter_yaw_std = float(getattr(args, "scenario_jitter_yaw_std", 0.0))
+    branch_supervision_weight = float(getattr(args, "branch_supervision_weight", 0.0))
+    branch_gate_weight = float(getattr(args, "branch_gate_weight", 0.0))
     replay = DaggerReplayBuffer(
         max_samples=int(getattr(args, "dagger_replay_max_samples", 8192))
     )
@@ -953,6 +1008,16 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                     for _step in range(int(args.rollout_steps)):
                         prediction = policy(obs)
                         raw_loss = torch.nn.functional.mse_loss(prediction, target)
+                        branch_loss = _branch_supervision_loss(
+                            policy=policy,
+                            obs=obs,
+                            target=target,
+                            scenario_name=scenario.name,
+                            action_weight=branch_supervision_weight,
+                            gate_weight=branch_gate_weight,
+                        )
+                        if branch_loss is not None:
+                            raw_loss = raw_loss + branch_loss
                         loss = raw_loss * float(scenario.weight) / normalizer
                         loss.backward()
                         replay.append(
@@ -1036,6 +1101,16 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
             for _step in range(int(args.rollout_steps)):
                 prediction = policy(obs)
                 loss = torch.nn.functional.mse_loss(prediction, target)
+                branch_loss = _branch_supervision_loss(
+                    policy=policy,
+                    obs=obs,
+                    target=target,
+                    scenario_name=scenario.name,
+                    action_weight=branch_supervision_weight,
+                    gate_weight=branch_gate_weight,
+                )
+                if branch_loss is not None:
+                    loss = loss + branch_loss
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
@@ -1111,6 +1186,8 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
             "scenario_jitter_xy_std": scenario_jitter_xy_std,
             "scenario_jitter_radius_std": scenario_jitter_radius_std,
             "scenario_jitter_yaw_std": scenario_jitter_yaw_std,
+            "branch_supervision_weight": branch_supervision_weight,
+            "branch_gate_weight": branch_gate_weight,
             "replay_size": replay.size,
             "replay_updates": len(replay_loss_history),
             "replay_loss_final": replay_loss_history[-1] if replay_loss_history else None,
