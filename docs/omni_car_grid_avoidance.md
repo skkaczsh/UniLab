@@ -400,6 +400,27 @@ The next run should use `env.command.full_stick_fraction` so training samples
 exact joystick boundary commands instead of relying on the upper amplitude band
 to approximate them.
 
+The v46 follow-up added `full_stick_fraction` and continued from v45
+`model_1400.pt`. It improved clear full-stick coverage, but still did not pass
+the max-stick gate and regressed random eval metrics, so it is also not
+promoted:
+
+- run dir: `logs/rsl_rl_ppo/OmniCarGridAvoidance/2026-07-02_13-55-40_mujoco`
+- best behavior intermediate in the scanned set: `model_1425.pt`
+- random eval at `model_1425.pt`: `collision_fraction=0.0003662109375`,
+  `omni_car/tracking_error=0.2955703933839686`
+- max-stick gate at `model_1425.pt`: clear `8/8`, front-blocked `6/8`,
+  side-wall `15/16`; remaining failures are two front-blocked collision cases
+  and one left-wall collision case.
+- later checkpoints `1450` and `1475` regressed. Evidence:
+  `artifacts/omni_car/fullstick_v46_scan_1475.json`.
+
+The remaining failures are concentrated enough that the next repair should be
+targeted curriculum or BC on `max_stick_front_blocked_dir_00_circle`,
+`max_stick_front_blocked_dir_04_box`, and `max_stick_left_wall_dir_04`, followed
+by PPO fine-tuning and the same max-stick scan. Continuing broad PPO from v46 is
+not the right lever.
+
 For the next run, scan candidates with:
 
 ```bash
