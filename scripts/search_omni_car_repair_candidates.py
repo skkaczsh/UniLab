@@ -34,6 +34,7 @@ class RepairProfile:
     name: str
     scenario_groups: tuple[str, ...]
     scenarios: tuple[str, ...] = ()
+    scenario_weights: tuple[str, ...] = ()
 
 
 PROFILES: dict[str, RepairProfile] = {
@@ -56,6 +57,24 @@ PROFILES: dict[str, RepairProfile] = {
             "max_stick_front_blocked_dir_00_circle",
             "max_stick_front_blocked_dir_04_box",
             "max_stick_left_wall_dir_04",
+        ),
+    ),
+    "max_stick_long_balance": RepairProfile(
+        name="max_stick_long_balance",
+        scenario_groups=("base", "max_stick_clear", "max_stick_wall"),
+        scenarios=(
+            "max_stick_front_blocked_dir_00_circle",
+            "max_stick_front_blocked_dir_04_box",
+            "max_stick_right_wall_dir_05",
+            "max_stick_right_wall_dir_06",
+            "max_stick_right_wall_dir_07",
+        ),
+        scenario_weights=(
+            "max_stick_front_blocked_dir_00_circle=2.0",
+            "max_stick_front_blocked_dir_04_box=2.0",
+            "max_stick_right_wall_dir_05=1.5",
+            "max_stick_right_wall_dir_06=1.5",
+            "max_stick_right_wall_dir_07=1.5",
         ),
     ),
     "full": RepairProfile(name="full", scenario_groups=()),
@@ -114,6 +133,7 @@ def build_candidates(
                                 "profile": profile.name,
                                 "scenario_groups": list(profile.scenario_groups),
                                 "scenarios": list(profile.scenarios),
+                                "scenario_weights": list(profile.scenario_weights),
                                 "iterations": int(iteration_count),
                                 "learning_rate": float(learning_rate),
                                 "seed": int(seed),
@@ -244,6 +264,7 @@ def run_search(args: argparse.Namespace) -> dict[str, Any]:
             device=args.device,
             scenario_groups=candidate["scenario_groups"],
             scenarios=candidate["scenarios"],
+            scenario_weight=candidate["scenario_weights"],
             progress_interval=int(args.progress_interval),
         )
         _run_checked(train_command, dry_run=bool(args.dry_run))

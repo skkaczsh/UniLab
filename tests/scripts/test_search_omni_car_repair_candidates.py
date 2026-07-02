@@ -113,6 +113,22 @@ def test_build_candidates_can_target_exact_max_stick_failures() -> None:
     ]
 
 
+def test_build_candidates_can_attach_profile_scenario_weights() -> None:
+    module = _load_module()
+
+    candidates = module.build_candidates(
+        profiles=["max_stick_long_balance"],
+        seeds=[541],
+        learning_rates=[4.0e-6],
+        iterations=[260],
+    )
+
+    assert "max_stick_right_wall_dir_07" in candidates[0]["scenarios"]
+    assert "max_stick_front_blocked_dir_00_circle=2.0" in candidates[0][
+        "scenario_weights"
+    ]
+
+
 def test_build_candidates_can_resume_slice() -> None:
     module = _load_module()
 

@@ -32,6 +32,7 @@ def build_bc_command(
     checkpoint: str | None = None,
     scenarios: Sequence[str] = (),
     scenario_groups: Sequence[str] = (),
+    scenario_weight: Sequence[str] = (),
     progress_interval: int = 0,
 ) -> list[str]:
     command = [
@@ -65,6 +66,8 @@ def build_bc_command(
         command.extend(["--scenario", str(scenario)])
     for group in scenario_groups:
         command.extend(["--scenario-group", str(group)])
+    for item in scenario_weight:
+        command.extend(["--scenario-weight", str(item)])
     return command
 
 
