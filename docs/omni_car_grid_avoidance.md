@@ -553,6 +553,29 @@ clear/front/wall distribution directly or initialized from a competent student
 where dimensions permit. Otherwise, prefer a richer offline/policy-rollout
 dataset with explicit paired command-grid contexts.
 
+The v52 paired-context BC pass added obstacle jitter to the oracle BC tool and
+tested it from `maxstick_v50_dagger_wall07_escape.pt`. Evidence is stored in:
+
+- `artifacts/omni_car/maxstick_v52_jitter_pair_gate.json`
+- `artifacts/omni_car/maxstick_v52_jitter_pair_broad_gate.json`
+
+The training command used the same key paired contexts as v50 plus
+`max_stick_left_wall_dir_04`, with Gaussian obstacle jitter
+(`xy=0.035 m`, radius/extent `0.008 m`, yaw `0.03 rad`). It partially helped but
+is not promoted:
+
+- max-stick gate stayed at `31/32`; the remaining failure is still
+  `max_stick_right_wall_dir_07` with collision `0.03125`.
+- broad gate improved from v50's `81/83` to `82/83`, fixing the broad
+  `right_wall_dir_07` collision.
+- the remaining broad failure is `left_wall_dir_04` under-projection, and its
+  projection worsened from `0.085` to `0.027`.
+
+This suggests paired-context jitter is a useful data lever, but the current
+small hand-picked scenario set is still too narrow. The next version should
+generate a balanced paired dataset across all eight max-stick directions and
+both side-wall signs instead of repeatedly hand-tuning dir07.
+
 For the next run, scan candidates with:
 
 ```bash
