@@ -76,6 +76,7 @@ def build_gate_command(
     num_steps: int,
     directions: int,
     seed: int,
+    suite: str = "broad",
     device: str | None = None,
 ) -> list[str]:
     command = [
@@ -90,6 +91,8 @@ def build_gate_command(
         str(int(num_steps)),
         "--directions",
         str(int(directions)),
+        "--suite",
+        str(suite),
         "--seed",
         str(int(seed)),
         "--json",
@@ -196,6 +199,7 @@ def run_curriculum(args: argparse.Namespace) -> dict[str, Any]:
         num_steps=int(args.gate_num_steps),
         directions=int(args.gate_directions),
         seed=int(args.gate_seed),
+        suite=str(args.gate_suite),
         device=args.gate_device or args.device,
     )
     init_summary = _run_gate(init_gate_command, output=init_gate_output, dry_run=bool(args.dry_run))
@@ -237,6 +241,7 @@ def run_curriculum(args: argparse.Namespace) -> dict[str, Any]:
         num_steps=int(args.gate_num_steps),
         directions=int(args.gate_directions),
         seed=int(args.gate_seed),
+        suite=str(args.gate_suite),
         device=args.gate_device or args.device,
     )
     repair_summary = _run_gate(
@@ -274,6 +279,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--gate-num-envs", type=int, default=16)
     parser.add_argument("--gate-num-steps", type=int, default=128)
     parser.add_argument("--gate-directions", type=int, default=16)
+    parser.add_argument("--gate-suite", choices=("broad", "max_stick"), default="broad")
     parser.add_argument("--gate-seed", type=int, default=101)
     parser.add_argument("--gate-device", default=None)
     parser.add_argument(
@@ -286,6 +292,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "directional_clear",
             "directional_front",
             "directional_wall",
+            "max_stick",
+            "max_stick_clear",
+            "max_stick_front",
+            "max_stick_wall",
         ),
         help="Scenario group for the repair stage. Defaults to base, directional_clear, directional_front.",
     )

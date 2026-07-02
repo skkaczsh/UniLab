@@ -95,6 +95,24 @@ def test_build_candidates_orders_profiles_iterations_lrs_and_seeds() -> None:
     assert candidates[2]["scenario_groups"][-1] == "directional_wall"
 
 
+def test_build_candidates_can_target_exact_max_stick_failures() -> None:
+    module = _load_module()
+
+    candidates = module.build_candidates(
+        profiles=["max_stick_failures"],
+        seeds=[401],
+        learning_rates=[3.0e-5],
+        iterations=[600],
+    )
+
+    assert candidates[0]["scenario_groups"] == ["base"]
+    assert candidates[0]["scenarios"] == [
+        "max_stick_front_blocked_dir_00_circle",
+        "max_stick_front_blocked_dir_04_box",
+        "max_stick_left_wall_dir_04",
+    ]
+
+
 def test_build_candidates_can_resume_slice() -> None:
     module = _load_module()
 
@@ -128,6 +146,31 @@ def test_gate_score_penalizes_collision_when_pass_counts_tie() -> None:
     colliding = _gate(strict=False, failed=5, front=13, side=15, collision=0.01)
 
     assert module.gate_score(clean) > module.gate_score(colliding)
+
+
+def test_gate_score_understands_max_stick_categories() -> None:
+    module = _load_module()
+
+    worse = {
+        "strict_passed": False,
+        "failed_count": 4,
+        "category_summary": {
+            "max_stick_clear": {"passed": 8, "count": 8, "collision_fraction_max": 0.0, "projection_mean_min": 0.7},
+            "max_stick_front_blocked": {"passed": 5, "count": 8, "collision_fraction_max": 0.02, "projection_mean_min": -0.05},
+            "max_stick_side_wall": {"passed": 15, "count": 16, "collision_fraction_max": 0.08, "projection_mean_min": 0.2},
+        },
+    }
+    better = {
+        "strict_passed": False,
+        "failed_count": 3,
+        "category_summary": {
+            "max_stick_clear": {"passed": 8, "count": 8, "collision_fraction_max": 0.0, "projection_mean_min": 0.7},
+            "max_stick_front_blocked": {"passed": 6, "count": 8, "collision_fraction_max": 0.02, "projection_mean_min": -0.05},
+            "max_stick_side_wall": {"passed": 15, "count": 16, "collision_fraction_max": 0.08, "projection_mean_min": 0.2},
+        },
+    }
+
+    assert module.gate_score(better) > module.gate_score(worse)
 
 
 def test_search_dry_run_writes_candidate_manifest(tmp_path: Path) -> None:

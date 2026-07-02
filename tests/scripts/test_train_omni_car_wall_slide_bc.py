@@ -57,6 +57,13 @@ def test_oracle_scenarios_include_directional_follow_slide_and_guards() -> None:
     assert "directional32_clear_03_mid" in scenarios
     assert "directional32_front_stop_03_circle" in scenarios
     assert "directional32_left_wall_04" in scenarios
+    assert "max_stick_front_blocked_dir_00_circle" in scenarios
+    assert "max_stick_front_blocked_dir_04_box" in scenarios
+    assert "max_stick_left_wall_dir_04" in scenarios
+    assert scenarios["max_stick_front_blocked_dir_00_circle"].target_action == (0.0, 0.0, 0.0)
+    assert scenarios["max_stick_front_blocked_dir_04_box"].target_action == (0.0, 0.0, 0.0)
+    assert scenarios["max_stick_left_wall_dir_04"].target_action[0] < 0.0
+    assert scenarios["max_stick_left_wall_dir_04"].target_action[1] > 0.0
     assert len(scenarios) == len(module.ORACLE_SCENARIOS)
 
 
@@ -107,6 +114,21 @@ def test_wall_slide_bc_can_filter_dense_directional_scenario_groups() -> None:
     assert "directional32_front_stop_03_circle" in names
 
 
+def test_wall_slide_bc_can_filter_max_stick_scenario_groups() -> None:
+    module = _load_module()
+
+    selected = module._selected_scenarios(None, ["max_stick_front", "max_stick_wall"])
+    names = [scenario.name for scenario in selected]
+
+    assert "max_stick_front_blocked_dir_00_circle" in names
+    assert "max_stick_front_blocked_dir_04_box" in names
+    assert "max_stick_left_wall_dir_04" in names
+    assert all(
+        name.startswith("max_stick_front_blocked_") or "_wall_dir_" in name
+        for name in names
+    )
+
+
 def test_wall_slide_bc_can_weight_selected_repair_scenario() -> None:
     module = _load_module()
 
@@ -126,6 +148,49 @@ def test_behavior_correction_rolls_out_policy_actions_by_default() -> None:
     args = module._parse_args(["--load-run", "model.pt", "--output", "corrected.pt"])
 
     assert args.rollout_actions == "policy"
+
+
+def test_dry_run_reports_filtered_scenarios(monkeypatch, tmp_path: Path) -> None:
+    module = _load_module()
+    policy = torch.nn.Linear(3, 3)
+    env = SimpleNamespace(num_envs=2, close=lambda: None)
+
+    class _WrappedEnv:
+        def reset(self):  # type: ignore[no-untyped-def]
+            return None
+
+    runner = SimpleNamespace(alg=SimpleNamespace(get_policy=lambda: policy))
+
+    def _fake_make_runner(_args):  # type: ignore[no-untyped-def]
+        return runner, env, _WrappedEnv(), tmp_path / "load.pt", "cpu"
+
+    monkeypatch.setattr(module, "_make_runner", _fake_make_runner)
+    monkeypatch.setattr(
+        module,
+        "_apply_scenario",
+        lambda _env, _wrapped, _scenario: torch.zeros((2, 3), dtype=torch.float32),
+    )
+
+    summary = module.train_wall_slide_bc(
+        SimpleNamespace(
+            seed=1,
+            learning_rate=1.0e-3,
+            num_envs=2,
+            iterations=1,
+            rollout_steps=1,
+            rollout_actions="policy",
+            balanced_batch=False,
+            scenario=["max_stick_front_blocked_dir_00_circle"],
+            scenario_group=None,
+            scenario_weight=None,
+            progress_interval=0,
+            dry_run=True,
+            output=str(tmp_path / "corrected.pt"),
+        )
+    )
+
+    assert summary["status"] == "dry_run"
+    assert summary["scenarios"] == ["max_stick_front_blocked_dir_00_circle"]
 
 
 def test_wall_slide_target_tensor_repeats_action() -> None:

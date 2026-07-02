@@ -253,8 +253,78 @@ DIRECTIONAL32_ORACLE_SCENARIOS = _make_directional_oracle_scenarios(
     32,
     name_prefix="directional32",
 )
+
+
+def _make_max_stick_oracle_scenarios(directions: int = 8) -> tuple[OracleScenario, ...]:
+    scenarios: list[OracleScenario] = []
+    angles = [2.0 * math.pi * i / int(directions) for i in range(int(directions))]
+    for angle_index, angle in enumerate(angles):
+        direction = _unit(angle)
+        command = _directional_command(angle, 1.0)
+        scenarios.append(
+            OracleScenario(
+                name=f"max_stick_clear_dir_{angle_index:02d}",
+                behavior=BehaviorScenario(
+                    name=f"max_stick_clear_dir_{angle_index:02d}",
+                    command=command,
+                ),
+                target_action=command,
+                weight=3.0,
+            )
+        )
+
+        shape = ("circle", "box", "wall")[angle_index % 3]
+        scenarios.append(
+            OracleScenario(
+                name=f"max_stick_front_blocked_dir_{angle_index:02d}_{shape}",
+                behavior=BehaviorScenario(
+                    name=f"max_stick_front_blocked_dir_{angle_index:02d}_{shape}",
+                    command=command,
+                    obstacle_xy=(_point(direction, 0.72, 0.0),),
+                    obstacle_radius=(0.24,),
+                    obstacle_type=(shape,),
+                    obstacle_half_extents=((0.24, 0.20),),
+                    obstacle_yaw=(_yaw_from_direction(direction, lateral_axis=True),),
+                ),
+                target_action=(0.0, 0.0, 0.0),
+                weight=18.0,
+            )
+        )
+
+        for side_name, side_sign in (("right", -1.0), ("left", 1.0)):
+            lateral_offset = 0.34 * side_sign
+            away = -side_sign
+            target_xy = direction * WALL_SLIDE_PARALLEL_SPEED + _lateral(direction) * (
+                WALL_SLIDE_LATERAL_AWAY_SPEED * away
+            )
+            scenarios.append(
+                OracleScenario(
+                    name=f"max_stick_{side_name}_wall_dir_{angle_index:02d}",
+                    behavior=BehaviorScenario(
+                        name=f"max_stick_{side_name}_wall_dir_{angle_index:02d}",
+                        command=command,
+                        obstacle_xy=tuple(
+                            _point(direction, forward, lateral_offset)
+                            for forward in (0.55, 0.95, 1.35)
+                        ),
+                        obstacle_radius=(0.22, 0.22, 0.22),
+                        obstacle_type=("circle", "wall", "circle"),
+                        obstacle_half_extents=((0.22, 0.22), (0.36, 0.08), (0.22, 0.22)),
+                        obstacle_yaw=(0.0, _yaw_from_direction(direction), 0.0),
+                    ),
+                    target_action=_clip_target_xy(target_xy),
+                    weight=WALL_SLIDE_WEIGHT,
+                )
+            )
+    return tuple(scenarios)
+
+
+MAX_STICK_ORACLE_SCENARIOS = _make_max_stick_oracle_scenarios()
 ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
-    BASE_ORACLE_SCENARIOS + DIRECTIONAL_ORACLE_SCENARIOS + DIRECTIONAL32_ORACLE_SCENARIOS
+    BASE_ORACLE_SCENARIOS
+    + DIRECTIONAL_ORACLE_SCENARIOS
+    + DIRECTIONAL32_ORACLE_SCENARIOS
+    + MAX_STICK_ORACLE_SCENARIOS
 )
 
 
@@ -306,6 +376,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "directional32_clear",
             "directional32_front",
             "directional32_wall",
+            "max_stick",
+            "max_stick_clear",
+            "max_stick_front",
+            "max_stick_wall",
         ),
         help="Add a named oracle scenario group to the selected BC set.",
     )
@@ -375,6 +449,26 @@ def _scenario_group_names(groups: Sequence[str] | None) -> set[str]:
                 scenario.name
                 for scenario in DIRECTIONAL32_ORACLE_SCENARIOS
                 if "_wall_" in scenario.name
+            )
+        elif group == "max_stick":
+            selected.update(scenario.name for scenario in MAX_STICK_ORACLE_SCENARIOS)
+        elif group == "max_stick_clear":
+            selected.update(
+                scenario.name
+                for scenario in MAX_STICK_ORACLE_SCENARIOS
+                if scenario.name.startswith("max_stick_clear_")
+            )
+        elif group == "max_stick_front":
+            selected.update(
+                scenario.name
+                for scenario in MAX_STICK_ORACLE_SCENARIOS
+                if scenario.name.startswith("max_stick_front_blocked_")
+            )
+        elif group == "max_stick_wall":
+            selected.update(
+                scenario.name
+                for scenario in MAX_STICK_ORACLE_SCENARIOS
+                if "_wall_dir_" in scenario.name
             )
         else:
             raise ValueError(f"Unknown scenario group: {group}")
@@ -520,7 +614,7 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
     try:
         wrapped_env.reset()
         if bool(args.dry_run):
-            selected = ORACLE_SCENARIOS[0]
+            selected = scenarios[0]
             obs = _apply_scenario(env, wrapped_env, selected.behavior)
             output = policy(obs)
             target = _target_tensor(selected, num_envs=env.num_envs, device=device)
@@ -532,6 +626,7 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                 "loss": float(loss.detach().cpu().item()),
                 "policy_output_shape": list(output.shape),
                 "rollout_actions": str(args.rollout_actions),
+                "scenarios": [scenario.name for scenario in scenarios],
             }
         for iteration in range(int(args.iterations)):
             if bool(args.balanced_batch):

@@ -93,8 +93,27 @@ def test_build_gate_command_uses_broad_json_gate() -> None:
     assert "--strict" not in command
     assert "--directions" in command
     assert "16" in command
+    assert "--suite" in command
+    assert "broad" in command
     assert "--device" in command
     assert "cuda:0" in command
+
+
+def test_build_gate_command_can_select_max_stick_suite() -> None:
+    module = _load_module()
+
+    command = module.build_gate_command(
+        uv_bin="uv",
+        load_run="/tmp/repair.pt",
+        num_envs=4,
+        num_steps=96,
+        directions=8,
+        seed=73,
+        suite="max_stick",
+    )
+
+    assert "--suite" in command
+    assert "max_stick" in command
 
 
 def test_curriculum_writes_manifest_and_stops_after_passing_init_gate(

@@ -33,6 +33,7 @@ DEFAULT_ARTIFACT_DIR = Path("artifacts/omni_car/checkpoints")
 class RepairProfile:
     name: str
     scenario_groups: tuple[str, ...]
+    scenarios: tuple[str, ...] = ()
 
 
 PROFILES: dict[str, RepairProfile] = {
@@ -43,6 +44,19 @@ PROFILES: dict[str, RepairProfile] = {
     "front_wall": RepairProfile(
         name="front_wall",
         scenario_groups=("base", "directional_clear", "directional_front", "directional_wall"),
+    ),
+    "max_stick": RepairProfile(
+        name="max_stick",
+        scenario_groups=("base", "max_stick_clear", "max_stick_front", "max_stick_wall"),
+    ),
+    "max_stick_failures": RepairProfile(
+        name="max_stick_failures",
+        scenario_groups=("base",),
+        scenarios=(
+            "max_stick_front_blocked_dir_00_circle",
+            "max_stick_front_blocked_dir_04_box",
+            "max_stick_left_wall_dir_04",
+        ),
     ),
     "full": RepairProfile(name="full", scenario_groups=()),
 }
@@ -99,6 +113,7 @@ def build_candidates(
                                 "index": index,
                                 "profile": profile.name,
                                 "scenario_groups": list(profile.scenario_groups),
+                                "scenarios": list(profile.scenarios),
                                 "iterations": int(iteration_count),
                                 "learning_rate": float(learning_rate),
                                 "seed": int(seed),
@@ -130,23 +145,28 @@ def gate_score(gate: dict[str, Any]) -> tuple[float, ...]:
         value = float(item.get("projection_mean_min", -1.0e9))
         return value if math.isfinite(value) else -1.0e9
 
-    total_passed = sum(_passed(name) for name in ("clear", "front_blocked", "side_wall", "yaw", "zero"))
-    total_count = sum(_count(name) for name in ("clear", "front_blocked", "side_wall", "yaw", "zero"))
-    collision_cost = sum(_collision(name) for name in ("clear", "front_blocked", "side_wall", "yaw", "zero"))
+    clear_names = ("clear", "max_stick_clear")
+    front_names = ("front_blocked", "max_stick_front_blocked")
+    side_names = ("side_wall", "max_stick_side_wall")
+    other_names = ("yaw", "zero")
+    all_names = clear_names + front_names + side_names + other_names
+    total_passed = sum(_passed(name) for name in all_names)
+    total_count = sum(_count(name) for name in all_names)
+    collision_cost = sum(_collision(name) for name in all_names)
     failed_count = float(gate.get("failed_count", max(total_count - total_passed, 0.0)))
     return (
         1.0 if bool(gate.get("strict_passed")) else 0.0,
         -failed_count,
         total_passed,
-        _passed("front_blocked"),
-        _passed("side_wall"),
-        _passed("clear"),
+        sum(_passed(name) for name in front_names),
+        sum(_passed(name) for name in side_names),
+        sum(_passed(name) for name in clear_names),
         _passed("zero"),
         _passed("yaw"),
         -collision_cost,
-        _projection_min("front_blocked"),
-        _projection_min("side_wall"),
-        _projection_min("clear"),
+        max(_projection_min(name) for name in front_names),
+        max(_projection_min(name) for name in side_names),
+        max(_projection_min(name) for name in clear_names),
     )
 
 
@@ -223,6 +243,7 @@ def run_search(args: argparse.Namespace) -> dict[str, Any]:
             seed=int(candidate["seed"]),
             device=args.device,
             scenario_groups=candidate["scenario_groups"],
+            scenarios=candidate["scenarios"],
             progress_interval=int(args.progress_interval),
         )
         _run_checked(train_command, dry_run=bool(args.dry_run))
@@ -233,6 +254,7 @@ def run_search(args: argparse.Namespace) -> dict[str, Any]:
             num_steps=int(args.gate_num_steps),
             directions=int(args.gate_directions),
             seed=int(args.gate_seed),
+            suite=str(args.gate_suite),
             device=args.gate_device or args.device,
         )
         summary = _run_gate(gate_command, output=gate_output, dry_run=bool(args.dry_run))
@@ -298,6 +320,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--gate-num-envs", type=int, default=16)
     parser.add_argument("--gate-num-steps", type=int, default=128)
     parser.add_argument("--gate-directions", type=int, default=16)
+    parser.add_argument("--gate-suite", choices=("broad", "max_stick"), default="broad")
     parser.add_argument("--gate-seed", type=int, default=101)
     parser.add_argument("--gate-device", default=None)
     parser.add_argument("--stop-on-pass", action="store_true")
