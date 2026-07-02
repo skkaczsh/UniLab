@@ -28,6 +28,7 @@ def build_bc_command(
     rollout_actions: str,
     learning_rate: float,
     seed: int,
+    balanced_batch: bool = False,
     device: str | None = None,
     checkpoint: str | None = None,
     scenarios: Sequence[str] = (),
@@ -64,6 +65,8 @@ def build_bc_command(
         "--seed",
         str(int(seed)),
     ]
+    if bool(balanced_batch):
+        command.append("--balanced-batch")
     if checkpoint:
         command.extend(["--checkpoint", str(checkpoint)])
     if device:

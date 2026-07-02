@@ -129,6 +129,37 @@ def test_build_candidates_can_attach_profile_scenario_weights() -> None:
     ]
 
 
+def test_build_candidates_can_expand_target_sweeps() -> None:
+    module = _load_module()
+
+    target_sweeps = module._parse_target_sweeps(
+        scenario="max_stick_right_wall_dir_07",
+        vx_values="0.24,0.30",
+        vy_values="-0.20,-0.16",
+        vyaw_values="0.0",
+    )
+    candidates = module.build_candidates(
+        profiles=["right_wall07_target_sweep"],
+        seeds=[564],
+        learning_rates=[5.0e-7],
+        iterations=[4],
+        target_sweeps=target_sweeps,
+    )
+
+    assert len(candidates) == 4
+    assert candidates[0]["scenarios"] == [
+        "max_stick_clear_dir_07",
+        "max_stick_right_wall_dir_07",
+        "max_stick_left_wall_dir_04",
+    ]
+    assert candidates[0]["scenario_targets"] == [
+        "max_stick_right_wall_dir_07=0.24,-0.2,0"
+    ]
+    assert candidates[-1]["scenario_targets"] == [
+        "max_stick_right_wall_dir_07=0.3,-0.16,0"
+    ]
+
+
 def test_build_candidates_can_resume_slice() -> None:
     module = _load_module()
 
@@ -283,3 +314,69 @@ def test_search_keeps_best_candidate_by_gate_score(monkeypatch, tmp_path: Path) 
 
     assert len(result["candidates"]) == 2
     assert result["best"]["name"].endswith("s362")
+
+
+def test_search_forwards_target_sweep_and_closed_loop_options(
+    monkeypatch, tmp_path: Path
+) -> None:
+    module = _load_module()
+    train_commands: list[list[str]] = []
+
+    def _fake_run_checked(command, *, dry_run):  # type: ignore[no-untyped-def]
+        train_commands.append(list(command))
+
+    def _fake_run_gate(command, *, output, dry_run):  # type: ignore[no-untyped-def]
+        return {
+            "strict_passed": False,
+            "scenario_count": 1,
+            "category_summary": {},
+            "scenarios": [
+                {"scenario": "max_stick_right_wall_dir_07", "passed": False}
+            ],
+        }
+
+    monkeypatch.setattr(module, "_run_checked", _fake_run_checked)
+    monkeypatch.setattr(module, "_run_gate", _fake_run_gate)
+
+    module.run_search(
+        module._parse_args(
+            [
+                "--load-run",
+                "/tmp/base.pt",
+                "--output",
+                str(tmp_path / "manifest.json"),
+                "--artifact-dir",
+                str(tmp_path / "checkpoints"),
+                "--name-prefix",
+                "unit",
+                "--profiles",
+                "right_wall07_target_sweep",
+                "--seeds",
+                "564",
+                "--learning-rates",
+                "5e-7",
+                "--iterations",
+                "4",
+                "--target-sweep-scenario",
+                "max_stick_right_wall_dir_07",
+                "--target-sweep-vx",
+                "0.24",
+                "--target-sweep-vy",
+                "-0.2",
+                "--rollout-actions",
+                "policy",
+                "--balanced-batch",
+                "--dagger-replay-epochs",
+                "1",
+                "--scenario-jitter-xy-std",
+                "0.03",
+            ]
+        )
+    )
+
+    command = train_commands[0]
+    assert "--scenario-target" in command
+    assert "max_stick_right_wall_dir_07=0.24,-0.2,0" in command
+    assert "--balanced-batch" in command
+    assert "--dagger-replay-epochs" in command
+    assert "--scenario-jitter-xy-std" in command

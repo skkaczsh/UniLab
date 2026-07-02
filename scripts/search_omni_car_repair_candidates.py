@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import math
 import sys
@@ -35,6 +36,7 @@ class RepairProfile:
     scenario_groups: tuple[str, ...]
     scenarios: tuple[str, ...] = ()
     scenario_weights: tuple[str, ...] = ()
+    scenario_targets: tuple[str, ...] = ()
 
 
 PROFILES: dict[str, RepairProfile] = {
@@ -77,6 +79,20 @@ PROFILES: dict[str, RepairProfile] = {
             "max_stick_right_wall_dir_07=1.5",
         ),
     ),
+    "right_wall07_target_sweep": RepairProfile(
+        name="right_wall07_target_sweep",
+        scenario_groups=("base",),
+        scenarios=(
+            "max_stick_clear_dir_07",
+            "max_stick_right_wall_dir_07",
+            "max_stick_left_wall_dir_04",
+        ),
+        scenario_weights=(
+            "max_stick_right_wall_dir_07=2.0",
+            "max_stick_clear_dir_07=1.0",
+            "max_stick_left_wall_dir_04=1.0",
+        ),
+    ),
     "full": RepairProfile(name="full", scenario_groups=()),
 }
 
@@ -105,6 +121,26 @@ def _parse_csv_strings(raw: str) -> list[str]:
     return values
 
 
+def _parse_target_sweeps(
+    *,
+    scenario: str | None,
+    vx_values: str | None,
+    vy_values: str | None,
+    vyaw_values: str | None,
+) -> list[tuple[str, ...]]:
+    if not scenario:
+        if vx_values or vy_values or vyaw_values:
+            raise ValueError("--target-sweep-scenario is required when sweep values are set")
+        return [()]
+    vx = _parse_csv_floats(vx_values or "")
+    vy = _parse_csv_floats(vy_values or "")
+    vyaw = _parse_csv_floats(vyaw_values or "0.0")
+    return [
+        (f"{scenario}={vx_value:g},{vy_value:g},{vyaw_value:g}",)
+        for vx_value, vy_value, vyaw_value in itertools.product(vx, vy, vyaw)
+    ]
+
+
 def _lr_slug(value: float) -> str:
     text = f"{float(value):.0e}" if value < 1.0e-3 else f"{float(value):g}"
     return text.replace("+", "").replace("-", "m").replace(".", "p")
@@ -116,6 +152,7 @@ def build_candidates(
     seeds: Sequence[int],
     learning_rates: Sequence[float],
     iterations: Sequence[int],
+    target_sweeps: Sequence[Sequence[str]] = ((),),
     max_candidates: int | None = None,
     start_index: int = 0,
 ) -> list[dict[str, Any]]:
@@ -126,22 +163,26 @@ def build_candidates(
         for iteration_count in iterations:
             for learning_rate in learning_rates:
                 for seed in seeds:
-                    if index >= int(start_index):
-                        candidates.append(
-                            {
-                                "index": index,
-                                "profile": profile.name,
-                                "scenario_groups": list(profile.scenario_groups),
-                                "scenarios": list(profile.scenarios),
-                                "scenario_weights": list(profile.scenario_weights),
-                                "iterations": int(iteration_count),
-                                "learning_rate": float(learning_rate),
-                                "seed": int(seed),
-                            }
-                        )
-                    index += 1
-                    if max_candidates is not None and len(candidates) >= int(max_candidates):
-                        return candidates
+                    for target_sweep in target_sweeps:
+                        if index >= int(start_index):
+                            candidates.append(
+                                {
+                                    "index": index,
+                                    "profile": profile.name,
+                                    "scenario_groups": list(profile.scenario_groups),
+                                    "scenarios": list(profile.scenarios),
+                                    "scenario_weights": list(profile.scenario_weights),
+                                    "scenario_targets": list(
+                                        tuple(profile.scenario_targets) + tuple(target_sweep)
+                                    ),
+                                    "iterations": int(iteration_count),
+                                    "learning_rate": float(learning_rate),
+                                    "seed": int(seed),
+                                }
+                            )
+                        index += 1
+                        if max_candidates is not None and len(candidates) >= int(max_candidates):
+                            return candidates
     return candidates
 
 
@@ -227,11 +268,18 @@ def run_search(args: argparse.Namespace) -> dict[str, Any]:
     seeds = _parse_csv_ints(str(args.seeds))
     learning_rates = _parse_csv_floats(str(args.learning_rates))
     iterations = _parse_csv_ints(str(args.iterations))
+    target_sweeps = _parse_target_sweeps(
+        scenario=args.target_sweep_scenario,
+        vx_values=args.target_sweep_vx,
+        vy_values=args.target_sweep_vy,
+        vyaw_values=args.target_sweep_vyaw,
+    )
     candidates = build_candidates(
         profiles=profiles,
         seeds=seeds,
         learning_rates=learning_rates,
         iterations=iterations,
+        target_sweeps=target_sweeps,
         max_candidates=args.max_candidates,
         start_index=int(args.start_index),
     )
@@ -259,12 +307,21 @@ def run_search(args: argparse.Namespace) -> dict[str, Any]:
             iterations=int(candidate["iterations"]),
             rollout_steps=int(args.rollout_steps),
             rollout_actions=str(args.rollout_actions),
+            balanced_batch=bool(args.balanced_batch),
             learning_rate=float(candidate["learning_rate"]),
             seed=int(candidate["seed"]),
             device=args.device,
             scenario_groups=candidate["scenario_groups"],
             scenarios=candidate["scenarios"],
             scenario_weight=candidate["scenario_weights"],
+            scenario_target=candidate["scenario_targets"],
+            dagger_replay_epochs=int(args.dagger_replay_epochs),
+            dagger_replay_batch_size=int(args.dagger_replay_batch_size),
+            dagger_replay_max_samples=int(args.dagger_replay_max_samples),
+            dagger_samples_per_step=int(args.dagger_samples_per_step),
+            scenario_jitter_xy_std=float(args.scenario_jitter_xy_std),
+            scenario_jitter_radius_std=float(args.scenario_jitter_radius_std),
+            scenario_jitter_yaw_std=float(args.scenario_jitter_yaw_std),
             progress_interval=int(args.progress_interval),
         )
         _run_checked(train_command, dry_run=bool(args.dry_run))
@@ -336,7 +393,19 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--num-envs", type=int, default=64)
     parser.add_argument("--rollout-steps", type=int, default=2)
     parser.add_argument("--rollout-actions", choices=("policy", "target"), default="target")
+    parser.add_argument("--balanced-batch", action="store_true")
     parser.add_argument("--device", default=None)
+    parser.add_argument("--target-sweep-scenario", default=None)
+    parser.add_argument("--target-sweep-vx", default=None)
+    parser.add_argument("--target-sweep-vy", default=None)
+    parser.add_argument("--target-sweep-vyaw", default=None)
+    parser.add_argument("--dagger-replay-epochs", type=int, default=0)
+    parser.add_argument("--dagger-replay-batch-size", type=int, default=512)
+    parser.add_argument("--dagger-replay-max-samples", type=int, default=8192)
+    parser.add_argument("--dagger-samples-per-step", type=int, default=2)
+    parser.add_argument("--scenario-jitter-xy-std", type=float, default=0.0)
+    parser.add_argument("--scenario-jitter-radius-std", type=float, default=0.0)
+    parser.add_argument("--scenario-jitter-yaw-std", type=float, default=0.0)
     parser.add_argument("--progress-interval", type=int, default=300)
     parser.add_argument("--gate-num-envs", type=int, default=16)
     parser.add_argument("--gate-num-steps", type=int, default=128)

@@ -51,6 +51,25 @@ def test_build_bc_command_uses_per_scenario_sgd_defaults() -> None:
     assert "cuda:0" in command
 
 
+def test_build_bc_command_can_enable_balanced_batch() -> None:
+    module = _load_module()
+
+    command = module.build_bc_command(
+        uv_bin="uv",
+        load_run="/tmp/model.pt",
+        output="/tmp/repair.pt",
+        num_envs=4,
+        iterations=2,
+        rollout_steps=3,
+        rollout_actions="policy",
+        learning_rate=5.0e-7,
+        seed=564,
+        balanced_batch=True,
+    )
+
+    assert "--balanced-batch" in command
+
+
 def test_repair_command_includes_front_focused_rehearsal_groups() -> None:
     module = _load_module()
 
