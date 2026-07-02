@@ -338,11 +338,30 @@ uv run scripts/evaluate_omni_car_robustness.py \
 ```
 
 The current promoted local checkpoint is
-`artifacts/omni_car/checkpoints/silu_capacity_v42_long_dir19_stop.pt`; local
-`artifacts/omni_car/checkpoints/best.pt` points to it. It was repaired from the
-v35d 16-direction pass through sparse 32-direction front-blocker rehearsal and a
-final long-horizon `directional32_front_stop_19_box` stop rehearsal. The final
-remote gates on the RTX 5070 Ti host are:
+`artifacts/omni_car/checkpoints/balanced_speed_v44_model1250.pt`; local
+`artifacts/omni_car/checkpoints/best.pt` points to it. It was trained from
+`silu_capacity_v42_long_dir19_stop.pt` with speed-aware clearance rewards, then
+selected by scanning checkpoints `500`, `750`, `1000`, `1250`, and `1500`.
+The selected checkpoint is `model_1250.pt`, not the final stopped checkpoint:
+later training began to collapse action entropy and became too conservative.
+
+The v44 scan on the RTX 5070 Ti host used `64` envs, `512` eval steps, and
+behavior gates with `16` envs and `128` steps. Evidence is stored in
+`artifacts/omni_car/balanced_speed_v44_scan.json`. The selected checkpoint:
+
+- `collision_fraction`: `0.0001220703125`
+- `omni_car/tracking_error`: `0.17547712616214994`
+- `vx/vy/vyaw_tracking_mae`: `0.22031112964582666` /
+  `0.09857375493694602` / `0.03745780186455853`
+- behavior gate: strict pass across zero input, clear follow, yaw-only,
+  front-blocked stop, and right-wall forward.
+
+The previous promoted safety baseline was
+`artifacts/omni_car/checkpoints/silu_capacity_v42_long_dir19_stop.pt`. It was
+repaired from the v35d 16-direction pass through sparse 32-direction
+front-blocker rehearsal and a final long-horizon
+`directional32_front_stop_19_box` stop rehearsal. Its final remote gates on the
+RTX 5070 Ti host were:
 
 - `16` directions, `128` steps: strict pass, clear `48/48`, front-blocked
   `16/16`, side-wall `16/16`, yaw `2/2`, zero `1/1`, max collision `0.0`.
