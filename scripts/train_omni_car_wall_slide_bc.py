@@ -153,6 +153,57 @@ def _clip_target_xy(xy: np.ndarray) -> tuple[float, float, float]:
     return (float(clipped[0]), float(clipped[1]), 0.0)
 
 
+def _jitter_behavior(
+    behavior: BehaviorScenario,
+    *,
+    rng: np.random.Generator,
+    xy_std: float,
+    radius_std: float,
+    yaw_std: float,
+) -> BehaviorScenario:
+    if not behavior.obstacle_xy or (xy_std <= 0.0 and radius_std <= 0.0 and yaw_std <= 0.0):
+        return behavior
+    xy = np.asarray(behavior.obstacle_xy, dtype=np.float64)
+    if xy_std > 0.0:
+        xy = xy + rng.normal(0.0, float(xy_std), size=xy.shape)
+    radius = tuple(
+        max(0.04, float(value) + float(rng.normal(0.0, radius_std)))
+        for value in behavior.obstacle_radius
+    )
+    half_extents = tuple(
+        (
+            max(0.04, float(extent[0]) + float(rng.normal(0.0, radius_std))),
+            max(0.04, float(extent[1]) + float(rng.normal(0.0, radius_std))),
+        )
+        for extent in behavior.obstacle_half_extents
+    )
+    yaw = tuple(float(value) + float(rng.normal(0.0, yaw_std)) for value in behavior.obstacle_yaw)
+    return replace(
+        behavior,
+        obstacle_xy=tuple((float(item[0]), float(item[1])) for item in xy),
+        obstacle_radius=radius,
+        obstacle_half_extents=half_extents,
+        obstacle_yaw=yaw,
+    )
+
+
+def _training_behavior(
+    scenario: OracleScenario,
+    *,
+    rng: np.random.Generator,
+    xy_std: float,
+    radius_std: float,
+    yaw_std: float,
+) -> BehaviorScenario:
+    return _jitter_behavior(
+        scenario.behavior,
+        rng=rng,
+        xy_std=xy_std,
+        radius_std=radius_std,
+        yaw_std=yaw_std,
+    )
+
+
 BASE_ORACLE_SCENARIOS: tuple[OracleScenario, ...] = (
     OracleScenario(
         name="zero_input_hold",
@@ -507,6 +558,24 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=2,
         help="Number of env rows sampled into replay from each rollout step.",
     )
+    parser.add_argument(
+        "--scenario-jitter-xy-std",
+        type=float,
+        default=0.0,
+        help="Gaussian std in meters for obstacle XY jitter in oracle scenarios.",
+    )
+    parser.add_argument(
+        "--scenario-jitter-radius-std",
+        type=float,
+        default=0.0,
+        help="Gaussian std in meters for obstacle radius / half-extent jitter.",
+    )
+    parser.add_argument(
+        "--scenario-jitter-yaw-std",
+        type=float,
+        default=0.0,
+        help="Gaussian std in radians for obstacle yaw jitter.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args(argv)
 
@@ -795,6 +864,9 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
     dagger_replay_epochs = int(getattr(args, "dagger_replay_epochs", 0))
     dagger_replay_batch_size = int(getattr(args, "dagger_replay_batch_size", 512))
     dagger_replay_samples_per_step = int(getattr(args, "dagger_samples_per_step", 2))
+    scenario_jitter_xy_std = float(getattr(args, "scenario_jitter_xy_std", 0.0))
+    scenario_jitter_radius_std = float(getattr(args, "scenario_jitter_radius_std", 0.0))
+    scenario_jitter_yaw_std = float(getattr(args, "scenario_jitter_yaw_std", 0.0))
     replay = DaggerReplayBuffer(
         max_samples=int(getattr(args, "dagger_replay_max_samples", 8192))
     )
@@ -803,7 +875,14 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
         wrapped_env.reset()
         if bool(args.dry_run):
             selected = scenarios[0]
-            obs = _apply_scenario(env, wrapped_env, selected.behavior)
+            behavior = _training_behavior(
+                selected,
+                rng=rng,
+                xy_std=scenario_jitter_xy_std,
+                radius_std=scenario_jitter_radius_std,
+                yaw_std=scenario_jitter_yaw_std,
+            )
+            obs = _apply_scenario(env, wrapped_env, behavior)
             output = policy(obs)
             target = _target_tensor(selected, num_envs=env.num_envs, device=device)
             loss = torch.nn.functional.mse_loss(output, target)
@@ -824,7 +903,14 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                 normalizer *= float(max(int(args.rollout_steps), 1))
                 for scenario in _shuffled_scenarios(rng, scenarios):
                     scenario_counts[scenario.name] += 1
-                    obs = _apply_scenario(env, wrapped_env, scenario.behavior)
+                    behavior = _training_behavior(
+                        scenario,
+                        rng=rng,
+                        xy_std=scenario_jitter_xy_std,
+                        radius_std=scenario_jitter_radius_std,
+                        yaw_std=scenario_jitter_yaw_std,
+                    )
+                    obs = _apply_scenario(env, wrapped_env, behavior)
                     target = _target_tensor(scenario, num_envs=env.num_envs, device=device)
                     for _step in range(int(args.rollout_steps)):
                         prediction = policy(obs)
@@ -853,7 +939,14 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                             )
                             obs, _rewards, dones, _infos = wrapped_env.step(step_action)
                             if bool(torch.any(dones).item()):
-                                obs = _apply_scenario(env, wrapped_env, scenario.behavior)
+                                behavior = _training_behavior(
+                                    scenario,
+                                    rng=rng,
+                                    xy_std=scenario_jitter_xy_std,
+                                    radius_std=scenario_jitter_radius_std,
+                                    yaw_std=scenario_jitter_yaw_std,
+                                )
+                                obs = _apply_scenario(env, wrapped_env, behavior)
                 torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
                 optimizer.step()
                 replay_losses = _train_dagger_replay(
@@ -893,7 +986,14 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
 
             scenario = scenarios[int(rng.choice(len(scenarios), p=probabilities))]
             scenario_counts[scenario.name] += 1
-            obs = _apply_scenario(env, wrapped_env, scenario.behavior)
+            behavior = _training_behavior(
+                scenario,
+                rng=rng,
+                xy_std=scenario_jitter_xy_std,
+                radius_std=scenario_jitter_radius_std,
+                yaw_std=scenario_jitter_yaw_std,
+            )
+            obs = _apply_scenario(env, wrapped_env, behavior)
             target = _target_tensor(scenario, num_envs=env.num_envs, device=device)
             for _step in range(int(args.rollout_steps)):
                 prediction = policy(obs)
@@ -916,7 +1016,14 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                     step_action = prediction.detach() if args.rollout_actions == "policy" else target
                     obs, _rewards, dones, _infos = wrapped_env.step(step_action)
                     if bool(torch.any(dones).item()):
-                        obs = _apply_scenario(env, wrapped_env, scenario.behavior)
+                        behavior = _training_behavior(
+                            scenario,
+                            rng=rng,
+                            xy_std=scenario_jitter_xy_std,
+                            radius_std=scenario_jitter_radius_std,
+                            yaw_std=scenario_jitter_yaw_std,
+                        )
+                        obs = _apply_scenario(env, wrapped_env, behavior)
             replay_losses = _train_dagger_replay(
                 policy=policy,
                 optimizer=optimizer,
@@ -963,6 +1070,9 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
             "dagger_replay_batch_size": dagger_replay_batch_size,
             "dagger_replay_max_samples": int(getattr(args, "dagger_replay_max_samples", 8192)),
             "dagger_samples_per_step": dagger_replay_samples_per_step,
+            "scenario_jitter_xy_std": scenario_jitter_xy_std,
+            "scenario_jitter_radius_std": scenario_jitter_radius_std,
+            "scenario_jitter_yaw_std": scenario_jitter_yaw_std,
             "replay_size": replay.size,
             "replay_updates": len(replay_loss_history),
             "replay_loss_final": replay_loss_history[-1] if replay_loss_history else None,

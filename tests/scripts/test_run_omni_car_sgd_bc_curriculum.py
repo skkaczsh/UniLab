@@ -148,6 +148,32 @@ def test_build_bc_command_can_forward_dagger_replay_options() -> None:
     assert "4" in command
 
 
+def test_build_bc_command_can_forward_scenario_jitter_options() -> None:
+    module = _load_module()
+
+    command = module.build_bc_command(
+        uv_bin="uv",
+        load_run="/tmp/init.pt",
+        output="/tmp/repair.pt",
+        num_envs=64,
+        iterations=1400,
+        rollout_steps=2,
+        rollout_actions="policy",
+        learning_rate=5.0e-5,
+        seed=361,
+        scenario_jitter_xy_std=0.04,
+        scenario_jitter_radius_std=0.01,
+        scenario_jitter_yaw_std=0.03,
+    )
+
+    assert "--scenario-jitter-xy-std" in command
+    assert "0.04" in command
+    assert "--scenario-jitter-radius-std" in command
+    assert "0.01" in command
+    assert "--scenario-jitter-yaw-std" in command
+    assert "0.03" in command
+
+
 def test_build_gate_command_uses_broad_json_gate() -> None:
     module = _load_module()
 

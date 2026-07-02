@@ -38,6 +38,9 @@ def build_bc_command(
     dagger_replay_batch_size: int = 512,
     dagger_replay_max_samples: int = 8192,
     dagger_samples_per_step: int = 2,
+    scenario_jitter_xy_std: float = 0.0,
+    scenario_jitter_radius_std: float = 0.0,
+    scenario_jitter_yaw_std: float = 0.0,
     progress_interval: int = 0,
 ) -> list[str]:
     command = [
@@ -72,6 +75,14 @@ def build_bc_command(
         command.extend(["--dagger-replay-batch-size", str(int(dagger_replay_batch_size))])
         command.extend(["--dagger-replay-max-samples", str(int(dagger_replay_max_samples))])
         command.extend(["--dagger-samples-per-step", str(int(dagger_samples_per_step))])
+    if scenario_jitter_xy_std > 0.0:
+        command.extend(["--scenario-jitter-xy-std", f"{float(scenario_jitter_xy_std):g}"])
+    if scenario_jitter_radius_std > 0.0:
+        command.extend(
+            ["--scenario-jitter-radius-std", f"{float(scenario_jitter_radius_std):g}"]
+        )
+    if scenario_jitter_yaw_std > 0.0:
+        command.extend(["--scenario-jitter-yaw-std", f"{float(scenario_jitter_yaw_std):g}"])
     for scenario in scenarios:
         command.extend(["--scenario", str(scenario)])
     for group in scenario_groups:

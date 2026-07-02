@@ -249,6 +249,27 @@ def test_dagger_replay_buffer_caps_and_samples() -> None:
     torch.testing.assert_close(weight, torch.full((2,), 2.0))
 
 
+def test_wall_slide_bc_can_jitter_obstacle_context_without_changing_command() -> None:
+    module = _load_module()
+    rng = np.random.default_rng(4)
+    scenario = {item.name: item for item in module.ORACLE_SCENARIOS}["max_stick_right_wall_dir_07"]
+    target = scenario.target_action
+
+    behavior = module._training_behavior(
+        scenario,
+        rng=rng,
+        xy_std=0.05,
+        radius_std=0.01,
+        yaw_std=0.02,
+    )
+
+    assert behavior.command == scenario.behavior.command
+    assert behavior.obstacle_xy != scenario.behavior.obstacle_xy
+    assert behavior.obstacle_radius != scenario.behavior.obstacle_radius
+    assert behavior.obstacle_yaw != scenario.behavior.obstacle_yaw
+    assert scenario.target_action == target
+
+
 def test_balanced_batch_training_visits_every_oracle_scenario(monkeypatch, tmp_path: Path) -> None:
     module = _load_module()
     policy = torch.nn.Linear(3, 3)
