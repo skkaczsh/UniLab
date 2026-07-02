@@ -1156,7 +1156,11 @@ def _trainable_parameters(policy: torch.nn.Module) -> list[torch.nn.Parameter]:
 
 
 def _branch_role(scenario_name: str) -> float | None:
-    if "front_blocked" in scenario_name or scenario_name == "front_blocked_stop":
+    if (
+        "front_blocked" in scenario_name
+        or "front_stop" in scenario_name
+        or scenario_name == "front_blocked_stop"
+    ):
         return 0.0
     if "_wall_" in scenario_name or scenario_name in {"right_wall_slide", "left_wall_slide"}:
         return 1.0

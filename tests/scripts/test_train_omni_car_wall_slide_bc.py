@@ -401,6 +401,17 @@ def test_branch_supervision_targets_front_stop_and_wall_escape() -> None:
     assert float(wall_loss) > 0.0
 
 
+def test_directional_front_scenarios_use_stop_branch_role() -> None:
+    module = _load_module()
+
+    assert module._branch_role("front_blocked_stop") == 0.0
+    assert module._branch_role("max_stick_front_blocked_dir_00_circle") == 0.0
+    assert module._branch_role("directional_front_stop_00_circle") == 0.0
+    assert module._branch_role("directional32_front_stop_17_wall") == 0.0
+    assert module._branch_role("max_stick_right_wall_dir_00") == 1.0
+    assert module._branch_role("max_stick_clear_dir_00") is None
+
+
 def test_branch_supervision_can_keep_clear_behavior_on_both_heads() -> None:
     module = _load_module()
 
