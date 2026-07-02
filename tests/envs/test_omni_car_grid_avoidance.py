@@ -220,6 +220,32 @@ def test_omni_car_balanced_command_sampler_covers_modes_and_limits() -> None:
     assert np.any((0.15 <= nonzero) & (nonzero < 0.35))
     assert np.any((0.35 <= nonzero) & (nonzero < 0.65))
     assert np.any(nonzero >= 0.65)
+    assert np.any(np.isclose(np.max(np.abs(samples[:, 0])), 2.0, atol=1e-6))
+    assert np.any(np.isclose(np.max(np.abs(samples[:, 1])), 1.0, atol=1e-6))
+    assert np.any(np.isclose(np.max(np.abs(samples[:, 2])), 2.0, atol=1e-6))
+    env.close()
+
+
+def test_omni_car_command_sampler_can_force_full_stick_edges() -> None:
+    env = registry.make(
+        "OmniCarGridAvoidance",
+        sim_backend="mujoco",
+        num_envs=1,
+        env_cfg_override={
+            "seed": 147,
+            "command": {
+                "zero_fraction": 0.0,
+                "full_stick_fraction": 1.0,
+                "deadband": 0.0,
+            },
+        },
+    )
+
+    samples = env._sample_commands(512)
+
+    assert np.any(np.isclose(np.abs(samples[:, 0]), env._cfg.command.max_x_speed))
+    assert np.any(np.isclose(np.abs(samples[:, 1]), env._cfg.command.max_y_speed))
+    assert np.any(np.isclose(np.abs(samples[:, 2]), env._cfg.command.max_yaw_rate))
     env.close()
 
 
@@ -1142,14 +1168,14 @@ def test_omni_car_clearance_opening_rewards_moving_away_from_near_obstacle() -> 
         },
     )
     env.init_state()
-    env._commands[:] = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
-    env._obstacle_xy[0, 0] = np.asarray([0.30, 0.35], dtype=np.float32)
+    env._commands[:] = np.asarray([[-1.0, 0.0, 0.0]], dtype=np.float32)
+    env._obstacle_xy[0, 0] = np.asarray([0.45, -0.45], dtype=np.float32)
     env._obstacle_radius[0, 0] = 0.18
     env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
     prev_pose = env._pose.copy()
     prev_clearance = env._nearest_clearance.copy()
 
-    away_action = np.asarray([[0.2, -1.0, 0.0]], dtype=np.float32)
+    away_action = np.asarray([[-1.0, 1.0, 0.0]], dtype=np.float32)
     env._pose[:] = env._predict_pose_from_action(prev_pose, away_action)
     env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
     away_reward = env._compute_reward(
@@ -1159,7 +1185,7 @@ def test_omni_car_clearance_opening_rewards_moving_away_from_near_obstacle() -> 
     )
     away_opening = float(env._reward_components["clearance_opening"][0])
 
-    toward_action = np.asarray([[0.2, 1.0, 0.0]], dtype=np.float32)
+    toward_action = np.asarray([[1.0, 1.0, 0.0]], dtype=np.float32)
     env._pose[:] = env._predict_pose_from_action(prev_pose, toward_action)
     env._nearest_clearance[:] = env._compute_clearance(np.asarray([0], dtype=np.int32))
     toward_reward = env._compute_reward(

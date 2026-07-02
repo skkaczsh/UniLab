@@ -28,6 +28,7 @@ class OmniCarCommandCfg:
     long_hold_min_s: float = 8.0
     long_hold_max_s: float = 30.0
     zero_fraction: float = 0.22
+    full_stick_fraction: float = 0.18
     mode_weights: tuple[float, ...] = field(
         default_factory=lambda: (0.10, 0.10, 0.10, 0.22, 0.10, 0.10, 0.28)
     )
@@ -294,6 +295,8 @@ class OmniCarGridAvoidanceCfg(EnvCfg):
             raise ValueError("command.long_hold_fraction must be in [0, 1]")
         if not 0.0 <= command.zero_fraction <= 1.0:
             raise ValueError("command.zero_fraction must be in [0, 1]")
+        if not 0.0 <= command.full_stick_fraction <= 1.0:
+            raise ValueError("command.full_stick_fraction must be in [0, 1]")
         if len(command.mode_weights) != 7:
             raise ValueError("command.mode_weights must contain 7 weights")
         if min(command.mode_weights) < 0.0 or sum(command.mode_weights) <= 0.0:
@@ -1184,28 +1187,32 @@ class OmniCarGridAvoidanceEnv(ABEnv):
         for row, mode_id, band_id in zip(nonzero_ids, mode_ids, band_ids, strict=True):
             active = self._COMMAND_MODE_MASKS[mode_id]
             low, high = self._COMMAND_AMPLITUDE_BANDS[band_id]
+            edge_sample = float(self._rng.random()) < float(cmd.full_stick_fraction)
 
             if active[0] and active[1]:
                 angle = float(self._rng.uniform(-np.pi, np.pi))
-                magnitude = float(self._rng.uniform(low, high))
+                magnitude = 1.0 if edge_sample else float(self._rng.uniform(low, high))
                 sampled[row, 0] = magnitude * math.cos(angle) * limits[0]
                 sampled[row, 1] = magnitude * math.sin(angle) * limits[1]
             elif active[0]:
                 sampled[row, 0] = (
-                    self._rng.uniform(low, high)
+                    (1.0 if edge_sample else self._rng.uniform(low, high))
                     * self._rng.choice(np.asarray([-1.0, 1.0], dtype=self._dtype))
                     * limits[0]
                 )
             elif active[1]:
                 sampled[row, 1] = (
-                    self._rng.uniform(low, high)
+                    (1.0 if edge_sample else self._rng.uniform(low, high))
                     * self._rng.choice(np.asarray([-1.0, 1.0], dtype=self._dtype))
                     * limits[1]
                 )
 
             if active[2]:
+                yaw_edge_sample = edge_sample or (
+                    float(self._rng.random()) < float(cmd.full_stick_fraction)
+                )
                 sampled[row, 2] = (
-                    self._rng.uniform(low, high)
+                    (1.0 if yaw_edge_sample else self._rng.uniform(low, high))
                     * self._rng.choice(np.asarray([-1.0, 1.0], dtype=self._dtype))
                     * limits[2]
                 )

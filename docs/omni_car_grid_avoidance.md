@@ -381,7 +381,26 @@ for aggressive manual control near obstacles:
 - side-wall full-stick: `10/16` pass, max collision `0.0`; failures are mostly
   over-conservative stops or negative projection near the wall.
 
-For v45, scan candidates with:
+The first v45 repair attempt continued from v44 with longer command holds and
+stronger obstacle-aware rewards. It improved the best intermediate max-stick
+gate but did not pass it, so it is not promoted:
+
+- run dir: `logs/rsl_rl_ppo/OmniCarGridAvoidance/2026-07-02_13-37-49_mujoco`
+- best scanned intermediate: `model_1400.pt`
+- random eval at `model_1400.pt`: `collision_fraction=0.0`,
+  `omni_car/tracking_error=0.20677873413660564`
+- max-stick gate at `model_1400.pt`: clear `7/8`, front-blocked `6/8`,
+  side-wall `15/16`; remaining failures still include front-blocked collision
+  and one side-wall collision.
+- later checkpoints `1450` and `1500` regressed. Evidence:
+  `artifacts/omni_car/maxstick_v45_scan_1400.json` and
+  `artifacts/omni_car/maxstick_v45_scan_1500.json`.
+
+The next run should use `env.command.full_stick_fraction` so training samples
+exact joystick boundary commands instead of relying on the upper amplitude band
+to approximate them.
+
+For the next run, scan candidates with:
 
 ```bash
 uv run scripts/scan_omni_car_checkpoints.py \

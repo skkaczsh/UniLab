@@ -78,6 +78,7 @@ env:
     long_hold_min_s: 8.0
     long_hold_max_s: 35.0
     zero_fraction: 0.30
+    full_stick_fraction: 0.18
     # Order: vx, vy, vyaw, vx+vy, vx+vyaw, vy+vyaw, vx+vy+vyaw.
     mode_weights: [0.14, 0.10, 0.08, 0.28, 0.10, 0.08, 0.22]
     deadband: 0.10
