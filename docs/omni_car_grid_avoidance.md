@@ -443,6 +443,20 @@ long rollout length, and balance front safety with wall collision control. Do
 not continue short BC or broad PPO from v46; both were already tested and are the
 wrong lever.
 
+The v48 weighted long-balance profile made that tradeoff explicit:
+
+- artifact: `artifacts/omni_car/maxstick_v48_long_balance_manifest.json`
+- result: clear `8/8`, front-blocked `0/8`, side-wall `7/16`.
+- failure mode: wall and front projection recovered, but collision increased
+  sharply (`front` max collision `0.13541666666666666`, side-wall max collision
+  `0.10416666666666667`).
+
+This rejects the idea of solving the remaining failures with more wall-speed BC.
+The next useful step is to use `maxstick_v47_long_horizon_bc.pt` as a candidate
+initialization and run a short PPO safety callback with collision/target
+collision weights high, full-stick command sampling active, and the max-stick
+gate as the promotion criterion.
+
 For the next run, scan candidates with:
 
 ```bash
