@@ -276,6 +276,74 @@ def test_branch_supervision_targets_front_stop_and_wall_escape() -> None:
     assert float(wall_loss) > 0.0
 
 
+def test_branch_supervision_can_keep_clear_behavior_on_both_heads() -> None:
+    module = _load_module()
+
+    class _Policy(torch.nn.Module):
+        def branch_action_outputs(self, obs):  # type: ignore[no-untyped-def]
+            batch = obs.shape[0]
+            return (
+                torch.zeros((batch, 3), dtype=torch.float32),
+                torch.ones((batch, 3), dtype=torch.float32),
+                torch.full((batch, 1), 0.5, dtype=torch.float32),
+            )
+
+    obs = torch.zeros((2, 4), dtype=torch.float32)
+    target = torch.full((2, 3), 0.5, dtype=torch.float32)
+
+    default_loss = module._branch_supervision_loss(
+        policy=_Policy(),
+        obs=obs,
+        target=target,
+        scenario_name="max_stick_clear_dir_07",
+        action_weight=1.0,
+        gate_weight=1.0,
+    )
+    clear_loss = module._branch_supervision_loss(
+        policy=_Policy(),
+        obs=obs,
+        target=target,
+        scenario_name="max_stick_clear_dir_07",
+        action_weight=1.0,
+        gate_weight=1.0,
+        supervise_clear_heads=True,
+    )
+
+    assert default_loss is None
+    assert clear_loss is not None
+    assert float(clear_loss) > 0.0
+
+
+def test_branch_heads_only_freezes_shared_policy_body() -> None:
+    module = _load_module()
+
+    class _Policy(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.shared = torch.nn.Linear(3, 4)
+            self.stop_action_head = torch.nn.Linear(4, 3)
+            self.escape_action_head = torch.nn.Linear(4, 3)
+            self.action_gate_head = torch.nn.Linear(4, 1)
+
+    policy = _Policy()
+
+    trainable = module._set_branch_heads_only_trainable(policy)
+
+    assert trainable == sum(
+        param.numel()
+        for module_part in (
+            policy.stop_action_head,
+            policy.escape_action_head,
+            policy.action_gate_head,
+        )
+        for param in module_part.parameters()
+    )
+    assert not any(param.requires_grad for param in policy.shared.parameters())
+    assert all(param.requires_grad for param in policy.stop_action_head.parameters())
+    assert all(param.requires_grad for param in policy.escape_action_head.parameters())
+    assert all(param.requires_grad for param in policy.action_gate_head.parameters())
+
+
 def test_dagger_replay_buffer_caps_and_samples() -> None:
     module = _load_module()
     rng = np.random.default_rng(3)

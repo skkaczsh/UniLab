@@ -500,6 +500,23 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--branch-heads-only",
+        action="store_true",
+        help=(
+            "Freeze the shared policy body and train only stop / escape / gate heads. "
+            "This is useful for proving branch separation before low-LR full-policy tuning."
+        ),
+    )
+    parser.add_argument(
+        "--action-loss-weight",
+        type=float,
+        default=1.0,
+        help=(
+            "Multiplier for the mixed actor output MSE. Set to 0 with branch supervision "
+            "to train the gated heads without the combined output loss cancelling roles."
+        ),
+    )
+    parser.add_argument(
         "--branch-supervision-weight",
         type=float,
         default=0.0,
@@ -510,6 +527,14 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=float,
         default=0.0,
         help="Binary gate supervision weight: front-blocked -> stop head, wall -> escape head.",
+    )
+    parser.add_argument(
+        "--branch-supervise-clear",
+        action="store_true",
+        help=(
+            "For clear, yaw, and zero-input scenarios, train both branch heads to match "
+            "the target action without applying a gate label."
+        ),
     )
     parser.add_argument(
         "--scenario",
@@ -863,6 +888,31 @@ def _weighted_action_mse(
     return torch.sum(per_sample * weight) / torch.clamp(torch.sum(weight), min=1.0e-6)
 
 
+def _set_branch_heads_only_trainable(policy: torch.nn.Module) -> int:
+    branch_modules = (
+        getattr(policy, "stop_action_head", None),
+        getattr(policy, "escape_action_head", None),
+        getattr(policy, "action_gate_head", None),
+    )
+    if any(module is None for module in branch_modules):
+        raise ValueError("--branch-heads-only requires a gated_two_head actor")
+    for param in policy.parameters():
+        param.requires_grad_(False)
+    trainable = 0
+    for module in branch_modules:
+        assert isinstance(module, torch.nn.Module)
+        for param in module.parameters():
+            param.requires_grad_(True)
+            trainable += int(param.numel())
+    if trainable <= 0:
+        raise ValueError("No branch-head parameters were made trainable")
+    return trainable
+
+
+def _trainable_parameters(policy: torch.nn.Module) -> list[torch.nn.Parameter]:
+    return [param for param in policy.parameters() if param.requires_grad]
+
+
 def _branch_role(scenario_name: str) -> float | None:
     if "front_blocked" in scenario_name or scenario_name == "front_blocked_stop":
         return 0.0
@@ -879,9 +929,12 @@ def _branch_supervision_loss(
     scenario_name: str,
     action_weight: float,
     gate_weight: float,
+    supervise_clear_heads: bool = False,
 ) -> torch.Tensor | None:
     role = _branch_role(scenario_name)
-    if role is None or (action_weight <= 0.0 and gate_weight <= 0.0):
+    if role is None and (not supervise_clear_heads or action_weight <= 0.0):
+        return None
+    if role is not None and action_weight <= 0.0 and gate_weight <= 0.0:
         return None
     branch_outputs = getattr(policy, "branch_action_outputs", None)
     if not callable(branch_outputs):
@@ -890,9 +943,15 @@ def _branch_supervision_loss(
     if outputs is None:
         return None
     stop_action, escape_action, gate = outputs
-    selected = stop_action if role == 0.0 else escape_action
     loss = target.new_zeros(())
+    if role is None:
+        loss = loss + float(action_weight) * 0.5 * (
+            torch.nn.functional.mse_loss(stop_action, target)
+            + torch.nn.functional.mse_loss(escape_action, target)
+        )
+        return loss
     if action_weight > 0.0:
+        selected = stop_action if role == 0.0 else escape_action
         loss = loss + float(action_weight) * torch.nn.functional.mse_loss(selected, target)
     if gate_weight > 0.0:
         gate_target = torch.full_like(gate, float(role))
@@ -901,6 +960,37 @@ def _branch_supervision_loss(
             gate_clamped,
             gate_target,
         )
+    return loss
+
+
+def _supervised_loss(
+    *,
+    policy: torch.nn.Module,
+    obs: Any,
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    scenario_name: str,
+    action_loss_weight: float,
+    branch_supervision_weight: float,
+    branch_gate_weight: float,
+    branch_supervise_clear: bool,
+) -> torch.Tensor:
+    loss = target.new_zeros(())
+    if action_loss_weight > 0.0:
+        loss = loss + float(action_loss_weight) * torch.nn.functional.mse_loss(
+            prediction, target
+        )
+    branch_loss = _branch_supervision_loss(
+        policy=policy,
+        obs=obs,
+        target=target,
+        scenario_name=scenario_name,
+        action_weight=branch_supervision_weight,
+        gate_weight=branch_gate_weight,
+        supervise_clear_heads=branch_supervise_clear,
+    )
+    if branch_loss is not None:
+        loss = loss + branch_loss
     return loss
 
 
@@ -913,9 +1003,10 @@ def _train_dagger_replay(
     device: str | torch.device,
     epochs: int,
     batch_size: int,
+    action_loss_weight: float = 1.0,
 ) -> list[float]:
     losses: list[float] = []
-    if epochs <= 0 or replay.size <= 0:
+    if epochs <= 0 or replay.size <= 0 or action_loss_weight <= 0.0:
         return losses
     updates_per_epoch = max(1, math.ceil(replay.size / max(int(batch_size), 1)))
     for _epoch in range(int(epochs)):
@@ -926,10 +1017,12 @@ def _train_dagger_replay(
                 device=device,
             )
             prediction = policy(obs_batch)
-            loss = _weighted_action_mse(prediction, target_batch, weight_batch)
+            loss = float(action_loss_weight) * _weighted_action_mse(
+                prediction, target_batch, weight_batch
+            )
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
+            torch.nn.utils.clip_grad_norm_(_trainable_parameters(policy), 1.0)
             optimizer.step()
             losses.append(float(loss.detach().cpu().item()))
     return losses
@@ -941,7 +1034,14 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
     runner, env, wrapped_env, load_path, device = _make_runner(args)
     policy = runner.alg.get_policy()
     policy.train()
-    optimizer = torch.optim.Adam(policy.parameters(), lr=float(args.learning_rate))
+    branch_heads_only = bool(getattr(args, "branch_heads_only", False))
+    trainable_param_count = (
+        _set_branch_heads_only_trainable(policy) if branch_heads_only else None
+    )
+    trainable_params = _trainable_parameters(policy)
+    if not trainable_params:
+        raise ValueError("No trainable policy parameters are available")
+    optimizer = torch.optim.Adam(trainable_params, lr=float(args.learning_rate))
     scenarios = _selected_scenarios(
         args.scenario,
         args.scenario_group,
@@ -960,6 +1060,10 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
     scenario_jitter_yaw_std = float(getattr(args, "scenario_jitter_yaw_std", 0.0))
     branch_supervision_weight = float(getattr(args, "branch_supervision_weight", 0.0))
     branch_gate_weight = float(getattr(args, "branch_gate_weight", 0.0))
+    branch_supervise_clear = bool(getattr(args, "branch_supervise_clear", False))
+    action_loss_weight = float(getattr(args, "action_loss_weight", 1.0))
+    if action_loss_weight < 0.0:
+        raise ValueError("--action-loss-weight must be non-negative")
     replay = DaggerReplayBuffer(
         max_samples=int(getattr(args, "dagger_replay_max_samples", 8192))
     )
@@ -1007,17 +1111,17 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                     target = _target_tensor(scenario, num_envs=env.num_envs, device=device)
                     for _step in range(int(args.rollout_steps)):
                         prediction = policy(obs)
-                        raw_loss = torch.nn.functional.mse_loss(prediction, target)
-                        branch_loss = _branch_supervision_loss(
+                        raw_loss = _supervised_loss(
                             policy=policy,
                             obs=obs,
+                            prediction=prediction,
                             target=target,
                             scenario_name=scenario.name,
-                            action_weight=branch_supervision_weight,
-                            gate_weight=branch_gate_weight,
+                            action_loss_weight=action_loss_weight,
+                            branch_supervision_weight=branch_supervision_weight,
+                            branch_gate_weight=branch_gate_weight,
+                            branch_supervise_clear=branch_supervise_clear,
                         )
-                        if branch_loss is not None:
-                            raw_loss = raw_loss + branch_loss
                         loss = raw_loss * float(scenario.weight) / normalizer
                         loss.backward()
                         replay.append(
@@ -1050,7 +1154,7 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                                     yaw_std=scenario_jitter_yaw_std,
                                 )
                                 obs = _apply_scenario(env, wrapped_env, behavior)
-                torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
+                torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
                 optimizer.step()
                 replay_losses = _train_dagger_replay(
                     policy=policy,
@@ -1060,6 +1164,7 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                     device=device,
                     epochs=dagger_replay_epochs,
                     batch_size=dagger_replay_batch_size,
+                    action_loss_weight=action_loss_weight,
                 )
                 replay_loss_history.extend(replay_losses)
                 if args.progress_interval > 0 and (
@@ -1100,20 +1205,20 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
             target = _target_tensor(scenario, num_envs=env.num_envs, device=device)
             for _step in range(int(args.rollout_steps)):
                 prediction = policy(obs)
-                loss = torch.nn.functional.mse_loss(prediction, target)
-                branch_loss = _branch_supervision_loss(
+                loss = _supervised_loss(
                     policy=policy,
                     obs=obs,
+                    prediction=prediction,
                     target=target,
                     scenario_name=scenario.name,
-                    action_weight=branch_supervision_weight,
-                    gate_weight=branch_gate_weight,
+                    action_loss_weight=action_loss_weight,
+                    branch_supervision_weight=branch_supervision_weight,
+                    branch_gate_weight=branch_gate_weight,
+                    branch_supervise_clear=branch_supervise_clear,
                 )
-                if branch_loss is not None:
-                    loss = loss + branch_loss
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
+                torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
                 optimizer.step()
                 replay.append(
                     obs,
@@ -1145,6 +1250,7 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                 device=device,
                 epochs=dagger_replay_epochs,
                 batch_size=dagger_replay_batch_size,
+                action_loss_weight=action_loss_weight,
             )
             replay_loss_history.extend(replay_losses)
             if args.progress_interval > 0 and (
@@ -1188,6 +1294,14 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
             "scenario_jitter_yaw_std": scenario_jitter_yaw_std,
             "branch_supervision_weight": branch_supervision_weight,
             "branch_gate_weight": branch_gate_weight,
+            "branch_supervise_clear": branch_supervise_clear,
+            "branch_heads_only": branch_heads_only,
+            "action_loss_weight": action_loss_weight,
+            "trainable_param_count": (
+                int(trainable_param_count)
+                if trainable_param_count is not None
+                else int(sum(param.numel() for param in trainable_params))
+            ),
             "replay_size": replay.size,
             "replay_updates": len(replay_loss_history),
             "replay_loss_final": replay_loss_history[-1] if replay_loss_history else None,
