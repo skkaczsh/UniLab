@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 from rsl_rl.models import MLPModel
-from rsl_rl.models.mlp_model import HiddenState, unpad_trajectories
+from rsl_rl.models.mlp_model import MLP, HiddenState, unpad_trajectories
 from rsl_rl.utils import resolve_nn_activation
 from tensordict import TensorDict
 
@@ -39,6 +39,13 @@ def _cnn_final_spatial_size(grid_size: int) -> int:
     for kernel_size, stride, padding in ((5, 2, 2), (3, 2, 1), (3, 2, 1)):
         size = _conv2d_out_size(size, kernel_size=kernel_size, stride=stride, padding=padding)
     return size
+
+
+def _last_linear_out_features(module: nn.Module) -> int:
+    for child in reversed(list(module.modules())):
+        if isinstance(child, nn.Linear):
+            return int(child.out_features)
+    raise ValueError("module has no Linear layer")
 
 
 class OmniCarGridCNNModel(MLPModel):
@@ -141,6 +148,9 @@ class OmniCarGridCNNGRUModel(MLPModel):
         residual_action_frame: str = "body",
         residual_action_limit: tuple[float, float, float] | list[float] | float = 1.0,
         zero_residual_head: bool = False,
+        action_head_mode: str = "single",
+        branch_hidden_dims: tuple[int, ...] | list[int] | None = None,
+        action_gate_init_bias: float = 0.0,
     ) -> None:
         self.grid_size = int(grid_size)
         self.grid_history_len = int(grid_history_len)
@@ -159,6 +169,9 @@ class OmniCarGridCNNGRUModel(MLPModel):
         self.residual_action_frame = str(residual_action_frame)
         self.residual_action_limit = residual_action_limit
         self.zero_residual_head = bool(zero_residual_head)
+        self.action_head_mode = str(action_head_mode)
+        self.branch_hidden_dims = tuple(branch_hidden_dims) if branch_hidden_dims is not None else None
+        self.action_gate_init_bias = float(action_gate_init_bias)
         self.grid_input_channels = 4 if self.command_conditioned_grid else 1
         activation = _normalize_activation_name(activation)
         super().__init__(
@@ -227,6 +240,25 @@ class OmniCarGridCNNGRUModel(MLPModel):
         )
         if self.zero_residual_head and output_dim == 3:
             self._zero_last_linear()
+        if self.action_head_mode not in ("single", "gated_two_head"):
+            raise ValueError(
+                "action_head_mode must be 'single' or 'gated_two_head', "
+                f"got {self.action_head_mode!r}"
+            )
+        self.stop_action_head: nn.Module | None = None
+        self.escape_action_head: nn.Module | None = None
+        self.action_gate_head: nn.Module | None = None
+        if self.action_head_mode == "gated_two_head":
+            if output_dim != 3:
+                raise ValueError("gated_two_head is only supported for 3D action actors")
+            branch_dims = self.branch_hidden_dims or tuple(hidden_dims)
+            mlp_output_dim = _last_linear_out_features(self.mlp)
+            latent_dim = self._get_latent_dim()
+            self.stop_action_head = MLP(latent_dim, mlp_output_dim, branch_dims, activation)
+            self.escape_action_head = MLP(latent_dim, mlp_output_dim, branch_dims, activation)
+            self.action_gate_head = MLP(latent_dim, 1, branch_dims, activation)
+            self.initialize_branches_from_shared_head()
+            self._set_action_gate_bias(self.action_gate_init_bias)
         if self.residual_action_mode not in ("linear", "tanh"):
             raise ValueError(
                 "residual_action_mode must be 'linear' or 'tanh', "
@@ -253,6 +285,30 @@ class OmniCarGridCNNGRUModel(MLPModel):
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
                 return
+
+    def _set_action_gate_bias(self, value: float) -> None:
+        if self.action_gate_head is None:
+            return
+        for module in reversed(list(self.action_gate_head.modules())):
+            if isinstance(module, nn.Linear):
+                nn.init.zeros_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, float(value))
+                return
+
+    def initialize_branches_from_shared_head(self) -> None:
+        """Initialize gated branches from the shared MLP when shapes match."""
+
+        if self.stop_action_head is None or self.escape_action_head is None:
+            return
+        source = self.mlp.state_dict()
+        for head in (self.stop_action_head, self.escape_action_head):
+            target = head.state_dict()
+            if source.keys() != target.keys():
+                continue
+            if any(source[key].shape != target[key].shape for key in source):
+                continue
+            head.load_state_dict(source)
 
     def _condition_grid(self, grid: torch.Tensor, command: torch.Tensor) -> torch.Tensor:
         if not self.command_conditioned_grid:
@@ -340,6 +396,20 @@ class OmniCarGridCNNGRUModel(MLPModel):
             residual = torch.cat([body_xy, residual[..., 2:3]], dim=-1)
         return residual
 
+    def _head_output(self, latent: torch.Tensor) -> torch.Tensor:
+        if self.action_head_mode == "single":
+            return self.mlp(latent)
+        if (
+            self.stop_action_head is None
+            or self.escape_action_head is None
+            or self.action_gate_head is None
+        ):
+            raise RuntimeError("gated_two_head action heads are not initialized")
+        stop_output = self.stop_action_head(latent)
+        escape_output = self.escape_action_head(latent)
+        gate = torch.sigmoid(self.action_gate_head(latent))
+        return stop_output * (1.0 - gate) + escape_output * gate
+
     def forward(
         self,
         obs: TensorDict,
@@ -349,7 +419,7 @@ class OmniCarGridCNNGRUModel(MLPModel):
     ) -> torch.Tensor:
         obs = unpad_trajectories(obs, masks) if masks is not None and not self.is_recurrent else obs
         latent = self.get_latent(obs, masks, hidden_state)
-        mlp_output = self.mlp(latent)
+        mlp_output = self._head_output(latent)
         if mlp_output.shape[-1] == 3 and (
             self.command_skip_scale != 0.0 or self.residual_action_scale != 1.0
         ):

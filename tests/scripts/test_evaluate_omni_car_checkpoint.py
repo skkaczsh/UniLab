@@ -126,7 +126,13 @@ def test_compose_cfg_restores_run_config_actor_overrides(tmp_path: Path) -> None
     )
 
     cfg = module._compose_cfg(
-        module.argparse.Namespace(load_run=str(run_dir), checkpoint="60")
+        module.argparse.Namespace(
+            load_run=str(run_dir),
+            checkpoint="60",
+            actor_action_head_mode=None,
+            actor_branch_hidden_dims=None,
+            actor_action_gate_init_bias=None,
+        )
     )
 
     assert OmegaConf.select(cfg, "algo.actor.command_skip_scale") == 1.0
@@ -145,3 +151,23 @@ def test_compose_cfg_restores_run_config_actor_overrides(tmp_path: Path) -> None
     assert OmegaConf.select(cfg, "algo.checkpoint") == "60"
     assert OmegaConf.select(cfg, "training.play_only") is True
     assert OmegaConf.select(cfg, "training.play_render_mode") == "none"
+
+
+def test_compose_cfg_can_override_actor_head_mode(tmp_path: Path) -> None:
+    module = _load_module()
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    cfg = module._compose_cfg(
+        module.argparse.Namespace(
+            load_run=str(run_dir),
+            checkpoint=None,
+            actor_action_head_mode="gated_two_head",
+            actor_branch_hidden_dims="32,16",
+            actor_action_gate_init_bias=-0.5,
+        )
+    )
+
+    assert OmegaConf.select(cfg, "algo.actor.action_head_mode") == "gated_two_head"
+    assert OmegaConf.select(cfg, "algo.actor.branch_hidden_dims") == [32, 16]
+    assert OmegaConf.select(cfg, "algo.actor.action_gate_init_bias") == -0.5

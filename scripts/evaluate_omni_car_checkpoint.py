@@ -48,6 +48,18 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Torch device. Defaults to the training helper auto-selection.",
     )
     parser.add_argument("--seed", type=int, default=7, help="Evaluation seed override.")
+    parser.add_argument(
+        "--actor-action-head-mode",
+        choices=("single", "gated_two_head"),
+        default=None,
+        help="Optional actor head override for checkpoints trained with alternate heads.",
+    )
+    parser.add_argument(
+        "--actor-branch-hidden-dims",
+        default=None,
+        help="Comma-separated branch hidden dimensions for gated actor checkpoints.",
+    )
+    parser.add_argument("--actor-action-gate-init-bias", type=float, default=None)
     parser.add_argument("--json", action="store_true", help="Print JSON only.")
     return parser.parse_args(argv)
 
@@ -180,6 +192,41 @@ def _load_run_config(load_run: str) -> dict | None:
     return config if isinstance(config, dict) else None
 
 
+def _parse_int_list(raw: str | None) -> list[int] | None:
+    if raw is None:
+        return None
+    values = [int(item.strip()) for item in raw.split(",") if item.strip()]
+    if not values:
+        raise ValueError(f"expected at least one integer in {raw!r}")
+    return values
+
+
+def _apply_actor_model_overrides(cfg: DictConfig, args: argparse.Namespace) -> DictConfig:
+    mode = getattr(args, "actor_action_head_mode", None)
+    branch_hidden_dims = _parse_int_list(getattr(args, "actor_branch_hidden_dims", None))
+    gate_bias = getattr(args, "actor_action_gate_init_bias", None)
+    if mode is None and branch_hidden_dims is None and gate_bias is None:
+        return cfg
+    OmegaConf.set_struct(cfg, False)
+    if mode is not None:
+        OmegaConf.update(cfg, "algo.actor.action_head_mode", str(mode), merge=False)
+    if branch_hidden_dims is not None:
+        OmegaConf.update(
+            cfg,
+            "algo.actor.branch_hidden_dims",
+            branch_hidden_dims,
+            merge=False,
+        )
+    if gate_bias is not None:
+        OmegaConf.update(
+            cfg,
+            "algo.actor.action_gate_init_bias",
+            float(gate_bias),
+            merge=False,
+        )
+    return cfg
+
+
 def _compose_cfg(args: argparse.Namespace) -> DictConfig:
     if GlobalHydra.instance().is_initialized():
         GlobalHydra.instance().clear()
@@ -195,7 +242,7 @@ def _compose_cfg(args: argparse.Namespace) -> DictConfig:
         cfg = compose(config_name="config", overrides=base_overrides)
         run_config = _load_run_config(str(args.load_run))
         if run_config is None:
-            return cfg
+            return _apply_actor_model_overrides(cfg, args)
         OmegaConf.set_struct(cfg, False)
         cfg = OmegaConf.merge(cfg, OmegaConf.create(run_config))
         OmegaConf.update(cfg, "training.play_only", True, merge=False)
@@ -203,7 +250,7 @@ def _compose_cfg(args: argparse.Namespace) -> DictConfig:
         OmegaConf.update(cfg, "algo.load_run", str(args.load_run), merge=False)
         if args.checkpoint is not None:
             OmegaConf.update(cfg, "algo.checkpoint", str(args.checkpoint), merge=False)
-        return cfg
+        return _apply_actor_model_overrides(cfg, args)
 
 
 def _resolve_device(device: str | None) -> str:

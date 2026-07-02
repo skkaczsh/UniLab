@@ -2751,6 +2751,88 @@ def test_omni_car_cnn_gru_command_frame_residual_rotates_with_command() -> None:
     torch.testing.assert_close(actor_out, expected, atol=1e-5, rtol=1e-5)
 
 
+def test_omni_car_cnn_gru_gated_head_initializes_from_shared_head() -> None:
+    cfg = OmniCarGridAvoidanceCfg()
+    actor_obs_dim = (
+        cfg.grid_history_len * cfg.grid.size * cfg.grid.size
+        + 3
+        + 3
+        + 3
+        + 4
+        + cfg.obs_history_len * 9
+    )
+    actor_obs = torch.zeros((2, actor_obs_dim), dtype=torch.float32)
+    actor = OmniCarGridCNNGRUModel(
+        TensorDict({"actor": actor_obs}, batch_size=2),
+        {"actor": ["actor"]},
+        "actor",
+        3,
+        hidden_dims=[16],
+        grid_history_len=cfg.grid_history_len,
+        grid_cell_size=cfg.grid.cell_size,
+        command_conditioned_grid=True,
+        cnn_feature_dim=8,
+        gru_hidden_dim=8,
+        action_head_mode="gated_two_head",
+        distribution_cfg={
+            "class_name": "rsl_rl.modules.distribution.GaussianDistribution",
+            "init_std": 0.5,
+            "std_type": "scalar",
+        },
+    )
+
+    obs = TensorDict({"actor": actor_obs}, batch_size=2)
+    latent = actor.get_latent(obs)
+
+    torch.testing.assert_close(actor._head_output(latent), actor.mlp(latent))
+
+
+def test_omni_car_cnn_gru_gated_head_mixes_stop_and_escape_outputs() -> None:
+    cfg = OmniCarGridAvoidanceCfg()
+    actor_obs_dim = (
+        cfg.grid_history_len * cfg.grid.size * cfg.grid.size
+        + 3
+        + 3
+        + 3
+        + 4
+        + cfg.obs_history_len * 9
+    )
+    actor_obs = torch.zeros((1, actor_obs_dim), dtype=torch.float32)
+    actor = OmniCarGridCNNGRUModel(
+        TensorDict({"actor": actor_obs}, batch_size=1),
+        {"actor": ["actor"]},
+        "actor",
+        3,
+        hidden_dims=[16],
+        grid_history_len=cfg.grid_history_len,
+        grid_cell_size=cfg.grid.cell_size,
+        command_conditioned_grid=True,
+        cnn_feature_dim=8,
+        gru_hidden_dim=8,
+        action_head_mode="gated_two_head",
+    )
+    assert actor.stop_action_head is not None
+    assert actor.escape_action_head is not None
+    assert actor.action_gate_head is not None
+
+    def _constant_head(head: torch.nn.Module, value: float) -> None:
+        for module in head.modules():
+            if isinstance(module, torch.nn.Linear):
+                torch.nn.init.zeros_(module.weight)
+                torch.nn.init.zeros_(module.bias)
+        for module in reversed(list(head.modules())):
+            if isinstance(module, torch.nn.Linear):
+                module.bias.data.fill_(float(value))
+                return
+
+    _constant_head(actor.stop_action_head, 0.0)
+    _constant_head(actor.escape_action_head, 1.0)
+    actor._set_action_gate_bias(0.0)
+    latent = torch.zeros((1, actor._get_latent_dim()), dtype=torch.float32)
+
+    torch.testing.assert_close(actor._head_output(latent), torch.full((1, 3), 0.5))
+
+
 def test_omni_car_cnn_transformer_model_forward_actor_and_critic() -> None:
     cfg = OmniCarGridAvoidanceCfg()
     actor_obs_dim = (

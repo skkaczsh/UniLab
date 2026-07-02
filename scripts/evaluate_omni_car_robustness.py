@@ -63,6 +63,18 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--seed", type=int, default=101)
     parser.add_argument("--device", default=None)
+    parser.add_argument(
+        "--actor-action-head-mode",
+        choices=("single", "gated_two_head"),
+        default=None,
+        help="Optional actor head override for checkpoints trained with alternate heads.",
+    )
+    parser.add_argument(
+        "--actor-branch-hidden-dims",
+        default=None,
+        help="Comma-separated branch hidden dimensions for gated actor checkpoints.",
+    )
+    parser.add_argument("--actor-action-gate-init-bias", type=float, default=None)
     parser.add_argument("--strict", action="store_true")
     parser.add_argument("--json", action="store_true")
     return parser.parse_args(argv)

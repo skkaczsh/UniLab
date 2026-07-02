@@ -480,6 +480,26 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=31)
     parser.add_argument("--device", default=None)
     parser.add_argument(
+        "--actor-action-head-mode",
+        choices=("single", "gated_two_head"),
+        default=None,
+        help="Optional actor head override, e.g. gated_two_head for branch separation tests.",
+    )
+    parser.add_argument(
+        "--actor-branch-hidden-dims",
+        default=None,
+        help="Comma-separated branch hidden dimensions for gated actor checkpoints.",
+    )
+    parser.add_argument("--actor-action-gate-init-bias", type=float, default=None)
+    parser.add_argument(
+        "--partial-actor-load",
+        action="store_true",
+        help=(
+            "Load only matching actor parameters with strict=False. Use when migrating "
+            "a single-head checkpoint into a branched actor architecture."
+        ),
+    )
+    parser.add_argument(
         "--scenario",
         action="append",
         choices=tuple(scenario.name for scenario in ORACLE_SCENARIOS),
@@ -786,7 +806,25 @@ def _make_runner(args: argparse.Namespace) -> tuple[Any, Any, Any, Path, str]:
         env_action_dim=getattr(wrapped_env, "num_actions", None),
         algo_name="ppo",
     ):
-        runner.load(str(load_path), map_location=device)
+        if bool(getattr(args, "partial_actor_load", False)):
+            runner.load(
+                str(load_path),
+                load_cfg={
+                    "actor": True,
+                    "critic": False,
+                    "optimizer": False,
+                    "iteration": False,
+                    "rnd": False,
+                },
+                strict=False,
+                map_location=device,
+            )
+            policy = runner.alg.get_policy()
+            initializer = getattr(policy, "initialize_branches_from_shared_head", None)
+            if callable(initializer):
+                initializer()
+        else:
+            runner.load(str(load_path), map_location=device)
     return runner, env, wrapped_env, load_path, device
 
 
