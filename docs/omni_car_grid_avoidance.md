@@ -576,6 +576,31 @@ small hand-picked scenario set is still too narrow. The next version should
 generate a balanced paired dataset across all eight max-stick directions and
 both side-wall signs instead of repeatedly hand-tuning dir07.
 
+The v53 follow-up tried that broader data lever from
+`maxstick_v50_dagger_wall07_escape.pt`: all `max_stick` scenarios, balanced
+batches, policy rollout actions, DAgger replay, and obstacle jitter
+(`xy=0.030 m`, radius/extent `0.006 m`, yaw `0.025 rad`). Evidence is stored in:
+
+- `artifacts/omni_car/maxstick_v53_allpaired_jitter_gate.json`
+- `artifacts/omni_car/maxstick_v53_allpaired_jitter_broad_gate.json`
+- `artifacts/omni_car/maxstick_v53_allpaired_jitter_random_eval.json`
+
+The result is not promoted:
+
+- max-stick stayed at `31/32`; `max_stick_right_wall_dir_07` still collided
+  with collision fraction `0.03125`.
+- broad gate regressed to `81/83`, with failures on `left_wall_dir_04`
+  under-projection and `right_wall_dir_07` collision.
+- random tracking improved versus v50 (`tracking_error` `0.1794` versus
+  `0.2053`, `vx_tracking_mae` `0.2036` versus `0.2488`), but random collision
+  also worsened slightly (`0.000397` versus `0.000366`).
+
+This confirms that simply increasing coverage in the same oracle-BC pass helps
+average tracking but does not fix the hard closed-loop safety corner. The next
+repair should avoid another broad blind BC sweep and instead isolate the
+right-wall-07 failure with richer closed-loop trajectories or an explicit
+student target distribution that preserves the v52 broad-gate improvement.
+
 For the next run, scan candidates with:
 
 ```bash
