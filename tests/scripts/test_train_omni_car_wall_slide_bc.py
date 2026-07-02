@@ -228,6 +228,85 @@ def test_wall_slide_target_tensor_repeats_action() -> None:
     )
 
 
+class _FakeTeacherEnv:
+    num_envs = 1
+
+    def __init__(self, *, command: tuple[float, float, float], clearance_mode: str) -> None:
+        self._pose = np.zeros((1, 3), dtype=np.float32)
+        self._velocity = np.zeros((1, 3), dtype=np.float32)
+        self._commands = np.asarray([command], dtype=np.float32)
+        self._nearest_clearance = np.asarray([0.20], dtype=np.float32)
+        self._velocity_limit = np.asarray([2.0, 1.0, 2.0], dtype=np.float32)
+        self._accel_delta_limit = np.asarray([3.0, 3.0, 4.0], dtype=np.float32) * 0.05
+        self._cfg = SimpleNamespace(
+            ctrl_dt=0.05,
+            command=SimpleNamespace(deadband=0.15),
+        )
+        self._clearance_mode = clearance_mode
+
+    def _predict_pose_from_action(self, pose, action, dt=None):  # type: ignore[no-untyped-def]
+        step_dt = self._cfg.ctrl_dt if dt is None else float(dt)
+        predicted = pose.copy()
+        predicted[:, 0] += action[:, 0] * step_dt
+        predicted[:, 1] += action[:, 1] * step_dt
+        predicted[:, 2] += action[:, 2] * step_dt
+        return predicted
+
+    def _compute_clearance_at_pose(self, _env_ids, pose):  # type: ignore[no-untyped-def]
+        if self._clearance_mode == "front":
+            return (0.20 - pose[:, 0]).astype(np.float32)
+        if self._clearance_mode == "right_wall":
+            return (0.02 + pose[:, 1] - 0.20 * np.maximum(pose[:, 0], 0.0)).astype(np.float32)
+        raise AssertionError(f"unknown clearance mode {self._clearance_mode!r}")
+
+
+def test_rollout_clearance_teacher_stops_front_blocked_scenario() -> None:
+    module = _load_module()
+    scenario = {item.name: item for item in module.ORACLE_SCENARIOS}[
+        "max_stick_front_blocked_dir_00_circle"
+    ]
+    env = _FakeTeacherEnv(command=scenario.behavior.command, clearance_mode="front")
+
+    target = module._rollout_clearance_teacher_actions(env, scenario, horizon_steps=8)
+
+    assert target.shape == (1, 3)
+    assert abs(float(target[0, 0])) < 0.05
+    assert abs(float(target[0, 1])) < 0.05
+
+
+def test_rollout_clearance_teacher_moves_away_from_right_wall() -> None:
+    module = _load_module()
+    scenario = {item.name: item for item in module.ORACLE_SCENARIOS}[
+        "max_stick_right_wall_dir_00"
+    ]
+    env = _FakeTeacherEnv(command=scenario.behavior.command, clearance_mode="right_wall")
+
+    target = module._rollout_clearance_teacher_actions(env, scenario, horizon_steps=8)
+
+    assert target.shape == (1, 3)
+    assert float(target[0, 1]) > 0.0
+    assert float(target[0, 0]) >= 0.0
+
+
+def test_rollout_clearance_teacher_keeps_clear_scenarios_static() -> None:
+    module = _load_module()
+    scenario = {item.name: item for item in module.ORACLE_SCENARIOS}["max_stick_clear_dir_07"]
+    env = _FakeTeacherEnv(command=scenario.behavior.command, clearance_mode="front")
+
+    target = module._teacher_target_tensor(
+        env,
+        scenario,
+        device="cpu",
+        mode="rollout_clearance",
+        horizon_steps=8,
+    )
+
+    torch.testing.assert_close(
+        target,
+        torch.tensor([scenario.target_action], dtype=torch.float32),
+    )
+
+
 def test_branch_supervision_targets_front_stop_and_wall_escape() -> None:
     module = _load_module()
 

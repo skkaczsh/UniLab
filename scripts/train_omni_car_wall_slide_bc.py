@@ -537,6 +537,22 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--teacher-mode",
+        choices=("static", "rollout_clearance"),
+        default="static",
+        help=(
+            "Target generator. rollout_clearance keeps clear/yaw/zero targets static but "
+            "selects front/wall targets from candidate actions scored by predicted "
+            "multi-step clearance, closing speed, and command projection."
+        ),
+    )
+    parser.add_argument(
+        "--teacher-horizon-steps",
+        type=int,
+        default=8,
+        help="Prediction horizon in control steps for rollout_clearance teacher scoring.",
+    )
+    parser.add_argument(
         "--scenario",
         action="append",
         choices=tuple(scenario.name for scenario in ORACLE_SCENARIOS),
@@ -804,6 +820,155 @@ def _target_tensor(
     )
 
 
+def _dedupe_actions(actions: list[np.ndarray]) -> np.ndarray:
+    if not actions:
+        return np.zeros((0, 3), dtype=np.float32)
+    unique: dict[tuple[float, float, float], np.ndarray] = {}
+    low = np.asarray([-MAX_X_SPEED, -MAX_Y_SPEED, -2.0], dtype=np.float64)
+    high = np.asarray([MAX_X_SPEED, MAX_Y_SPEED, 2.0], dtype=np.float64)
+    for action in actions:
+        clipped = np.clip(np.asarray(action, dtype=np.float64), low, high)
+        key = tuple(float(round(value, 4)) for value in clipped)
+        unique[key] = clipped
+    return np.stack(list(unique.values()), axis=0).astype(np.float32)
+
+
+def _teacher_candidate_actions(scenario: OracleScenario) -> np.ndarray:
+    command = np.asarray(scenario.behavior.command, dtype=np.float64)
+    target = np.asarray(scenario.target_action, dtype=np.float64)
+    actions: list[np.ndarray] = [target, np.zeros(3, dtype=np.float64), command]
+    planar = command[:2]
+    norm = float(np.linalg.norm(planar))
+    if norm <= 1.0e-6:
+        actions.extend(
+            [
+                np.asarray([0.0, 0.0, target[2]], dtype=np.float64),
+                np.asarray([0.0, 0.0, command[2]], dtype=np.float64),
+            ]
+        )
+        return _dedupe_actions(actions)
+    direction = planar / norm
+    lateral = np.asarray([-direction[1], direction[0]], dtype=np.float64)
+    for scale in (0.10, 0.20, 0.35, 0.50, 0.65, 0.85, 1.0):
+        actions.append(np.asarray([command[0] * scale, command[1] * scale, target[2]]))
+    for parallel in (0.0, 0.12, 0.25, 0.40, 0.60):
+        for lateral_speed in (0.12, 0.22, 0.35, 0.50, 0.70):
+            for sign in (-1.0, 1.0):
+                xy = direction * parallel + lateral * lateral_speed * sign
+                actions.append(np.asarray([xy[0], xy[1], target[2]], dtype=np.float64))
+    for parallel in (0.15, 0.30, 0.45, 0.65):
+        for sign in (-1.0, 1.0):
+            xy = direction * parallel + lateral * 0.25 * sign
+            actions.append(np.asarray([xy[0], xy[1], target[2]], dtype=np.float64))
+    return _dedupe_actions(actions)
+
+
+def _predict_repeated_action_metrics(
+    env: Any, candidates: np.ndarray, horizon_steps: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    env_ids = np.arange(env.num_envs, dtype=np.int32)
+    horizon = max(int(horizon_steps), 1)
+    candidate_count = int(candidates.shape[0])
+    min_clearance = np.empty((env.num_envs, candidate_count), dtype=np.float64)
+    final_clearance = np.empty((env.num_envs, candidate_count), dtype=np.float64)
+    mean_executed = np.empty((env.num_envs, candidate_count, 3), dtype=np.float64)
+    velocity_limit = np.asarray(env._velocity_limit, dtype=np.float64)
+    accel_delta = np.asarray(env._accel_delta_limit, dtype=np.float64)
+    start_pose = np.asarray(env._pose, dtype=np.float64)
+    start_velocity = np.asarray(env._velocity, dtype=np.float64)
+    for candidate_id, candidate in enumerate(np.asarray(candidates, dtype=np.float64)):
+        pose = start_pose.copy()
+        velocity = start_velocity.copy()
+        clearance_values: list[np.ndarray] = []
+        executed_sum = np.zeros_like(velocity)
+        target = np.clip(candidate[None, :], -velocity_limit[None, :], velocity_limit[None, :])
+        for _step in range(horizon):
+            delta = np.clip(target - velocity, -accel_delta[None, :], accel_delta[None, :])
+            velocity = np.clip(
+                velocity + delta,
+                -velocity_limit[None, :],
+                velocity_limit[None, :],
+            )
+            pose = env._predict_pose_from_action(pose, velocity, dt=env._cfg.ctrl_dt)
+            clearance_values.append(
+                np.asarray(env._compute_clearance_at_pose(env_ids, pose), dtype=np.float64)
+            )
+            executed_sum += velocity
+        clearance_stack = np.stack(clearance_values, axis=0)
+        min_clearance[:, candidate_id] = np.min(clearance_stack, axis=0)
+        final_clearance[:, candidate_id] = clearance_stack[-1]
+        mean_executed[:, candidate_id, :] = executed_sum / float(horizon)
+    return min_clearance, final_clearance, mean_executed
+
+
+def _rollout_clearance_teacher_actions(
+    env: Any, scenario: OracleScenario, *, horizon_steps: int
+) -> np.ndarray:
+    role = _branch_role(scenario.name)
+    if role is None:
+        return np.asarray([scenario.target_action] * env.num_envs, dtype=np.float32)
+    candidates = _teacher_candidate_actions(scenario)
+    if candidates.shape[0] == 0:
+        return np.asarray([scenario.target_action] * env.num_envs, dtype=np.float32)
+    min_clearance, final_clearance, mean_executed = _predict_repeated_action_metrics(
+        env, candidates, horizon_steps
+    )
+    command = np.asarray(env._commands, dtype=np.float64)
+    planar = command[:, :2]
+    planar_norm = np.linalg.norm(planar, axis=1)
+    direction = np.zeros_like(planar)
+    active = planar_norm > float(env._cfg.command.deadband)
+    direction[active] = planar[active] / np.maximum(planar_norm[active, None], 1.0e-6)
+    projection = np.sum(candidates[None, :, :2] * direction[:, None, :], axis=2)
+    lateral = np.abs(
+        candidates[None, :, 0] * direction[:, None, 1]
+        - candidates[None, :, 1] * direction[:, None, 0]
+    )
+    speed = np.linalg.norm(candidates[None, :, :2], axis=2)
+    prev_clearance = np.asarray(env._nearest_clearance, dtype=np.float64)[:, None]
+    closing = np.maximum(prev_clearance - min_clearance, 0.0)
+    opening = np.maximum(final_clearance - prev_clearance, 0.0)
+    collision_depth = np.maximum(0.05 - min_clearance, 0.0)
+    if role == 0.0:
+        score = (
+            -220.0 * collision_depth
+            - 35.0 * np.maximum(projection, 0.0) ** 2
+            - 10.0 * speed**2
+            - 5.0 * closing
+            + 1.5 * opening
+        )
+    else:
+        normalized_projection = projection / np.maximum(planar_norm[:, None], 1.0e-6)
+        score = (
+            -260.0 * collision_depth
+            - 14.0 * closing
+            + 3.0 * np.clip(normalized_projection, 0.0, 1.0)
+            + 2.0 * opening
+            - 0.7 * lateral
+            - 0.10 * speed**2
+        )
+    chosen = np.argmax(score, axis=1)
+    return candidates[chosen].astype(np.float32, copy=False)
+
+
+def _teacher_target_tensor(
+    env: Any,
+    scenario: OracleScenario,
+    *,
+    device: str | torch.device,
+    mode: str,
+    horizon_steps: int,
+) -> torch.Tensor:
+    if str(mode) == "static":
+        return _target_tensor(scenario, num_envs=env.num_envs, device=device)
+    if str(mode) != "rollout_clearance":
+        raise ValueError(f"Unknown teacher mode: {mode!r}")
+    actions = _rollout_clearance_teacher_actions(
+        env, scenario, horizon_steps=int(horizon_steps)
+    )
+    return torch.as_tensor(actions, dtype=torch.float32, device=device)
+
+
 def _make_runner(args: argparse.Namespace) -> tuple[Any, Any, Any, Path, str]:
     train_rsl_rl.ensure_registries()
     cfg = checkpoint_eval._compose_cfg(args)
@@ -1064,6 +1229,10 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
     action_loss_weight = float(getattr(args, "action_loss_weight", 1.0))
     if action_loss_weight < 0.0:
         raise ValueError("--action-loss-weight must be non-negative")
+    teacher_mode = str(getattr(args, "teacher_mode", "static"))
+    teacher_horizon_steps = int(getattr(args, "teacher_horizon_steps", 8))
+    if teacher_horizon_steps <= 0:
+        raise ValueError("--teacher-horizon-steps must be positive")
     replay = DaggerReplayBuffer(
         max_samples=int(getattr(args, "dagger_replay_max_samples", 8192))
     )
@@ -1081,7 +1250,13 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
             )
             obs = _apply_scenario(env, wrapped_env, behavior)
             output = policy(obs)
-            target = _target_tensor(selected, num_envs=env.num_envs, device=device)
+            target = _teacher_target_tensor(
+                env,
+                selected,
+                device=device,
+                mode=teacher_mode,
+                horizon_steps=teacher_horizon_steps,
+            )
             loss = torch.nn.functional.mse_loss(output, target)
             return {
                 "status": "dry_run",
@@ -1108,9 +1283,15 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                         yaw_std=scenario_jitter_yaw_std,
                     )
                     obs = _apply_scenario(env, wrapped_env, behavior)
-                    target = _target_tensor(scenario, num_envs=env.num_envs, device=device)
                     for _step in range(int(args.rollout_steps)):
                         prediction = policy(obs)
+                        target = _teacher_target_tensor(
+                            env,
+                            scenario,
+                            device=device,
+                            mode=teacher_mode,
+                            horizon_steps=teacher_horizon_steps,
+                        )
                         raw_loss = _supervised_loss(
                             policy=policy,
                             obs=obs,
@@ -1202,9 +1383,15 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
                 yaw_std=scenario_jitter_yaw_std,
             )
             obs = _apply_scenario(env, wrapped_env, behavior)
-            target = _target_tensor(scenario, num_envs=env.num_envs, device=device)
             for _step in range(int(args.rollout_steps)):
                 prediction = policy(obs)
+                target = _teacher_target_tensor(
+                    env,
+                    scenario,
+                    device=device,
+                    mode=teacher_mode,
+                    horizon_steps=teacher_horizon_steps,
+                )
                 loss = _supervised_loss(
                     policy=policy,
                     obs=obs,
@@ -1297,6 +1484,8 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
             "branch_supervise_clear": branch_supervise_clear,
             "branch_heads_only": branch_heads_only,
             "action_loss_weight": action_loss_weight,
+            "teacher_mode": teacher_mode,
+            "teacher_horizon_steps": teacher_horizon_steps,
             "trainable_param_count": (
                 int(trainable_param_count)
                 if trainable_param_count is not None
