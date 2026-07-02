@@ -527,6 +527,32 @@ data, a teacher/student pass over a larger policy-rollout dataset, or an actor
 capacity change. Continuing to tweak the single `right_wall_dir_07` target did
 not move the closed-loop action or collision rate.
 
+The v51 transformer-teacher PPO check used the existing
+`OmniCarGridCNNTransformerModel` path to test whether heavier temporal fusion
+quickly solves that conditional separation problem. Evidence is stored in:
+
+- `artifacts/omni_car/v51_transformer_smoke_maxstick_gate.json`
+- `artifacts/omni_car/v51_transformer_mid_scan.json`
+
+The smoke run verified that transformer checkpoints can be trained and evaluated
+with the same observation contract. A medium run used `64` envs, `32` steps per
+env, `500` PPO iterations, transformer dim `192`, `6` heads, and `2` layers. It
+did not produce a useful teacher:
+
+- scanned checkpoints: `100`, `200`, `300`, `400`, `499`.
+- best random score in that scan: checkpoint `300`, with
+  `collision_fraction=0.002838134765625` and
+  `omni_car/tracking_error=0.2722978811652865`.
+- max-stick gates remained poor: the scanned checkpoints failed `25-26` of
+  `32` max-stick scenarios. Checkpoint `499` still passed only clear `2/8`,
+  front-blocked `0/8`, and side-wall `5/16`.
+
+Do not spend another run simply extending the same transformer PPO setup. If a
+teacher is used next, it should be trained on the controlled paired
+clear/front/wall distribution directly or initialized from a competent student
+where dimensions permit. Otherwise, prefer a richer offline/policy-rollout
+dataset with explicit paired command-grid contexts.
+
 For the next run, scan candidates with:
 
 ```bash
