@@ -43,6 +43,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--num-envs", type=int, default=16, help="Parallel envs per scenario.")
     parser.add_argument("--num-steps", type=int, default=192, help="Steps per scenario.")
     parser.add_argument("--directions", type=int, default=16, help="Planar command directions.")
+    parser.add_argument(
+        "--suite",
+        choices=("broad", "max_stick"),
+        default="broad",
+        help="Scenario suite to run. max_stick focuses on sustained full-stick planar inputs.",
+    )
     parser.add_argument("--seed", type=int, default=101)
     parser.add_argument("--device", default=None)
     parser.add_argument("--strict", action="store_true")
@@ -157,7 +163,80 @@ def build_robustness_scenarios(directions: int = 16) -> tuple[BehaviorScenario, 
     return tuple(scenarios)
 
 
+def build_max_stick_scenarios(directions: int = 16) -> tuple[BehaviorScenario, ...]:
+    """Build a compact stress suite for sustained maximum planar commands."""
+
+    if directions < 4:
+        raise ValueError("directions must be >= 4")
+    scenarios: list[BehaviorScenario] = []
+    angles = [2.0 * math.pi * i / directions for i in range(directions)]
+    for angle_index, angle in enumerate(angles):
+        command = _directional_command(angle, 1.0)
+        command_norm = float(np.linalg.norm(command[:2]))
+        scenarios.append(
+            BehaviorScenario(
+                name=f"max_stick_clear_dir_{angle_index:02d}",
+                command=command,
+                min_projection=max(0.35, 0.35 * command_norm),
+                min_projection_ratio=0.28,
+                max_off_axis_abs=0.35,
+            )
+        )
+
+    for angle_index, angle in enumerate(angles):
+        direction = _unit(angle)
+        shape = ("circle", "box", "wall")[angle_index % 3]
+        scenarios.append(
+            BehaviorScenario(
+                name=f"max_stick_front_blocked_dir_{angle_index:02d}_{shape}",
+                command=_directional_command(angle, 1.0),
+                obstacle_xy=(_point(direction, 0.72, 0.0),),
+                obstacle_radius=(0.24,),
+                obstacle_type=(shape,),
+                obstacle_half_extents=((0.24, 0.20),),
+                obstacle_yaw=(_yaw_from_direction(direction, lateral_axis=True),),
+                max_projection=0.25,
+                max_planar_speed=0.45,
+            )
+        )
+
+    for angle_index, angle in enumerate(angles):
+        direction = _unit(angle)
+        for side_name, lateral_offset in (("right", -0.34), ("left", 0.34)):
+            obstacle_xy = tuple(
+                _point(direction, forward, lateral_offset) for forward in (0.55, 0.95, 1.35)
+            )
+            scenarios.append(
+                BehaviorScenario(
+                    name=f"max_stick_{side_name}_wall_dir_{angle_index:02d}",
+                    command=_directional_command(angle, 1.0),
+                    obstacle_xy=obstacle_xy,
+                    obstacle_radius=(0.22, 0.22, 0.22),
+                    obstacle_type=("circle", "wall", "circle"),
+                    obstacle_half_extents=((0.22, 0.22), (0.36, 0.08), (0.22, 0.22)),
+                    obstacle_yaw=(0.0, _yaw_from_direction(direction), 0.0),
+                    min_projection=0.20,
+                    max_collision_fraction=0.02,
+                )
+            )
+    return tuple(scenarios)
+
+
+def build_scenarios(suite: str, directions: int) -> tuple[BehaviorScenario, ...]:
+    if suite == "broad":
+        return build_robustness_scenarios(directions)
+    if suite == "max_stick":
+        return build_max_stick_scenarios(directions)
+    raise ValueError(f"Unsupported suite={suite!r}")
+
+
 def _category(name: str) -> str:
+    if name.startswith("max_stick_clear_"):
+        return "max_stick_clear"
+    if name.startswith("max_stick_front_blocked_"):
+        return "max_stick_front_blocked"
+    if name.startswith("max_stick_") and "_wall_dir_" in name:
+        return "max_stick_side_wall"
     if name.startswith("clear_"):
         return "clear"
     if name.startswith("front_blocked_"):
@@ -194,7 +273,7 @@ def _summarize_categories(scenarios: Sequence[dict[str, Any]]) -> dict[str, dict
 
 
 def evaluate_robustness(args: argparse.Namespace) -> dict[str, Any]:
-    scenarios = build_robustness_scenarios(int(args.directions))
+    scenarios = build_scenarios(str(args.suite), int(args.directions))
     policy, env, wrapped_env, checkpoint_path = _load_policy_and_env(args)
     scenario_summaries: list[dict[str, Any]] = []
     try:
@@ -220,6 +299,7 @@ def evaluate_robustness(args: argparse.Namespace) -> dict[str, Any]:
         "num_envs": int(args.num_envs),
         "num_steps": int(args.num_steps),
         "directions": int(args.directions),
+        "suite": str(args.suite),
         "scenario_count": len(scenario_summaries),
         "strict_passed": all(bool(item["passed"]) for item in scenario_summaries),
         "category_summary": categories,
@@ -234,6 +314,7 @@ def _format_summary(summary: dict[str, Any]) -> str:
         f"num_envs: {summary['num_envs']}",
         f"num_steps: {summary['num_steps']}",
         f"directions: {summary['directions']}",
+        f"suite: {summary['suite']}",
         f"strict_passed: {summary['strict_passed']}",
     ]
     for category, item in sorted(summary["category_summary"].items()):

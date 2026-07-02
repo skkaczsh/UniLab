@@ -22,6 +22,7 @@ if str(ROOT_DIR) not in sys.path:
 
 import scripts.evaluate_omni_car_behaviors as evaluate_omni_car_behaviors
 import scripts.evaluate_omni_car_checkpoint as evaluate_omni_car_checkpoint
+import scripts.evaluate_omni_car_robustness as evaluate_omni_car_robustness
 
 _CHECKPOINT_RE = re.compile(r"^(?:model_)?(?P<id>\d+)(?:\.pt)?$")
 
@@ -212,6 +213,8 @@ def _evaluate_checkpoint(
 def compact_behavior_summary(summary: dict[str, Any]) -> dict[str, Any]:
     return {
         "passed": bool(summary.get("strict_passed")),
+        "suite": summary.get("suite", "basic"),
+        "category_summary": summary.get("category_summary", {}),
         "scenarios": [
             {
                 "scenario": item.get("scenario"),
@@ -285,7 +288,9 @@ def scan_checkpoints(
     behavior_gate: bool = False,
     behavior_num_envs: int = 16,
     behavior_num_steps: int = 96,
+    behavior_directions: int = 16,
     behavior_seed: int | None = None,
+    behavior_suite: str = "basic",
     behavior_evaluator: Evaluator = evaluate_omni_car_behaviors.evaluate_behaviors,
     verbose: bool = False,
 ) -> dict[str, Any]:
@@ -314,18 +319,26 @@ def scan_checkpoints(
             reference_tracking=reference_tracking,
         )
         if behavior_gate:
+            behavior_runner = behavior_evaluator
+            if (
+                behavior_suite != "basic"
+                and behavior_evaluator is evaluate_omni_car_behaviors.evaluate_behaviors
+            ):
+                behavior_runner = evaluate_omni_car_robustness.evaluate_robustness
             behavior_args = argparse.Namespace(
                 load_run=load_run,
                 checkpoint=str(checkpoint),
                 num_envs=int(behavior_num_envs),
                 num_steps=int(behavior_num_steps),
+                directions=int(behavior_directions),
+                suite=behavior_suite if behavior_suite != "basic" else "broad",
                 seed=int(seed if behavior_seed is None else behavior_seed),
                 device=device,
                 json=True,
                 strict=True,
             )
             behavior_summary = _evaluate_checkpoint(
-                behavior_evaluator,
+                behavior_runner,
                 behavior_args,
                 verbose=verbose,
             )
@@ -359,7 +372,9 @@ def scan_checkpoints(
             "enabled": bool(behavior_gate),
             "num_envs": int(behavior_num_envs),
             "num_steps": int(behavior_num_steps),
+            "directions": int(behavior_directions),
             "seed": int(seed if behavior_seed is None else behavior_seed),
+            "suite": str(behavior_suite),
         },
         "best_by_score": best,
         "best_passing_reference_gate": min(gated, key=lambda row: float(row["selection_score"]))
@@ -406,6 +421,16 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--behavior-num-envs", type=int, default=16)
     parser.add_argument("--behavior-num-steps", type=int, default=96)
+    parser.add_argument("--behavior-directions", type=int, default=16)
+    parser.add_argument(
+        "--behavior-suite",
+        choices=("basic", "broad", "max_stick"),
+        default="basic",
+        help=(
+            "Behavior gate suite. basic uses evaluate_omni_car_behaviors; broad/max_stick "
+            "use evaluate_omni_car_robustness."
+        ),
+    )
     parser.add_argument(
         "--behavior-seed",
         type=int,
@@ -482,7 +507,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         behavior_gate=bool(args.behavior_gate),
         behavior_num_envs=int(args.behavior_num_envs),
         behavior_num_steps=int(args.behavior_num_steps),
+        behavior_directions=int(args.behavior_directions),
         behavior_seed=args.behavior_seed,
+        behavior_suite=str(args.behavior_suite),
         verbose=bool(args.verbose),
     )
     text = json.dumps(result, indent=2, sort_keys=True)

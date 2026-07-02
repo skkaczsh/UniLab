@@ -40,6 +40,29 @@ def test_directional_command_respects_axis_velocity_limits() -> None:
         assert abs(command[1]) <= module.MAX_Y_SPEED + 1e-6
 
 
+def test_max_stick_scenarios_cover_clear_blocked_and_side_walls() -> None:
+    module = _load_module()
+
+    scenarios = module.build_max_stick_scenarios(directions=8)
+    names = [scenario.name for scenario in scenarios]
+
+    assert sum(name.startswith("max_stick_clear_dir_") for name in names) == 8
+    assert sum(name.startswith("max_stick_front_blocked_dir_") for name in names) == 8
+    assert sum("_wall_dir_" in name for name in names) == 16
+    for scenario in scenarios:
+        assert abs(scenario.command[0]) <= module.MAX_X_SPEED + 1e-6
+        assert abs(scenario.command[1]) <= module.MAX_Y_SPEED + 1e-6
+
+
+def test_build_scenarios_selects_max_stick_suite() -> None:
+    module = _load_module()
+
+    scenarios = module.build_scenarios("max_stick", directions=4)
+
+    assert scenarios
+    assert all(scenario.name.startswith("max_stick_") for scenario in scenarios)
+
+
 def test_robustness_category_summary_counts_passes() -> None:
     module = _load_module()
 
@@ -71,3 +94,43 @@ def test_robustness_category_summary_counts_passes() -> None:
     assert summary["front_blocked"]["count"] == 1
     assert summary["front_blocked"]["passed"] == 0
     assert summary["front_blocked"]["collision_fraction_max"] == 0.1
+
+
+def test_robustness_category_summary_counts_max_stick_categories() -> None:
+    module = _load_module()
+
+    summary = module._summarize_categories(
+        [
+            {
+                "scenario": "max_stick_clear_dir_00",
+                "passed": True,
+                "projection_mean": 0.8,
+                "projection_ratio_mean": 0.4,
+                "planar_speed_mean": 0.9,
+                "collision_fraction": 0.0,
+                "off_axis_abs_mean": 0.2,
+            },
+            {
+                "scenario": "max_stick_front_blocked_dir_00_circle",
+                "passed": False,
+                "projection_mean": 0.4,
+                "projection_ratio_mean": 0.2,
+                "planar_speed_mean": 0.6,
+                "collision_fraction": 0.05,
+                "off_axis_abs_mean": 0.1,
+            },
+            {
+                "scenario": "max_stick_left_wall_dir_00",
+                "passed": True,
+                "projection_mean": 0.4,
+                "projection_ratio_mean": 0.2,
+                "planar_speed_mean": 0.6,
+                "collision_fraction": 0.01,
+                "off_axis_abs_mean": 0.1,
+            },
+        ]
+    )
+
+    assert summary["max_stick_clear"]["count"] == 1
+    assert summary["max_stick_front_blocked"]["passed"] == 0
+    assert summary["max_stick_side_wall"]["collision_fraction_max"] == 0.01

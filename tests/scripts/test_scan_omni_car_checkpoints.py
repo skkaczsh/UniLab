@@ -190,6 +190,8 @@ def test_scan_checkpoints_can_require_behavior_gate() -> None:
     def _fake_behavior_evaluator(args: Namespace) -> dict[str, object]:
         assert args.num_envs == 2
         assert args.num_steps == 3
+        assert args.directions == 16
+        assert args.suite == "broad"
         assert args.seed == 19
         assert args.strict is True
         return behaviors[str(args.checkpoint)]
@@ -217,12 +219,58 @@ def test_scan_checkpoints_can_require_behavior_gate() -> None:
     assert result["best_by_score"]["checkpoint"] == 100
     assert result["best_passing_reference_gate"] is None
     assert result["best_passing_all_gates"]["checkpoint"] == 200
+    assert result["behavior_gate"]["suite"] == "basic"
     assert result["evaluations"][0]["behavior_gate"]["passed"] is False
     assert result["evaluations"][1]["behavior_gate"]["passed"] is True
+    assert result["evaluations"][1]["behavior_gate"]["suite"] == "basic"
     scenario = result["evaluations"][1]["behavior_gate"]["scenarios"][0]
     assert scenario["reward_blocked_projection_mean"] == -1.0
     assert scenario["reward_blocked_speed_mean"] == -2.0
     assert scenario["reward_blocked_stop_mean"] == 3.0
+
+
+def test_scan_checkpoints_forwards_non_basic_behavior_suite() -> None:
+    module = _load_module()
+
+    def _fake_evaluator(args: Namespace) -> dict[str, object]:
+        return _summary(collision=0.01, tracking=0.20, jerk=0.10, ret=30.0)
+
+    def _fake_behavior_evaluator(args: Namespace) -> dict[str, object]:
+        assert args.suite == "max_stick"
+        assert args.directions == 8
+        return {
+            "suite": args.suite,
+            "strict_passed": True,
+            "category_summary": {"max_stick_clear": {"passed": 8, "count": 8}},
+            "scenarios": [{"scenario": "max_stick_clear_dir_00", "passed": True}],
+        }
+
+    result = module.scan_checkpoints(
+        load_run="/tmp/run",
+        checkpoints=[100],
+        num_envs=4,
+        num_steps=8,
+        seed=7,
+        device="cpu",
+        collision_weight=10.0,
+        tracking_weight=1.0,
+        jerk_weight=0.25,
+        reference_collision=None,
+        reference_tracking=None,
+        evaluator=_fake_evaluator,
+        behavior_gate=True,
+        behavior_num_envs=2,
+        behavior_num_steps=3,
+        behavior_directions=8,
+        behavior_suite="max_stick",
+        behavior_evaluator=_fake_behavior_evaluator,
+    )
+
+    behavior = result["evaluations"][0]["behavior_gate"]
+    assert result["behavior_gate"]["suite"] == "max_stick"
+    assert result["behavior_gate"]["directions"] == 8
+    assert behavior["suite"] == "max_stick"
+    assert behavior["category_summary"]["max_stick_clear"]["passed"] == 8
 
 
 def test_scan_checkpoints_suppresses_noisy_evaluator_output_by_default(capsys) -> None:

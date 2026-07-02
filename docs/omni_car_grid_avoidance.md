@@ -356,6 +356,47 @@ behavior gates with `16` envs and `128` steps. Evidence is stored in
 - behavior gate: strict pass across zero input, clear follow, yaw-only,
   front-blocked stop, and right-wall forward.
 
+After local Xbox-style testing, run the sustained full-stick stress gate before
+promoting the next checkpoint:
+
+```bash
+uv run scripts/evaluate_omni_car_robustness.py \
+  --load-run artifacts/omni_car/checkpoints/best.pt \
+  --suite max_stick \
+  --directions 8 \
+  --num-envs 4 \
+  --num-steps 96 \
+  --seed 73 \
+  --device mps \
+  --json
+```
+
+The v44 local result is stored in
+`artifacts/omni_car/v44_max_stick_local.json`. It shows that the policy follows
+clear sustained full-stick commands, but is not yet a final promotion target
+for aggressive manual control near obstacles:
+
+- clear full-stick: `8/8` scenarios pass, max collision `0.0`.
+- front-blocked full-stick: `4/8` pass, max collision `0.041666666666666664`.
+- side-wall full-stick: `10/16` pass, max collision `0.0`; failures are mostly
+  over-conservative stops or negative projection near the wall.
+
+For v45, scan candidates with:
+
+```bash
+uv run scripts/scan_omni_car_checkpoints.py \
+  --load-run logs/rsl_rl_ppo/OmniCarGridAvoidance/<run_dir> \
+  --checkpoints 500:2000:250 \
+  --num-envs 64 \
+  --num-steps 512 \
+  --behavior-gate \
+  --behavior-suite max_stick \
+  --behavior-directions 8 \
+  --behavior-num-envs 4 \
+  --behavior-num-steps 96 \
+  --output artifacts/omni_car/<run_name>_max_stick_scan.json
+```
+
 The previous promoted safety baseline was
 `artifacts/omni_car/checkpoints/silu_capacity_v42_long_dir19_stop.pt`. It was
 repaired from the v35d 16-direction pass through sparse 32-direction
