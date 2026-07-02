@@ -394,6 +394,16 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--scenario-target",
+        action="append",
+        default=None,
+        metavar="NAME=VX,VY,VYAW",
+        help=(
+            "Override an oracle target action after filtering. "
+            "Useful when a named scenario needs a slower or more conservative target."
+        ),
+    )
+    parser.add_argument(
         "--progress-interval",
         type=int,
         default=0,
@@ -492,10 +502,32 @@ def _scenario_weight_multipliers(raw: Sequence[str] | None) -> dict[str, float]:
     return multipliers
 
 
+def _scenario_target_overrides(raw: Sequence[str] | None) -> dict[str, tuple[float, float, float]]:
+    overrides: dict[str, tuple[float, float, float]] = {}
+    known = {scenario.name for scenario in ORACLE_SCENARIOS}
+    for item in raw or ():
+        if "=" not in item:
+            raise ValueError(f"scenario target must be NAME=VX,VY,VYAW, got {item!r}")
+        name, value = item.split("=", 1)
+        name = name.strip()
+        if name not in known:
+            raise ValueError(f"Unknown oracle scenario for target override: {name}")
+        parts = [part.strip() for part in value.split(",") if part.strip()]
+        if len(parts) != 3:
+            raise ValueError(f"scenario target must have three comma-separated values: {item!r}")
+        target = tuple(float(part) for part in parts)
+        limits = (MAX_X_SPEED, MAX_Y_SPEED, 2.0)
+        if any(abs(target[index]) > limits[index] + 1e-6 for index in range(3)):
+            raise ValueError(f"scenario target exceeds physical limits: {item!r}")
+        overrides[name] = target
+    return overrides
+
+
 def _selected_scenarios(
     names: Sequence[str] | None,
     groups: Sequence[str] | None = None,
     scenario_weight: Sequence[str] | None = None,
+    scenario_target: Sequence[str] | None = None,
 ) -> tuple[OracleScenario, ...]:
     selected_names = set(names or ())
     selected_names.update(_scenario_group_names(groups))
@@ -508,14 +540,22 @@ def _selected_scenarios(
             missing = sorted(selected_names - known)
             raise ValueError(f"Unknown oracle scenario(s): {missing}")
     multipliers = _scenario_weight_multipliers(scenario_weight)
-    if not multipliers:
-        return selected
+    target_overrides = _scenario_target_overrides(scenario_target)
     selected_lookup = {scenario.name for scenario in selected}
+    unused_targets = sorted(set(target_overrides) - selected_lookup)
+    if unused_targets:
+        raise ValueError(f"Scenario target overrides were not selected: {unused_targets}")
+    if not multipliers and not target_overrides:
+        return selected
     unused = sorted(set(multipliers) - selected_lookup)
     if unused:
         raise ValueError(f"Scenario weight multipliers were not selected: {unused}")
     return tuple(
-        replace(scenario, weight=scenario.weight * multipliers.get(scenario.name, 1.0))
+        replace(
+            scenario,
+            weight=scenario.weight * multipliers.get(scenario.name, 1.0),
+            target_action=target_overrides.get(scenario.name, scenario.target_action),
+        )
         for scenario in selected
     )
 
@@ -606,7 +646,12 @@ def train_wall_slide_bc(args: argparse.Namespace) -> dict[str, Any]:
     policy = runner.alg.get_policy()
     policy.train()
     optimizer = torch.optim.Adam(policy.parameters(), lr=float(args.learning_rate))
-    scenarios = _selected_scenarios(args.scenario, args.scenario_group, args.scenario_weight)
+    scenarios = _selected_scenarios(
+        args.scenario,
+        args.scenario_group,
+        args.scenario_weight,
+        getattr(args, "scenario_target", None),
+    )
     probabilities = _scenario_probabilities(scenarios)
     loss_history: list[float] = []
     scenario_counts = {scenario.name: 0 for scenario in scenarios}

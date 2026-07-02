@@ -98,6 +98,27 @@ def test_build_bc_command_can_forward_scenario_weights() -> None:
     assert "max_stick_front_blocked_dir_00_circle=2.0" in command
 
 
+def test_build_bc_command_can_forward_scenario_targets() -> None:
+    module = _load_module()
+
+    command = module.build_bc_command(
+        uv_bin="uv",
+        load_run="/tmp/init.pt",
+        output="/tmp/repair.pt",
+        num_envs=64,
+        iterations=1400,
+        rollout_steps=2,
+        rollout_actions="target",
+        learning_rate=5.0e-5,
+        seed=361,
+        scenarios=("max_stick_right_wall_dir_07",),
+        scenario_target=("max_stick_right_wall_dir_07=0.42,0.07,0.0",),
+    )
+
+    assert "--scenario-target" in command
+    assert "max_stick_right_wall_dir_07=0.42,0.07,0.0" in command
+
+
 def test_build_gate_command_uses_broad_json_gate() -> None:
     module = _load_module()
 

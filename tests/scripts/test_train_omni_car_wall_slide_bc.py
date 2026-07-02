@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import torch
 
 
@@ -140,6 +141,27 @@ def test_wall_slide_bc_can_weight_selected_repair_scenario() -> None:
 
     assert by_name["directional_left_wall_04"].weight == module.WALL_SLIDE_WEIGHT * 5.0
     assert by_name["front_blocked_stop"].weight == 12.0
+
+
+def test_wall_slide_bc_can_override_selected_target_action() -> None:
+    module = _load_module()
+
+    selected = module._selected_scenarios(
+        ["max_stick_right_wall_dir_07"],
+        scenario_target=["max_stick_right_wall_dir_07=0.42,0.07,0.0"],
+    )
+
+    assert selected[0].target_action == (0.42, 0.07, 0.0)
+
+
+def test_wall_slide_bc_rejects_unselected_target_override() -> None:
+    module = _load_module()
+
+    with pytest.raises(ValueError, match="not selected"):
+        module._selected_scenarios(
+            ["max_stick_right_wall_dir_07"],
+            scenario_target=["max_stick_front_blocked_dir_00_circle=0.0,0.0,0.0"],
+        )
 
 
 def test_behavior_correction_rolls_out_policy_actions_by_default() -> None:
