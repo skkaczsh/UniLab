@@ -786,6 +786,45 @@ broad-front curriculum with stricter stop targets until repeated rollout risk
 is gone, and a side-wall candidate scorer that penalizes lateral clearance loss
 more aggressively for diagonal directions `01/03/05/07`.
 
+The v66-v68 follow-up did that split and found one concrete bug in the branch
+supervision path. Evidence is stored in:
+
+- `artifacts/omni_car/maxstick_v66_aggressive_teacher_gate_dir8.json`
+- `artifacts/omni_car/maxstick_v66_aggressive_teacher_broad_gate.json`
+- `artifacts/omni_car/maxstick_v66_aggressive_teacher_branch_diag.json`
+- `artifacts/omni_car/maxstick_v67_front_gate_fix_gate_dir8.json`
+- `artifacts/omni_car/maxstick_v67_front_gate_fix_broad_gate.json`
+- `artifacts/omni_car/maxstick_v67_front_gate_fix_branch_diag.json`
+- `artifacts/omni_car/maxstick_v68_gate_only_repair_gate_dir8.json`
+- `artifacts/omni_car/maxstick_v68_gate_only_repair_broad_gate.json`
+- `artifacts/omni_car/maxstick_v68_gate_only_repair_branch_diag.json`
+
+Results:
+
+- v66 added `--teacher-score-profile aggressive_safety`. This preserved
+  max-stick at `28/32` and improved broad to `74/83`; broad front-blocked rose
+  from v65 `5/16` to `7/16`. The remaining max-stick failures were still
+  side-wall collisions with adequate command projection, so wall repair must
+  preserve projection while increasing lateral clearance.
+- v67 fixed `_branch_role()` so `directional_front_stop_*` and
+  `directional32_front_stop_*` receive stop-branch and gate supervision. Before
+  this fix, branch diagnostics showed several directional front-stop examples
+  still routing to the escape head with gate near `1.0`. v67 improved broad to
+  `76/83` and broad front-blocked to `10/16`, but max-stick fell to `27/32`
+  because the front-gate correction started to disturb the side-wall tradeoff.
+- v68 froze the shared body and trained only `stop`, `escape`, and `gate` heads
+  with strong gate supervision. It improved broad to `78/83` and broad
+  front-blocked to `14/16`, proving the gate bug was real, but max-stick fell
+  to `21/32` and side-wall broad fell to `13/16`. Do not promote v68.
+
+The next useful run should keep the v67/v68 directional-front gate fix, but
+avoid strong gate-only training across all wall cases. Use a two-stage repair:
+first train directional front gates only until the worst broad front directions
+fall below `max_projection=0.20`, then run a low-LR side-wall rehearsal from the
+best intermediate checkpoint with wall targets constrained to keep
+`projection_mean >= 0.20` while reducing collision. Treat v67/v68 as diagnostic
+checkpoints, not deployment candidates.
+
 For the next run, scan candidates with:
 
 ```bash
